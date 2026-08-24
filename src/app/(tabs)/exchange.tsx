@@ -1,12 +1,15 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   ImageBackground,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -16,16 +19,36 @@ import { useAppTheme } from '@/theme/provider';
 
 const EXCHANGE_RATE = 463.5;
 
-const KL_DAY = require('../../../assets/images/kl-day.png');
+const KL_EXCHANGE = require('../../../assets/images/kl-exchange-premium.png');
 
 export default function ExchangeScreen() {
   const { theme } = useAppTheme();
+  const { height } = useWindowDimensions();
 
   const [amount, setAmount] = useState('100');
   const [reverse, setReverse] = useState(false);
 
-  const [calculatedAmount, setCalculatedAmount] =
-    useState(46350);
+  /*
+   * ============================================================
+   * HERO SIZE
+   * ============================================================
+   *
+   * The hero is intentionally kept compact.
+   * This prevents the KL image from being stretched vertically.
+   */
+
+  const heroHeight =
+    height <= 700
+      ? 320
+      : height <= 800
+        ? 340
+        : 360;
+
+  /*
+   * ============================================================
+   * CURRENCY
+   * ============================================================
+   */
 
   const fromCurrency = reverse ? 'MMK' : 'MYR';
   const toCurrency = reverse ? 'MYR' : 'MMK';
@@ -41,945 +64,1552 @@ export default function ExchangeScreen() {
     ? 'Malaysian Ringgit'
     : 'Myanmar Kyat';
 
+  /*
+   * ============================================================
+   * CALCULATION
+   * ============================================================
+   */
+
+  const numericAmount =
+    Number(amount.replace(/,/g, '')) || 0;
+
+  const calculatedAmount = useMemo(() => {
+    if (reverse) {
+      return numericAmount / EXCHANGE_RATE;
+    }
+
+    return numericAmount * EXCHANGE_RATE;
+  }, [numericAmount, reverse]);
+
+  const rateValue = reverse
+    ? 1 / EXCHANGE_RATE
+    : EXCHANGE_RATE;
+
+  /*
+   * ============================================================
+   * FORMAT NUMBER
+   * ============================================================
+   */
+
   const formatNumber = (value: number) => {
+    if (!Number.isFinite(value)) {
+      return '0.00';
+    }
+
     return value.toLocaleString('en-US', {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     });
   };
 
-  /* ===========================================================
-     CALCULATE
-  =========================================================== */
+  /*
+   * ============================================================
+   * INPUT
+   * ============================================================
+   */
 
-  const calculateAmount = () => {
-    const numericAmount = Number(amount) || 0;
+  const handleAmountChange = (value: string) => {
+    const cleaned = value
+      .replace(/,/g, '')
+      .replace(/[^0-9.]/g, '');
 
-    const result = reverse
-      ? numericAmount / EXCHANGE_RATE
-      : numericAmount * EXCHANGE_RATE;
+    const parts = cleaned.split('.');
 
-    setCalculatedAmount(result);
+    if (parts.length > 2) {
+      return;
+    }
+
+    if (parts[1]?.length > 2) {
+      return;
+    }
+
+    setAmount(cleaned);
   };
 
-  /* ===========================================================
-     SWAP
-  =========================================================== */
+  /*
+   * ============================================================
+   * ACTIONS
+   * ============================================================
+   */
 
   const swapCurrencies = () => {
     setReverse((current) => !current);
-
-    const numericAmount = Number(amount) || 0;
-
-    const result = !reverse
-      ? numericAmount / EXCHANGE_RATE
-      : numericAmount * EXCHANGE_RATE;
-
-    setCalculatedAmount(result);
   };
+
+  const clearAmount = () => {
+    setAmount('');
+  };
+
+  const resetAmount = () => {
+    setAmount('100');
+  };
+
+  const styles = createStyles(theme.colors);
 
   return (
     <SafeAreaView
-      style={[
-        styles.safeArea,
-        {
-          backgroundColor: theme.colors.background,
-        },
-      ]}
+      style={styles.safeArea}
       edges={['top']}
     >
-      <StatusBar style={theme.statusBarStyle} />
+      <StatusBar
+        style={theme.statusBarStyle}
+      />
 
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
+      <KeyboardAvoidingView
+        style={styles.keyboard}
+        behavior={
+          Platform.OS === 'ios'
+            ? 'padding'
+            : undefined
+        }
       >
-        {/* =====================================================
-            HERO IMAGE
-        ===================================================== */}
-
-        <ImageBackground
-          source={KL_DAY}
-          style={styles.hero}
-          imageStyle={styles.heroImage}
-          resizeMode="cover"
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={
+            styles.scrollContent
+          }
         >
-          {/* NATURAL PHOTO OVERLAY */}
+          {/* ==================================================
+              PREMIUM KL HERO
+          ================================================== */}
 
-          <View
+          <ImageBackground
+            source={KL_EXCHANGE}
             style={[
-              styles.heroOverlay,
+              styles.hero,
               {
-                backgroundColor: theme.isDark
-                  ? 'rgba(0,0,0,0.50)'
-                  : 'rgba(0,0,0,0.20)',
+                height: heroHeight,
               },
             ]}
+            imageStyle={styles.heroImage}
+            resizeMode="cover"
           >
-            {/* =================================================
-                HEADER
-            ================================================= */}
+            {/* IMAGE VISIBILITY OVERLAY */}
 
-            <View style={styles.heroTop}>
-              <View>
-                <Text style={styles.heroTitle}>
-                  Exchange Rate
-                </Text>
+            <View
+              style={[
+                styles.heroOverlay,
+                {
+                  backgroundColor:
+                    theme.isDark
+                      ? 'rgba(5,12,22,0.42)'
+                      : 'rgba(5,16,30,0.16)',
+                },
+              ]}
+            >
+              {/* ==================================================
+                  HEADER
+              ================================================== */}
 
-                <View style={styles.updatedRow}>
-                  <View style={styles.liveDot} />
+              <View style={styles.header}>
+                <View
+                  style={styles.headerLeft}
+                >
+                  <View
+                    style={styles.appIcon}
+                  >
+                    <Ionicons
+                      name="swap-horizontal"
+                      size={22}
+                      color="#FFFFFF"
+                    />
+                  </View>
 
-                  <Text style={styles.updatedText}>
-                    Updated 10:30 AM
+                  <View
+                    style={styles.headerText}
+                  >
+                    <Text
+                      style={styles.heroTitle}
+                      allowFontScaling={false}
+                    >
+                      Exchange Rate
+                    </Text>
+
+                    <View
+                      style={
+                        styles.updatedRow
+                      }
+                    >
+                      <View
+                        style={styles.liveDot}
+                      />
+
+                      <Text
+                        style={
+                          styles.updatedText
+                        }
+                        allowFontScaling={
+                          false
+                        }
+                      >
+                        Updated 10:30 AM
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+
+                <Pressable
+                  onPress={resetAmount}
+                  hitSlop={8}
+                  style={({ pressed }) => [
+                    styles.refreshButton,
+                    pressed &&
+                      styles.pressed,
+                  ]}
+                >
+                  <Ionicons
+                    name="refresh"
+                    size={18}
+                    color="#FFFFFF"
+                  />
+                </Pressable>
+              </View>
+
+              {/* ==================================================
+                  CURRENCY PAIR
+              ================================================== */}
+
+              <View
+                style={
+                  styles.currencyPair
+                }
+              >
+                <View
+                  style={[
+                    styles.currencySide,
+                    styles.leftSide,
+                  ]}
+                >
+                  <Text
+                    style={styles.flag}
+                  >
+                    {fromFlag}
+                  </Text>
+
+                  <Text
+                    style={styles.currencyCode}
+                    allowFontScaling={
+                      false
+                    }
+                  >
+                    {fromCurrency}
+                  </Text>
+
+                  <Text
+                    style={styles.currencyName}
+                    allowFontScaling={
+                      false
+                    }
+                  >
+                    {fromName}
+                  </Text>
+                </View>
+
+                <Pressable
+                  onPress={swapCurrencies}
+                  hitSlop={8}
+                  style={({ pressed }) => [
+                    styles.heroSwap,
+                    pressed &&
+                      styles.pressed,
+                  ]}
+                >
+                  <Ionicons
+                    name="swap-horizontal"
+                    size={24}
+                    color={
+                      theme.colors.primary
+                    }
+                  />
+                </Pressable>
+
+                <View
+                  style={[
+                    styles.currencySide,
+                    styles.rightSide,
+                  ]}
+                >
+                  <Text
+                    style={styles.flag}
+                  >
+                    {toFlag}
+                  </Text>
+
+                  <Text
+                    style={styles.currencyCode}
+                    allowFontScaling={
+                      false
+                    }
+                  >
+                    {toCurrency}
+                  </Text>
+
+                  <Text
+                    style={styles.currencyName}
+                    allowFontScaling={
+                      false
+                    }
+                  >
+                    {toName}
                   </Text>
                 </View>
               </View>
 
-              <Pressable
-                onPress={calculateAmount}
-                style={({ pressed }) => [
-                  styles.refreshButton,
-                  pressed && styles.pressed,
+              {/* ==================================================
+                  MAIN RATE
+              ================================================== */}
+
+              <View
+                style={styles.rateArea}
+              >
+                <Text
+                  style={styles.rateLabel}
+                  allowFontScaling={false}
+                >
+                  1 {fromCurrency}
+                </Text>
+
+                <View
+                  style={styles.rateRow}
+                >
+                  <Text
+                    style={styles.rateNumber}
+                    allowFontScaling={false}
+                    adjustsFontSizeToFit
+                    numberOfLines={1}
+                  >
+                    {formatNumber(rateValue)}
+                  </Text>
+
+                  <Text
+                    style={styles.rateCurrency}
+                    allowFontScaling={false}
+                  >
+                    {toCurrency}
+                  </Text>
+                </View>
+              </View>
+
+              {/* ==================================================
+                  CHANGE BADGE
+              ================================================== */}
+
+              <View
+                style={styles.changeBadge}
+              >
+                <Ionicons
+                  name="trending-up"
+                  size={13}
+                  color="#078A50"
+                />
+
+                <Text
+                  style={styles.changeText}
+                  allowFontScaling={false}
+                >
+                  +0.50 (0.11%) Today
+                </Text>
+              </View>
+            </View>
+          </ImageBackground>
+
+          {/* ==================================================
+              FLOATING CONVERTER
+          ================================================== */}
+
+          <View
+            style={[
+              styles.converter,
+              {
+                backgroundColor:
+                  theme.colors.surface,
+                borderColor:
+                  theme.colors.border,
+              },
+            ]}
+          >
+            {/* ==================================================
+                TITLE
+            ================================================== */}
+
+            <View
+              style={
+                styles.converterHeader
+              }
+            >
+              <View
+                style={
+                  styles.titleArea
+                }
+              >
+                <Text
+                  style={[
+                    styles.converterTitle,
+                    {
+                      color:
+                        theme.colors.text,
+                    },
+                  ]}
+                  allowFontScaling={false}
+                >
+                  Currency Converter
+                </Text>
+
+                <Text
+                  style={[
+                    styles.converterSubtitle,
+                    {
+                      color:
+                        theme.colors.textMuted,
+                    },
+                  ]}
+                  allowFontScaling={false}
+                >
+                  Calculate easily and get
+                  instant result
+                </Text>
+              </View>
+
+              <View
+                style={[
+                  styles.calculatorIcon,
+                  {
+                    backgroundColor:
+                      theme.colors.primarySoft,
+                  },
                 ]}
               >
                 <Ionicons
-                  name="refresh"
+                  name="calculator-outline"
                   size={20}
+                  color={
+                    theme.colors.primary
+                  }
+                />
+              </View>
+            </View>
+
+            {/* ==================================================
+                YOU SEND
+            ================================================== */}
+
+            <View
+              style={[
+                styles.amountCard,
+                {
+                  backgroundColor:
+                    theme.colors.elevated,
+                  borderColor:
+                    theme.colors.border,
+                },
+              ]}
+            >
+              <View
+                style={styles.labelRow}
+              >
+                <Text
+                  style={[
+                    styles.label,
+                    {
+                      color:
+                        theme.colors.primary,
+                    },
+                  ]}
+                  allowFontScaling={false}
+                >
+                  YOU SEND
+                </Text>
+
+                {amount.length > 0 && (
+                  <Pressable
+                    onPress={clearAmount}
+                    hitSlop={8}
+                  >
+                    <Ionicons
+                      name="close-circle"
+                      size={17}
+                      color={
+                        theme.colors.textMuted
+                      }
+                    />
+                  </Pressable>
+                )}
+              </View>
+
+              <View
+                style={styles.amountRow}
+              >
+                <View
+                  style={
+                    styles.currencyInfo
+                  }
+                >
+                  <Text
+                    style={styles.inputFlag}
+                  >
+                    {fromFlag}
+                  </Text>
+
+                  <View>
+                    <Text
+                      style={[
+                        styles.inputCode,
+                        {
+                          color:
+                            theme.colors.text,
+                        },
+                      ]}
+                      allowFontScaling={
+                        false
+                      }
+                    >
+                      {fromCurrency}
+                    </Text>
+
+                    <Text
+                      style={[
+                        styles.inputName,
+                        {
+                          color:
+                            theme.colors.textMuted,
+                        },
+                      ]}
+                      allowFontScaling={
+                        false
+                      }
+                    >
+                      {fromName}
+                    </Text>
+                  </View>
+                </View>
+
+                <TextInput
+                  value={amount}
+                  onChangeText={
+                    handleAmountChange
+                  }
+                  keyboardType="decimal-pad"
+                  selectTextOnFocus
+                  returnKeyType="done"
+                  placeholder="0.00"
+                  placeholderTextColor={
+                    theme.colors.textMuted
+                  }
+                  style={[
+                    styles.amountInput,
+                    {
+                      color:
+                        theme.colors.text,
+                    },
+                  ]}
+                  allowFontScaling={false}
+                />
+              </View>
+            </View>
+
+            {/* ==================================================
+                SWAP
+            ================================================== */}
+
+            <View
+              style={styles.swapArea}
+            >
+              <View
+                style={[
+                  styles.swapLine,
+                  {
+                    backgroundColor:
+                      theme.colors.border,
+                  },
+                ]}
+              />
+
+              <Pressable
+                onPress={swapCurrencies}
+                hitSlop={8}
+                style={({ pressed }) => [
+                  styles.centerSwap,
+                  {
+                    backgroundColor:
+                      theme.colors.primary,
+                    borderColor:
+                      theme.colors.surface,
+                  },
+                  pressed &&
+                    styles.pressed,
+                ]}
+              >
+                <Ionicons
+                  name="swap-vertical"
+                  size={21}
                   color="#FFFFFF"
                 />
               </Pressable>
             </View>
 
-            {/* =================================================
-                CURRENCY PAIR
-            ================================================= */}
-
-            <View style={styles.currencyPair}>
-              {/* FROM */}
-
-              <View style={styles.currencySide}>
-                <Text style={styles.flag}>
-                  {fromFlag}
-                </Text>
-
-                <Text style={styles.currencyCode}>
-                  {fromCurrency}
-                </Text>
-
-                <Text style={styles.currencyName}>
-                  {fromName}
-                </Text>
-              </View>
-
-              {/* SWAP */}
-
-              <Pressable
-                onPress={swapCurrencies}
-                style={({ pressed }) => [
-                  styles.swapButton,
-                  pressed && styles.pressed,
-                ]}
-              >
-                <Ionicons
-                  name="swap-horizontal"
-                  size={24}
-                  color={theme.colors.primary}
-                />
-              </Pressable>
-
-              {/* TO */}
-
-              <View
-                style={[
-                  styles.currencySide,
-                  styles.currencySideRight,
-                ]}
-              >
-                <Text style={styles.flag}>
-                  {toFlag}
-                </Text>
-
-                <Text style={styles.currencyCode}>
-                  {toCurrency}
-                </Text>
-
-                <Text style={styles.currencyName}>
-                  {toName}
-                </Text>
-              </View>
-            </View>
-
-            {/* =================================================
-                MAIN RATE
-            ================================================= */}
-
-            <View style={styles.rateContainer}>
-              <Text style={styles.rateOne}>
-                1 {fromCurrency}
-              </Text>
-
-              <Text style={styles.rateEqual}>
-                =
-              </Text>
-
-              <View style={styles.rateNumberRow}>
-                <Text style={styles.rateNumber}>
-                  {reverse
-                    ? formatNumber(
-                        1 / EXCHANGE_RATE
-                      )
-                    : formatNumber(
-                        EXCHANGE_RATE
-                      )}
-                </Text>
-
-                <Text style={styles.rateCurrency}>
-                  {toCurrency}
-                </Text>
-              </View>
-            </View>
-
-            {/* =================================================
-                TODAY CHANGE
-            ================================================= */}
-
-            <View style={styles.changeBadge}>
-              <Ionicons
-                name="trending-up"
-                size={15}
-                color="#078A50"
-              />
-
-              <Text style={styles.changeText}>
-                +0.50 (0.11%) Today
-              </Text>
-            </View>
-          </View>
-        </ImageBackground>
-
-        {/* =====================================================
-            CURRENCY CONVERTER
-        ===================================================== */}
-
-        <View
-          style={[
-            styles.converterSection,
-            {
-              backgroundColor: theme.colors.surface,
-              borderColor: theme.colors.border,
-            },
-          ]}
-        >
-          {/* HEADER */}
-
-          <View style={styles.converterHeader}>
-            <View>
-              <Text
-                style={[
-                  styles.converterTitle,
-                  {
-                    color: theme.colors.text,
-                  },
-                ]}
-              >
-                Currency Converter
-              </Text>
-
-              <Text
-                style={[
-                  styles.converterSubtitle,
-                  {
-                    color: theme.colors.textMuted,
-                  },
-                ]}
-              >
-                Enter an amount to calculate
-              </Text>
-            </View>
+            {/* ==================================================
+                YOU RECEIVE
+            ================================================== */}
 
             <View
               style={[
-                styles.calculatorIcon,
+                styles.amountCard,
                 {
                   backgroundColor:
-                    theme.colors.primarySoft,
+                    theme.colors.elevated,
+                  borderColor:
+                    theme.colors.border,
                 },
               ]}
             >
-              <Ionicons
-                name="calculator-outline"
-                size={21}
-                color={theme.colors.primary}
-              />
-            </View>
-          </View>
-
-          {/* =================================================
-              FROM INPUT
-          ================================================= */}
-
-          <View
-            style={[
-              styles.inputCard,
-              {
-                backgroundColor:
-                  theme.colors.elevated,
-                borderColor:
-                  theme.colors.border,
-              },
-            ]}
-          >
-            <View style={styles.inputLeft}>
-              <Text style={styles.inputFlag}>
-                {fromFlag}
-              </Text>
-
-              <View>
+              <View
+                style={styles.labelRow}
+              >
                 <Text
                   style={[
-                    styles.inputCurrency,
-                    {
-                      color: theme.colors.text,
-                    },
-                  ]}
-                >
-                  {fromCurrency}
-                </Text>
-
-                <Text
-                  style={[
-                    styles.inputCurrencyName,
+                    styles.label,
                     {
                       color:
-                        theme.colors.textMuted,
+                        theme.colors.primary,
                     },
                   ]}
+                  allowFontScaling={false}
                 >
-                  {fromName}
+                  YOU RECEIVE
+                </Text>
+              </View>
+
+              <View
+                style={styles.amountRow}
+              >
+                <View
+                  style={
+                    styles.currencyInfo
+                  }
+                >
+                  <Text
+                    style={styles.inputFlag}
+                  >
+                    {toFlag}
+                  </Text>
+
+                  <View>
+                    <Text
+                      style={[
+                        styles.inputCode,
+                        {
+                          color:
+                            theme.colors.text,
+                        },
+                      ]}
+                      allowFontScaling={
+                        false
+                      }
+                    >
+                      {toCurrency}
+                    </Text>
+
+                    <Text
+                      style={[
+                        styles.inputName,
+                        {
+                          color:
+                            theme.colors.textMuted,
+                        },
+                      ]}
+                      allowFontScaling={
+                        false
+                      }
+                    >
+                      {toName}
+                    </Text>
+                  </View>
+                </View>
+
+                <Text
+                  style={[
+                    styles.resultAmount,
+                    {
+                      color:
+                        theme.colors.primary,
+                    },
+                  ]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  allowFontScaling={false}
+                >
+                  {formatNumber(
+                    calculatedAmount,
+                  )}
                 </Text>
               </View>
             </View>
 
-            <TextInput
-              value={amount}
-              onChangeText={setAmount}
-              keyboardType="decimal-pad"
-              selectTextOnFocus
-              style={[
-                styles.amountInput,
-                {
-                  color: theme.colors.text,
-                },
-              ]}
-              placeholder="0.00"
-              placeholderTextColor={
-                theme.colors.textMuted
-              }
-            />
-          </View>
+            {/* ==================================================
+                RATE INFORMATION
+            ================================================== */}
 
-          {/* =================================================
-              MIDDLE SWAP
-          ================================================= */}
+            <View
+              style={styles.rateInfo}
+            >
+              <Ionicons
+                name="information-circle-outline"
+                size={14}
+                color={
+                  theme.colors.primary
+                }
+              />
 
-          <View style={styles.middleSwapContainer}>
+              <Text
+                style={[
+                  styles.rateInfoText,
+                  {
+                    color:
+                      theme.colors.textMuted,
+                  },
+                ]}
+                allowFontScaling={false}
+              >
+                1 {fromCurrency} ={' '}
+                {formatNumber(rateValue)}{' '}
+                {toCurrency}
+              </Text>
+            </View>
+
+            {/* ==================================================
+                CALCULATE BUTTON
+            ================================================== */}
+
             <Pressable
-              onPress={swapCurrencies}
+              onPress={() => {}}
               style={({ pressed }) => [
-                styles.middleSwap,
+                styles.calculateButton,
                 {
                   backgroundColor:
                     theme.colors.primary,
                 },
-                pressed && styles.pressed,
+                pressed &&
+                  styles.pressed,
               ]}
             >
               <Ionicons
-                name="swap-vertical"
-                size={21}
+                name="calculator"
+                size={17}
                 color="#FFFFFF"
               />
-            </Pressable>
-          </View>
 
-          {/* =================================================
-              RESULT
-          ================================================= */}
-
-          <View
-            style={[
-              styles.inputCard,
-              {
-                backgroundColor:
-                  theme.colors.elevated,
-                borderColor:
-                  theme.colors.border,
-              },
-            ]}
-          >
-            <View style={styles.inputLeft}>
-              <Text style={styles.inputFlag}>
-                {toFlag}
+              <Text
+                style={styles.calculateText}
+                allowFontScaling={false}
+              >
+                Calculate Amount
               </Text>
+            </Pressable>
 
-              <View>
+            {/* ==================================================
+                SECURE & RELIABLE
+            ================================================== */}
+
+            <View
+              style={[
+                styles.trustCard,
+                {
+                  backgroundColor:
+                    theme.colors.primarySoft,
+                  borderColor:
+                    theme.colors.border,
+                },
+              ]}
+            >
+              <View
+                style={[
+                  styles.trustIcon,
+                  {
+                    backgroundColor:
+                      theme.colors.surface,
+                  },
+                ]}
+              >
+                <Ionicons
+                  name="shield-checkmark-outline"
+                  size={20}
+                  color={
+                    theme.colors.primary
+                  }
+                />
+              </View>
+
+              <View
+                style={
+                  styles.trustContent
+                }
+              >
                 <Text
                   style={[
-                    styles.inputCurrency,
+                    styles.trustTitle,
                     {
-                      color: theme.colors.text,
+                      color:
+                        theme.colors.text,
                     },
                   ]}
+                  allowFontScaling={false}
                 >
-                  {toCurrency}
+                  Secure & Reliable
                 </Text>
 
                 <Text
                   style={[
-                    styles.inputCurrencyName,
+                    styles.trustSubtitle,
                     {
                       color:
                         theme.colors.textMuted,
                     },
                   ]}
+                  allowFontScaling={false}
                 >
-                  {toName}
+                  Exchange rates are updated
+                  in real time
                 </Text>
               </View>
+
+              <Ionicons
+                name="chevron-forward"
+                size={17}
+                color={
+                  theme.colors.primary
+                }
+              />
             </View>
-
-            <Text
-              style={[
-                styles.convertedAmount,
-                {
-                  color: theme.colors.primary,
-                },
-              ]}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-            >
-              {formatNumber(calculatedAmount)}
-            </Text>
           </View>
 
-          {/* =================================================
-              CALCULATE BUTTON
-          ================================================= */}
-
-          <Pressable
-            onPress={calculateAmount}
-            style={({ pressed }) => [
-              styles.calculateButton,
-              {
-                backgroundColor:
-                  theme.colors.primary,
-              },
-              pressed && styles.pressed,
-            ]}
-          >
-            <Ionicons
-              name="calculator"
-              size={18}
-              color="#FFFFFF"
-            />
-
-            <Text style={styles.calculateText}>
-              Calculate Amount
-            </Text>
-          </Pressable>
-
-          {/* =================================================
-              RATE INFORMATION
-          ================================================= */}
-
-          <View style={styles.rateInfo}>
-            <Text
-              style={[
-                styles.rateInfoText,
-                {
-                  color:
-                    theme.colors.textMuted,
-                },
-              ]}
-            >
-              1 {fromCurrency} ={' '}
-              {reverse
-                ? formatNumber(
-                    1 / EXCHANGE_RATE
-                  )
-                : formatNumber(
-                    EXCHANGE_RATE
-                  )}{' '}
-              {toCurrency}
-            </Text>
-          </View>
-        </View>
-
-        <View style={styles.bottomSpace} />
-      </ScrollView>
+          <View
+            style={styles.bottomSpace}
+          />
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
-/* =============================================================
+/* ==============================================================
    STYLES
-============================================================= */
+============================================================== */
 
-const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-  },
-
-  scrollContent: {
-    paddingBottom: 25,
-  },
-
-  /* =========================================================
-     HERO
-  ========================================================= */
-
-  hero: {
-    minHeight: 405,
-    overflow: 'hidden',
-    borderBottomLeftRadius: 34,
-    borderBottomRightRadius: 34,
-  },
-
-  heroImage: {
-    borderBottomLeftRadius: 34,
-    borderBottomRightRadius: 34,
-  },
-
-  heroOverlay: {
-    flex: 1,
-    minHeight: 405,
-
-    paddingHorizontal: 20,
-    paddingTop: 17,
-    paddingBottom: 28,
-  },
-
-  /* =========================================================
-     HEADER
-  ========================================================= */
-
-  heroTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-
-  heroTitle: {
-    color: '#FFFFFF',
-    fontSize: 30,
-    fontWeight: '800',
-    letterSpacing: -0.8,
-
-    textShadowColor:
-      'rgba(0,0,0,0.25)',
-    textShadowOffset: {
-      width: 0,
-      height: 2,
+const createStyles = (colors: {
+  background: string;
+  surface: string;
+  elevated: string;
+  border: string;
+  text: string;
+  textMuted: string;
+  primary: string;
+  primarySoft: string;
+}) =>
+  StyleSheet.create({
+    safeArea: {
+      flex: 1,
+      backgroundColor:
+        colors.background,
     },
-    textShadowRadius: 5,
-  },
 
-  updatedRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 6,
-  },
+    keyboard: {
+      flex: 1,
+    },
 
-  liveDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
+    scrollContent: {
+      paddingBottom: 20,
+    },
 
-    backgroundColor: '#66F2A2',
+    /* ==========================================================
+       HERO
+    ========================================================== */
 
-    marginRight: 7,
-  },
+    hero: {
+      width: '100%',
+      overflow: 'hidden',
 
-  updatedText: {
-    color: 'rgba(255,255,255,0.92)',
-    fontSize: 12,
-    fontWeight: '500',
-  },
+      borderBottomLeftRadius: 34,
+      borderBottomRightRadius: 34,
+    },
 
-  refreshButton: {
-    width: 43,
-    height: 43,
-    borderRadius: 22,
+    heroImage: {
+      borderBottomLeftRadius: 34,
+      borderBottomRightRadius: 34,
+    },
 
-    backgroundColor:
-      'rgba(255,255,255,0.20)',
+    heroOverlay: {
+      flex: 1,
 
-    alignItems: 'center',
-    justifyContent: 'center',
+      paddingHorizontal: 19,
+      paddingTop: 13,
+      paddingBottom: 16,
+    },
 
-    borderWidth: 1,
-    borderColor:
-      'rgba(255,255,255,0.25)',
-  },
+    /* ==========================================================
+       HEADER
+    ========================================================== */
 
-  /* =========================================================
-     CURRENCY PAIR
-  ========================================================= */
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent:
+        'space-between',
+    },
 
-  currencyPair: {
-    marginTop: 29,
+    headerLeft: {
+      flex: 1,
 
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
 
-  currencySide: {
-    flex: 1,
-    alignItems: 'flex-start',
-  },
+    appIcon: {
+      width: 43,
+      height: 43,
 
-  currencySideRight: {
-    alignItems: 'flex-end',
-  },
+      borderRadius: 22,
 
-  flag: {
-    fontSize: 33,
-    marginBottom: 5,
-  },
+      backgroundColor: '#1478F2',
 
-  currencyCode: {
-    color: '#FFFFFF',
-    fontSize: 21,
-    fontWeight: '800',
+      alignItems: 'center',
+      justifyContent: 'center',
 
-    textShadowColor:
-      'rgba(0,0,0,0.25)',
-    textShadowOffset: {
-      width: 0,
+      marginRight: 9,
+
+      shadowColor: '#000000',
+      shadowOffset: {
+        width: 0,
+        height: 4,
+      },
+      shadowOpacity: 0.22,
+      shadowRadius: 8,
+
+      elevation: 6,
+    },
+
+    headerText: {
+      flex: 1,
+    },
+
+    heroTitle: {
+      color: '#FFFFFF',
+
+      fontSize: 23,
+      lineHeight: 28,
+
+      fontWeight: '900',
+
+      letterSpacing: -0.6,
+
+      textShadowColor:
+        'rgba(0,0,0,0.48)',
+
+      textShadowOffset: {
+        width: 0,
+        height: 2,
+      },
+
+      textShadowRadius: 5,
+    },
+
+    updatedRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+
+      marginTop: 1,
+    },
+
+    liveDot: {
+      width: 6,
+      height: 6,
+
+      borderRadius: 3,
+
+      backgroundColor:
+        '#57F39A',
+
+      marginRight: 5,
+    },
+
+    updatedText: {
+      color:
+        'rgba(255,255,255,0.92)',
+
+      fontSize: 9,
+      lineHeight: 12,
+
+      fontWeight: '500',
+
+      textShadowColor:
+        'rgba(0,0,0,0.42)',
+
+      textShadowOffset: {
+        width: 0,
+        height: 1,
+      },
+
+      textShadowRadius: 3,
+    },
+
+    refreshButton: {
+      width: 39,
+      height: 39,
+
+      borderRadius: 20,
+
+      backgroundColor:
+        'rgba(7,24,42,0.43)',
+
+      borderWidth: 1,
+
+      borderColor:
+        'rgba(255,255,255,0.28)',
+
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+
+    /* ==========================================================
+       CURRENCY PAIR
+    ========================================================== */
+
+    currencyPair: {
+      flexDirection: 'row',
+      alignItems: 'center',
+
+      marginTop: 18,
+    },
+
+    currencySide: {
+      flex: 1,
+    },
+
+    leftSide: {
+      alignItems: 'flex-start',
+    },
+
+    rightSide: {
+      alignItems: 'flex-end',
+    },
+
+    flag: {
+      fontSize: 25,
+      marginBottom: 2,
+    },
+
+    currencyCode: {
+      color: '#FFFFFF',
+
+      fontSize: 18,
+      lineHeight: 22,
+
+      fontWeight: '900',
+
+      textShadowColor:
+        'rgba(0,0,0,0.45)',
+
+      textShadowOffset: {
+        width: 0,
+        height: 1,
+      },
+
+      textShadowRadius: 4,
+    },
+
+    currencyName: {
+      color:
+        'rgba(255,255,255,0.84)',
+
+      fontSize: 8,
+      lineHeight: 11,
+
+      marginTop: 1,
+
+      textShadowColor:
+        'rgba(0,0,0,0.40)',
+
+      textShadowOffset: {
+        width: 0,
+        height: 1,
+      },
+
+      textShadowRadius: 3,
+    },
+
+    heroSwap: {
+      width: 47,
+      height: 47,
+
+      borderRadius: 24,
+
+      backgroundColor:
+        'rgba(255,255,255,0.97)',
+
+      alignItems: 'center',
+      justifyContent: 'center',
+
+      marginHorizontal: 9,
+
+      shadowColor: '#000000',
+      shadowOffset: {
+        width: 0,
+        height: 4,
+      },
+      shadowOpacity: 0.20,
+      shadowRadius: 8,
+
+      elevation: 6,
+    },
+
+    /* ==========================================================
+       RATE
+    ========================================================== */
+
+    rateArea: {
+      alignItems: 'center',
+
+      marginTop: 8,
+    },
+
+    rateLabel: {
+      color:
+        'rgba(255,255,255,0.95)',
+
+      fontSize: 11,
+      lineHeight: 15,
+
+      fontWeight: '700',
+
+      textShadowColor:
+        'rgba(0,0,0,0.42)',
+
+      textShadowOffset: {
+        width: 0,
+        height: 1,
+      },
+
+      textShadowRadius: 3,
+    },
+
+    rateRow: {
+      flexDirection: 'row',
+      alignItems: 'baseline',
+    },
+
+    rateNumber: {
+      color: '#FFFFFF',
+
+      fontSize: 43,
+      lineHeight: 48,
+
+      fontWeight: '900',
+
+      letterSpacing: -1.6,
+
+      textShadowColor:
+        'rgba(0,0,0,0.48)',
+
+      textShadowOffset: {
+        width: 0,
+        height: 2,
+      },
+
+      textShadowRadius: 6,
+    },
+
+    rateCurrency: {
+      color: '#FFFFFF',
+
+      fontSize: 15,
+      lineHeight: 20,
+
+      fontWeight: '900',
+
+      marginLeft: 5,
+
+      textShadowColor:
+        'rgba(0,0,0,0.42)',
+
+      textShadowOffset: {
+        width: 0,
+        height: 1,
+      },
+
+      textShadowRadius: 3,
+    },
+
+    /* ==========================================================
+       CHANGE
+    ========================================================== */
+
+    changeBadge: {
+      alignSelf: 'center',
+
+      flexDirection: 'row',
+      alignItems: 'center',
+
+      backgroundColor:
+        'rgba(232,252,240,0.97)',
+
+      borderRadius: 18,
+
+      paddingHorizontal: 12,
+      paddingVertical: 5,
+
+      marginTop: 5,
+    },
+
+    changeText: {
+      color: '#078A50',
+
+      fontSize: 10,
+      lineHeight: 13,
+
+      fontWeight: '800',
+
+      marginLeft: 4,
+    },
+
+    /* ==========================================================
+       CONVERTER
+    ========================================================== */
+
+    converter: {
+      marginHorizontal: 12,
+
+      marginTop: -15,
+
+      borderRadius: 29,
+
+      paddingHorizontal: 15,
+      paddingTop: 15,
+      paddingBottom: 14,
+
+      borderWidth: 1,
+
+      shadowColor: '#000000',
+      shadowOffset: {
+        width: 0,
+        height: 8,
+      },
+      shadowOpacity: 0.12,
+      shadowRadius: 17,
+
+      elevation: 8,
+    },
+
+    converterHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent:
+        'space-between',
+
+      marginBottom: 10,
+    },
+
+    titleArea: {
+      flex: 1,
+      paddingRight: 8,
+    },
+
+    converterTitle: {
+      fontSize: 19,
+      lineHeight: 24,
+
+      fontWeight: '900',
+
+      letterSpacing: -0.5,
+    },
+
+    converterSubtitle: {
+      fontSize: 9,
+      lineHeight: 12,
+
+      marginTop: 2,
+    },
+
+    calculatorIcon: {
+      width: 40,
+      height: 40,
+
+      borderRadius: 13,
+
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+
+    /* ==========================================================
+       AMOUNT CARDS
+    ========================================================== */
+
+    amountCard: {
+      minHeight: 88,
+
+      borderRadius: 17,
+
+      borderWidth: 1,
+
+      paddingHorizontal: 12,
+      paddingVertical: 9,
+    },
+
+    labelRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent:
+        'space-between',
+
+      marginBottom: 3,
+    },
+
+    label: {
+      fontSize: 9,
+      lineHeight: 12,
+
+      fontWeight: '900',
+
+      letterSpacing: 0.5,
+    },
+
+    amountRow: {
+      flex: 1,
+
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent:
+        'space-between',
+    },
+
+    currencyInfo: {
+      flexDirection: 'row',
+      alignItems: 'center',
+
+      flexShrink: 1,
+    },
+
+    inputFlag: {
+      fontSize: 25,
+
+      marginRight: 8,
+    },
+
+    inputCode: {
+      fontSize: 17,
+      lineHeight: 21,
+
+      fontWeight: '900',
+    },
+
+    inputName: {
+      fontSize: 8,
+      lineHeight: 11,
+
+      marginTop: 1,
+    },
+
+    amountInput: {
+      flex: 1,
+
+      minWidth: 85,
+
+      fontSize: 24,
+      lineHeight: 29,
+
+      fontWeight: '900',
+
+      textAlign: 'right',
+
+      paddingLeft: 7,
+      paddingVertical: 0,
+    },
+
+    resultAmount: {
+      flex: 1,
+
+      minWidth: 85,
+
+      fontSize: 23,
+      lineHeight: 28,
+
+      fontWeight: '900',
+
+      textAlign: 'right',
+
+      paddingLeft: 7,
+    },
+
+    /* ==========================================================
+       CENTER SWAP
+    ========================================================== */
+
+    swapArea: {
+      height: 27,
+
+      alignItems: 'center',
+      justifyContent: 'center',
+
+      position: 'relative',
+
+      zIndex: 10,
+    },
+
+    swapLine: {
+      position: 'absolute',
+
+      left: 12,
+      right: 12,
+
       height: 1,
     },
-    textShadowRadius: 3,
-  },
 
-  currencyName: {
-    color: 'rgba(255,255,255,0.80)',
-    fontSize: 10,
-    marginTop: 2,
-  },
+    centerSwap: {
+      width: 40,
+      height: 40,
 
-  swapButton: {
-    width: 47,
-    height: 47,
-    borderRadius: 24,
+      borderRadius: 20,
 
-    backgroundColor: '#FFFFFF',
+      alignItems: 'center',
+      justifyContent: 'center',
 
-    alignItems: 'center',
-    justifyContent: 'center',
+      borderWidth: 3,
 
-    marginHorizontal: 12,
-
-    shadowColor: '#000000',
-    shadowOffset: {
-      width: 0,
-      height: 3,
-    },
-    shadowOpacity: 0.16,
-    shadowRadius: 6,
-
-    elevation: 4,
-  },
-
-  /* =========================================================
-     MAIN RATE
-  ========================================================= */
-
-  rateContainer: {
-    alignItems: 'center',
-    marginTop: 26,
-  },
-
-  rateOne: {
-    color: '#FFFFFF',
-    fontSize: 17,
-    fontWeight: '600',
-  },
-
-  rateEqual: {
-    color: 'rgba(255,255,255,0.72)',
-    fontSize: 18,
-    marginVertical: 2,
-  },
-
-  rateNumberRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-  },
-
-  rateNumber: {
-    color: '#FFFFFF',
-    fontSize: 43,
-    fontWeight: '900',
-    letterSpacing: -1.5,
-
-    textShadowColor:
-      'rgba(0,0,0,0.25)',
-    textShadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    textShadowRadius: 5,
-  },
-
-  rateCurrency: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '700',
-    marginLeft: 6,
-  },
-
-  /* =========================================================
-     CHANGE
-  ========================================================= */
-
-  changeBadge: {
-    alignSelf: 'center',
-
-    flexDirection: 'row',
-    alignItems: 'center',
-
-    backgroundColor:
-      'rgba(221,251,234,0.96)',
-
-    borderRadius: 18,
-
-    paddingHorizontal: 13,
-    paddingVertical: 7,
-
-    marginTop: 13,
-  },
-
-  changeText: {
-    color: '#078A50',
-    fontSize: 12,
-    fontWeight: '700',
-    marginLeft: 5,
-  },
-
-  /* =========================================================
-     CONVERTER
-  ========================================================= */
-
-  converterSection: {
-    marginHorizontal: 14,
-    marginTop: -18,
-
-    borderRadius: 30,
-
-    padding: 18,
-
-    borderWidth: 1,
-
-    shadowColor: '#000000',
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.06,
-    shadowRadius: 10,
-
-    elevation: 3,
-  },
-
-  converterHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-
-    marginBottom: 17,
-  },
-
-  converterTitle: {
-    fontSize: 20,
-    fontWeight: '800',
-    letterSpacing: -0.4,
-  },
-
-  converterSubtitle: {
-    fontSize: 11,
-    marginTop: 3,
-  },
-
-  calculatorIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  /* =========================================================
-     INPUT
-  ========================================================= */
-
-  inputCard: {
-    minHeight: 82,
-
-    borderRadius: 19,
-
-    borderWidth: 1,
-
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-
-    paddingHorizontal: 13,
-  },
-
-  inputLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-
-  inputFlag: {
-    fontSize: 29,
-    marginRight: 9,
-  },
-
-  inputCurrency: {
-    fontSize: 17,
-    fontWeight: '800',
-  },
-
-  inputCurrencyName: {
-    fontSize: 10,
-    marginTop: 2,
-  },
-
-  amountInput: {
-    flex: 1,
-
-    fontSize: 25,
-    fontWeight: '800',
-
-    textAlign: 'right',
-
-    paddingLeft: 8,
-  },
-
-  convertedAmount: {
-    flex: 1,
-
-    fontSize: 24,
-    fontWeight: '900',
-
-    textAlign: 'right',
-
-    paddingLeft: 5,
-  },
-
-  /* =========================================================
-     MIDDLE SWAP
-  ========================================================= */
-
-  middleSwapContainer: {
-    height: 22,
-
-    alignItems: 'center',
-    justifyContent: 'center',
-
-    zIndex: 3,
-  },
-
-  middleSwap: {
-    width: 39,
-    height: 39,
-    borderRadius: 20,
-
-    alignItems: 'center',
-    justifyContent: 'center',
-
-    shadowColor: '#000000',
-    shadowOffset: {
-      width: 0,
-      height: 3,
-    },
-    shadowOpacity: 0.16,
-    shadowRadius: 5,
-
-    elevation: 3,
-  },
-
-  /* =========================================================
-     CALCULATE BUTTON
-  ========================================================= */
-
-  calculateButton: {
-    height: 48,
-
-    borderRadius: 15,
-
-    marginTop: 17,
-
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-
-    shadowColor: '#000000',
-    shadowOffset: {
-      width: 0,
-      height: 3,
-    },
-    shadowOpacity: 0.12,
-    shadowRadius: 6,
-
-    elevation: 3,
-  },
-
-  calculateText: {
-    color: '#FFFFFF',
-
-    fontSize: 14,
-    fontWeight: '800',
-
-    marginLeft: 7,
-  },
-
-  /* =========================================================
-     RATE INFO
-  ========================================================= */
-
-  rateInfo: {
-    alignItems: 'center',
-    marginTop: 13,
-  },
-
-  rateInfoText: {
-    fontSize: 11,
-    fontWeight: '600',
-  },
-
-  /* =========================================================
-     PRESS
-  ========================================================= */
-
-  pressed: {
-    opacity: 0.72,
-
-    transform: [
-      {
-        scale: 0.98,
+      shadowColor: '#000000',
+      shadowOffset: {
+        width: 0,
+        height: 4,
       },
-    ],
-  },
+      shadowOpacity: 0.18,
+      shadowRadius: 7,
 
-  /* =========================================================
-     BOTTOM
-  ========================================================= */
+      elevation: 7,
+    },
 
-  bottomSpace: {
-    height: 25,
-  },
-});
+    /* ==========================================================
+       RATE INFO
+    ========================================================== */
+
+    rateInfo: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+
+      marginTop: 8,
+    },
+
+    rateInfoText: {
+      fontSize: 9,
+      lineHeight: 13,
+
+      fontWeight: '600',
+
+      marginLeft: 4,
+    },
+
+    /* ==========================================================
+       CALCULATE BUTTON
+    ========================================================== */
+
+    calculateButton: {
+      height: 47,
+
+      borderRadius: 14,
+
+      marginTop: 10,
+
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+
+      shadowColor: '#000000',
+      shadowOffset: {
+        width: 0,
+        height: 4,
+      },
+      shadowOpacity: 0.17,
+      shadowRadius: 7,
+
+      elevation: 6,
+    },
+
+    calculateText: {
+      color: '#FFFFFF',
+
+      fontSize: 13,
+      lineHeight: 17,
+
+      fontWeight: '900',
+
+      marginLeft: 6,
+    },
+
+    /* ==========================================================
+       TRUST
+    ========================================================== */
+
+    trustCard: {
+      minHeight: 61,
+
+      borderRadius: 16,
+
+      borderWidth: 1,
+
+      marginTop: 10,
+
+      paddingHorizontal: 9,
+      paddingVertical: 8,
+
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+
+    trustIcon: {
+      width: 38,
+      height: 38,
+
+      borderRadius: 12,
+
+      alignItems: 'center',
+      justifyContent: 'center',
+
+      marginRight: 9,
+    },
+
+    trustContent: {
+      flex: 1,
+
+      paddingRight: 5,
+    },
+
+    trustTitle: {
+      fontSize: 12,
+      lineHeight: 16,
+
+      fontWeight: '900',
+    },
+
+    trustSubtitle: {
+      fontSize: 8,
+      lineHeight: 11,
+
+      marginTop: 1,
+    },
+
+    /* ==========================================================
+       PRESS
+    ========================================================== */
+
+    pressed: {
+      opacity: 0.72,
+
+      transform: [
+        {
+          scale: 0.97,
+        },
+      ],
+    },
+
+    bottomSpace: {
+      height: 18,
+    },
+  });

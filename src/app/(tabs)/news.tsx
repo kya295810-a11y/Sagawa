@@ -1,7 +1,9 @@
-import React from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   FlatList,
   Image,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -21,124 +23,49 @@ import type { ThemeColors } from '@/theme/types';
 
 type NewsType = 'photo' | 'video';
 
+type ApiNewsItem = {
+  id: number;
+  title: string;
+  description: string;
+  image: string;
+  video: string;
+  published: boolean;
+  date: string;
+};
+
 type NewsItem = {
   id: string;
   category: string;
   title: string;
+  description: string;
   time: string;
   image: string;
+  video: string;
   type: NewsType;
 };
 
-/* ============================================================
-   TEMPORARY NEWS DATA
-   ------------------------------------------------------------
-   Later this will come from ADMIN / DATABASE.
-   Maximum 10 latest news items.
-============================================================ */
+const API_BASE_URL =
+  Platform.OS === 'android'
+    ? 'http://10.0.2.2:3000'
+    : 'http://localhost:3000';
 
-const NEWS_DATA: NewsItem[] = [
-  {
-    id: '1',
-    category: 'Malaysia',
-    title:
-      'Malaysia latest news and important updates from across the country',
-    time: '2 hours ago',
-    image:
-      'https://images.unsplash.com/photo-1596422846543-75c6fc197f07?auto=format&fit=crop&w=1200&q=90',
-    type: 'photo',
-  },
-  {
-    id: '2',
-    category: 'Malaysia',
-    title:
-      'Kuala Lumpur sees continued development as the city prepares for new changes',
-    time: '4 hours ago',
-    image:
-      'https://images.unsplash.com/photo-1508964942454-1a56651d54ac?auto=format&fit=crop&w=1200&q=90',
-    type: 'photo',
-  },
-  {
-    id: '3',
-    category: 'Business',
-    title:
-      'Ringgit movement draws attention as regional markets continue to change',
-    time: '6 hours ago',
-    image:
-      'https://images.unsplash.com/photo-1556761175-b413da4baf72?auto=format&fit=crop&w=1200&q=90',
-    type: 'photo',
-  },
-  {
-    id: '4',
-    category: 'World',
-    title:
-      'Global markets continue to react to important international developments',
-    time: 'Yesterday',
-    image:
-      'https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?auto=format&fit=crop&w=1200&q=90',
-    type: 'video',
-  },
-  {
-    id: '5',
-    category: 'Technology',
-    title:
-      'New technology trends are changing the way people live and work',
-    time: 'Yesterday',
-    image:
-      'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1200&q=90',
-    type: 'photo',
-  },
-  {
-    id: '6',
-    category: 'Malaysia',
-    title:
-      'New initiatives bring opportunities and support communities across Malaysia',
-    time: '2 days ago',
-    image:
-      'https://images.unsplash.com/photo-1548013146-72479768bada?auto=format&fit=crop&w=1200&q=90',
-    type: 'photo',
-  },
-  {
-    id: '7',
-    category: 'Business',
-    title:
-      'Businesses prepare for another changing market and new opportunities',
-    time: '2 days ago',
-    image:
-      'https://images.unsplash.com/photo-1444653614773-995cb1ef9efa?auto=format&fit=crop&w=1200&q=90',
-    type: 'video',
-  },
-  {
-    id: '8',
-    category: 'World',
-    title:
-      'Important international developments that everyone should know about',
-    time: '3 days ago',
-    image:
-      'https://images.unsplash.com/photo-1521295121783-8a321d551ad2?auto=format&fit=crop&w=1200&q=90',
-    type: 'photo',
-  },
-  {
-    id: '9',
-    category: 'Malaysia',
-    title:
-      'Weather conditions and travel updates you should know this week',
-    time: '3 days ago',
-    image:
-      'https://images.unsplash.com/photo-1534274988757-a28bf1a57c17?auto=format&fit=crop&w=1200&q=90',
-    type: 'photo',
-  },
-  {
-    id: '10',
-    category: 'Technology',
-    title:
-      'Digital services continue to grow across Malaysia and the region',
-    time: '4 days ago',
-    image:
-      'https://images.unsplash.com/photo-1550751827-4bd374c3f58b?auto=format&fit=crop&w=1200&q=90',
-    type: 'video',
-  },
-];
+const mapApiNews = (item: ApiNewsItem): NewsItem => ({
+  id: String(item.id),
+  category: 'Latest',
+  title: item.title,
+  description: item.description,
+  time: item.date,
+  image: item.image,
+  video: item.video || '',
+  type: item.video ? 'video' : 'photo',
+});
+
+/* ============================================================
+   NEWS SCREEN
+   ------------------------------------------------------------
+   Content comes from the local Admin API.
+   Maximum 10 latest published news items.
+============================================================ */
 
 /* ============================================================
    NEWS SCREEN
@@ -156,6 +83,70 @@ export default function NewsScreen() {
   const { theme } = useAppTheme();
 
   const styles = createStyles(theme.colors);
+
+  const [news, setNews] = useState<NewsItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState('');
+
+  const loadNews = useCallback(async () => {
+    try {
+      setError('');
+
+      const response = await fetch(
+        `${API_BASE_URL}/api/news`
+      );
+
+      if (!response.ok) {
+        throw new Error(
+          `News API returned ${response.status}`
+        );
+      }
+
+      const result = await response.json();
+
+      if (!result.success || !Array.isArray(result.data)) {
+        throw new Error('Invalid news API response.');
+      }
+
+      const latestNews = result.data
+        .filter(
+          (item: ApiNewsItem) => item.published
+        )
+        .sort(
+          (a: ApiNewsItem, b: ApiNewsItem) =>
+            b.id - a.id
+        )
+        .slice(0, 10)
+        .map(mapApiNews);
+
+      setNews(latestNews);
+    } catch (err) {
+      console.error('News API error:', err);
+
+      setError(
+        'Unable to load news. Make sure the Local API is running.'
+      );
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+ useEffect(() => {
+  const timer = setTimeout(() => {
+    void loadNews();
+  }, 0);
+
+  return () => {
+    clearTimeout(timer);
+  };
+}, [loadNews]);
+
+  const handleRefresh = useCallback(() => {
+    setRefreshing(true);
+    loadNews();
+  }, [loadNews]);
 
   /* ==========================================================
      RESPONSIVE IMAGE HEIGHT
@@ -392,9 +383,50 @@ export default function NewsScreen() {
             NEWS LIST
         ==================================================== */}
 
+        {loading ? (
+          <View style={styles.stateContainer}>
+            <ActivityIndicator
+              size="small"
+              color={theme.colors.primary}
+            />
+            <Text style={styles.stateText}>
+              Loading latest news...
+            </Text>
+          </View>
+        ) : error ? (
+          <View style={styles.stateContainer}>
+            <Text style={styles.stateTitle}>
+              News unavailable
+            </Text>
+            <Text style={styles.stateText}>
+              {error}
+            </Text>
+
+            <Pressable
+              onPress={loadNews}
+              style={styles.retryButton}
+            >
+              <Text style={styles.retryText}>
+                Try Again
+              </Text>
+            </Pressable>
+          </View>
+        ) : news.length === 0 ? (
+          <View style={styles.stateContainer}>
+            <Text style={styles.stateTitle}>
+              No published news
+            </Text>
+            <Text style={styles.stateText}>
+              Publish a news item from the Admin dashboard.
+            </Text>
+          </View>
+        ) : null}
+
         <FlatList
-          data={NEWS_DATA}
+          data={news}
           keyExtractor={(item) => item.id}
+          refreshing={refreshing}
+          onRefresh={handleRefresh}
           renderItem={renderNewsCard}
           showsVerticalScrollIndicator={false}
           showsHorizontalScrollIndicator={false}
@@ -653,6 +685,43 @@ const createStyles = (colors: ThemeColors) =>
     /* ========================================================
        CONTENT
     ======================================================== */
+
+    stateContainer: {
+      minHeight: 180,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 24,
+      paddingVertical: 30,
+    },
+
+    stateTitle: {
+      fontSize: 16,
+      fontWeight: '700',
+      color: colors.text,
+      marginBottom: 8,
+      textAlign: 'center',
+    },
+
+    stateText: {
+      fontSize: 13,
+      lineHeight: 19,
+      color: colors.textSecondary,
+      textAlign: 'center',
+    },
+
+    retryButton: {
+      marginTop: 14,
+      paddingHorizontal: 18,
+      paddingVertical: 10,
+      borderRadius: 12,
+      backgroundColor: colors.primary,
+    },
+
+    retryText: {
+      color: '#FFFFFF',
+      fontSize: 13,
+      fontWeight: '700',
+    },
 
     newsContent: {
       paddingHorizontal: 14,
