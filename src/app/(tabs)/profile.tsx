@@ -50,7 +50,7 @@ const SUPPORT_ITEMS: MenuItem[] = [
   },
   {
     id: 'about',
-    title: 'About Malay MM',
+    title: 'About Sagawa',
     subtitle: 'App information and version',
     icon: 'information-circle-outline',
   },
@@ -168,8 +168,8 @@ export default function ProfileScreen() {
         break;
       case 'about':
         Alert.alert(
-          'About Malay MM',
-          'Malay MM\n\nA simple, useful mobile app for the Malay MM community.',
+          'About Sagawa',
+          'Sagawa\n\nA simple, useful mobile app for the Sagawa community.',
         );
         break;
     }

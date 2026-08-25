@@ -74,7 +74,7 @@ export default function LoginScreen() {
                 style={styles.brandName}
                 allowFontScaling={false}
               >
-                Malay MM
+                Sagawa
               </Text>
             </View>
 
@@ -99,7 +99,7 @@ export default function LoginScreen() {
                   style={styles.subtitle}
                   allowFontScaling={false}
                 >
-                  Sign in to continue with Malay MM.
+                  Sign in to continue with Sagawa.
                 </Text>
               </View>
 

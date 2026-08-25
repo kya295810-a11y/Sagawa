@@ -229,7 +229,7 @@ app.get('/', (req, res) => {
   res.json({
     success: true,
     message:
-      'Malay MM Local API is running',
+      'Sagawa Local API is running',
     host:
       `http://192.168.100.20:${PORT}`,
     endpoints: {

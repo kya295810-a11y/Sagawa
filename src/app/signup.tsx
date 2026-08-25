@@ -56,7 +56,7 @@ export default function SignupScreen() {
               <Text style={styles.logoText}>M</Text>
             </View>
 
-            <Text style={styles.brandName}>Malay MM</Text>
+            <Text style={styles.brandName}>Sagawa</Text>
           </View>
 
           {/* Header */}
