@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback, useState } from 'react';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import {
   ImageBackground,
@@ -7,10 +7,12 @@ import {
   StyleSheet,
   Text,
   View,
+  Image,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 
 import { useAppTheme } from '@/theme/provider';
 import { useSettingsStore } from '@/store/settings-store';
@@ -22,6 +24,27 @@ import type { ThemeColors } from '@/theme/types';
 
 const KL_DAY = require('../../../assets/images/kl-day.png');
 const KL_NIGHT = require('../../../assets/images/kl-night.png');
+
+
+const API_BASE_URL = 'http://192.168.100.20:3000';
+
+type NewsItem = {
+  id: number | string;
+  title: string;
+  description?: string;
+  image?: string;
+  video?: string;
+  published?: boolean;
+  date?: string;
+};
+
+type ExchangeResponse = {
+  success: boolean;
+  data?: {
+    rate?: string | number;
+    updatedAt?: string;
+  };
+};
 
 /* =============================================================
    HOME SCREEN
@@ -45,6 +68,106 @@ export default function HomeScreen() {
   const userName = 'Kyaw San Lin';
 
   const styles = createStyles(theme.colors);
+
+  const [news, setNews] = useState<NewsItem[]>([]);
+  const [newsLoading, setNewsLoading] = useState(true);
+  const [newsError, setNewsError] = useState(false);
+  const [exchangeRate, setExchangeRate] = useState<string>('1000');
+  const [exchangeUpdatedAt, setExchangeUpdatedAt] = useState<string>('');
+
+  const loadLatestNews = useCallback(async () => {
+    try {
+      setNewsError(false);
+
+      const response = await fetch(`${API_BASE_URL}/api/news`);
+
+      if (!response.ok) {
+        throw new Error(`News API returned ${response.status}`);
+      }
+
+      const payload: unknown = await response.json();
+
+      if (
+        typeof payload !== 'object' ||
+        payload === null ||
+        !('success' in payload) ||
+        !('data' in payload)
+      ) {
+        throw new Error('Invalid news API response');
+      }
+
+      const data = (payload as { data: unknown }).data;
+
+      if (!Array.isArray(data)) {
+        throw new Error('News API data is not an array');
+      }
+
+      const latest = data
+        .filter((item): item is NewsItem => {
+          if (typeof item !== 'object' || item === null) return false;
+          const value = item as Record<string, unknown>;
+          return (
+            (typeof value.id === 'number' || typeof value.id === 'string') &&
+            typeof value.title === 'string'
+          );
+        })
+        .filter((item) => item.published !== false)
+        .slice(0, 2);
+
+      setNews(latest);
+    } catch (error) {
+      console.error('Home news API error:', error);
+      setNewsError(true);
+    } finally {
+      setNewsLoading(false);
+    }
+  }, []);
+
+  const loadExchangeRate = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/exchange-rate`);
+
+      if (!response.ok) {
+        throw new Error(`Exchange API returned ${response.status}`);
+      }
+
+      const payload: ExchangeResponse = await response.json();
+
+      if (!payload.success || payload.data?.rate == null) {
+        throw new Error('Invalid exchange API response');
+      }
+
+      setExchangeRate(String(payload.data.rate));
+      setExchangeUpdatedAt(payload.data.updatedAt ?? '');
+    } catch (error) {
+      console.error('Home exchange API error:', error);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadLatestNews();
+    }, [loadLatestNews]),
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      loadExchangeRate();
+    }, [loadExchangeRate]),
+  );
+
+  const formatNewsDate = (value?: string) => {
+    if (!value) return 'Latest';
+
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return value;
+
+    return parsed.toLocaleDateString('en-GB', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    });
+  };
 
   /* ===========================================================
      GLOBAL THEME TOGGLE
@@ -351,7 +474,7 @@ export default function HomeScreen() {
                 style={styles.rate}
                 allowFontScaling={false}
               >
-                1000 MMK
+                {Number(exchangeRate).toLocaleString('en-US')} MMK
               </Text>
 
             </View>
@@ -360,13 +483,19 @@ export default function HomeScreen() {
               style={styles.updated}
               allowFontScaling={false}
             >
-              Last updated: 10:30 AM
+              Last updated:{' '}
+              {exchangeUpdatedAt
+                ? new Date(exchangeUpdatedAt).toLocaleTimeString('en-US', {
+                    hour: 'numeric',
+                    minute: '2-digit',
+                  })
+                : '—'}
             </Text>
 
           </Pressable>
 
           {/* ===================================================
-              LATEST NEWS HEADER
+              LATEST NEWS
           =================================================== */}
 
           <View
@@ -375,7 +504,6 @@ export default function HomeScreen() {
               styles.newsHeader,
             ]}
           >
-
             <Text
               style={styles.sectionTitle}
               allowFontScaling={false}
@@ -387,129 +515,120 @@ export default function HomeScreen() {
               onPress={() => router.push('/news')}
               hitSlop={10}
             >
-
               <Text
                 style={styles.seeAll}
                 allowFontScaling={false}
               >
                 See All
               </Text>
-
             </Pressable>
-
           </View>
 
-          {/* ===================================================
-              NEWS CARD 1
-          =================================================== */}
-
-          <Pressable
-            onPress={() => router.push('/news')}
-            style={({ pressed }) => [
-              styles.newsCard,
-              pressed && styles.cardPressed,
-            ]}
-          >
-
-            <View style={styles.newsIconBox}>
-
-              <Ionicons
-                name="newspaper"
-                size={21}
+          {newsLoading ? (
+            <View style={styles.newsStateCard}>
+              <ActivityIndicator
+                size="small"
                 color={theme.colors.primary}
               />
-
+              <Text
+                style={styles.newsStateText}
+                allowFontScaling={false}
+              >
+                Loading latest news...
+              </Text>
             </View>
-
-            <View style={styles.newsContent}>
-
-              <Text
-                style={styles.newsCategory}
-                allowFontScaling={false}
-              >
-                Malaysia
-              </Text>
-
-              <Text
-                style={styles.newsTitle}
-                numberOfLines={2}
-                allowFontScaling={false}
-              >
-                Malaysia latest news and updates
-              </Text>
-
-              <Text
-                style={styles.newsTime}
-                allowFontScaling={false}
-              >
-                Today, 09:30 AM
-              </Text>
-
-            </View>
-
-            <Ionicons
-              name="chevron-forward"
-              size={16}
-              color={theme.colors.textMuted}
-            />
-
-          </Pressable>
-
-          {/* ===================================================
-              NEWS CARD 2
-          =================================================== */}
-
-          <Pressable
-            onPress={() => router.push('/exchange')}
-            style={({ pressed }) => [
-              styles.newsCard,
-              pressed && styles.cardPressed,
-            ]}
-          >
-
-            <View style={styles.newsIconBox}>
-
+          ) : newsError ? (
+            <Pressable
+              onPress={loadLatestNews}
+              style={({ pressed }) => [
+                styles.newsStateCard,
+                pressed && styles.cardPressed,
+              ]}
+            >
               <Ionicons
-                name="swap-horizontal"
-                size={21}
-                color={theme.colors.primary}
+                name="cloud-offline-outline"
+                size={22}
+                color={theme.colors.textMuted}
               />
-
+              <Text
+                style={styles.newsStateText}
+                allowFontScaling={false}
+              >
+                Unable to load news. Tap to retry.
+              </Text>
+            </Pressable>
+          ) : news.length === 0 ? (
+            <View style={styles.newsStateCard}>
+              <Ionicons
+                name="newspaper-outline"
+                size={22}
+                color={theme.colors.textMuted}
+              />
+              <Text
+                style={styles.newsStateText}
+                allowFontScaling={false}
+              >
+                No published news yet.
+              </Text>
             </View>
-
-            <View style={styles.newsContent}>
-
-              <Text
-                style={styles.newsCategory}
-                allowFontScaling={false}
+          ) : (
+            news.map((item) => (
+              <Pressable
+                key={String(item.id)}
+                onPress={() => router.push('/news')}
+                style={({ pressed }) => [
+                  styles.newsCard,
+                  pressed && styles.cardPressed,
+                ]}
               >
-                Exchange
-              </Text>
+                {item.image ? (
+                  <Image
+                    source={{ uri: item.image }}
+                    style={styles.newsImage}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <View style={styles.newsIconBox}>
+                    <Ionicons
+                      name="newspaper"
+                      size={21}
+                      color={theme.colors.primary}
+                    />
+                  </View>
+                )}
 
-              <Text
-                style={styles.newsTitle}
-                numberOfLines={2}
-                allowFontScaling={false}
-              >
-                Ringgit strengthens against major currencies
-              </Text>
+                <View style={styles.newsContent}>
+                  <Text
+                    style={styles.newsCategory}
+                    allowFontScaling={false}
+                  >
+                    Malaysia
+                  </Text>
 
-              <Text
-                style={styles.newsTime}
-                allowFontScaling={false}
-              >
-                Today, 08:15 AM
-              </Text>
+                  <Text
+                    style={styles.newsTitle}
+                    numberOfLines={2}
+                    allowFontScaling={false}
+                  >
+                    {item.title}
+                  </Text>
 
-            </View>
+                  <Text
+                    style={styles.newsTime}
+                    allowFontScaling={false}
+                  >
+                    {formatNewsDate(item.date)}
+                  </Text>
+                </View>
 
-            <Ionicons
-              name="chevron-forward"
-              size={16}
-              color={theme.colors.textMuted}
-            />
-
-          </Pressable>
+                <Ionicons
+                  name="chevron-forward"
+                  size={16}
+                  color={theme.colors.textMuted}
+                />
+              </Pressable>
+            ))
+          )}
 
           {/* ===================================================
               BOTTOM SPACE
@@ -951,6 +1070,36 @@ const createStyles = (
       paddingVertical: 11,
 
       marginBottom: 11,
+    },
+
+    newsImage: {
+      width: 72,
+      height: 70,
+      borderRadius: 14,
+      marginRight: 12,
+      backgroundColor: colors.primarySoft,
+    },
+
+    newsStateCard: {
+      minHeight: 92,
+      borderRadius: 18,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 20,
+      marginBottom: 11,
+    },
+
+    newsStateText: {
+      color: colors.textMuted,
+      fontSize: 12,
+      lineHeight: 17,
+      fontWeight: '500',
+      marginTop: 7,
+      textAlign: 'center',
+      includeFontPadding: false,
     },
 
     newsIconBox: {

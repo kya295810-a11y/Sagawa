@@ -1,11 +1,15 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   FlatList,
   Image,
+  Keyboard,
   Modal,
   Pressable,
+  RefreshControl,
   StyleSheet,
   Text,
+  TextInput,
   View,
   useWindowDimensions,
 } from 'react-native';
@@ -15,10 +19,12 @@ import { StatusBar } from 'expo-status-bar';
 
 import { useAppTheme } from '@/theme/provider';
 import type { ThemeColors } from '@/theme/types';
+import { env } from '@/config/env';
 
-/* ============================================================
-   TYPES
-============================================================ */
+const API_BASE_URL =
+  env.EXPO_PUBLIC_API_URL || 'http://192.168.100.20:3000';
+
+const SERVICES_ENDPOINT = `${API_BASE_URL}/api/services`;
 
 type ServiceItem = {
   id: string;
@@ -26,346 +32,185 @@ type ServiceItem = {
   description: string;
   image: string;
   icon: keyof typeof Ionicons.glyphMap;
+  details?: string;
+  contact?: string;
+  location?: string;
+  openingHours?: string;
+  website?: string;
 };
 
-/* ============================================================
-   SERVICES DATA
-   ------------------------------------------------------------
-   Temporary data.
-   Later this will come from ADMIN / DATABASE.
+const DEFAULT_ICON: keyof typeof Ionicons.glyphMap = 'grid-outline';
 
-   Maximum 25 services.
-============================================================ */
+function textValue(...values: unknown[]): string {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return '';
+}
 
-const SERVICES_DATA: ServiceItem[] = [
-  {
-    id: '1',
-    title: 'Healthcare Services',
-    description:
-      'Find useful healthcare information and services for the Malaysia–Myanmar community.',
-    image:
-      'https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?auto=format&fit=crop&w=1200&q=90',
-    icon: 'medical-outline',
-  },
-  {
-    id: '2',
-    title: 'Jobs & Employment',
-    description:
-      'Discover job opportunities and useful employment resources.',
-    image:
-      'https://images.unsplash.com/photo-1521737711867-e3b97375f902?auto=format&fit=crop&w=1200&q=90',
-    icon: 'briefcase-outline',
-  },
-  {
-    id: '3',
-    title: 'Accommodation',
-    description:
-      'Find useful housing and accommodation information.',
-    image:
-      'https://images.unsplash.com/photo-1560185008-b033106af5c3?auto=format&fit=crop&w=1200&q=90',
-    icon: 'home-outline',
-  },
-  {
-    id: '4',
-    title: 'Transportation',
-    description:
-      'Useful information about transport and travel.',
-    image:
-      'https://images.unsplash.com/photo-1519003722824-194d4455a60c?auto=format&fit=crop&w=1200&q=90',
-    icon: 'car-outline',
-  },
-  {
-    id: '5',
-    title: 'Education Services',
-    description:
-      'Explore education resources and learning opportunities.',
-    image:
-      'https://images.unsplash.com/photo-1523240795612-9a054b0db644?auto=format&fit=crop&w=1200&q=90',
-    icon: 'school-outline',
-  },
-  {
-    id: '6',
-    title: 'Legal Information',
-    description:
-      'Access useful legal information and resources.',
-    image:
-      'https://images.unsplash.com/photo-1589829545856-d10d557cf95f?auto=format&fit=crop&w=1200&q=90',
-    icon: 'document-text-outline',
-  },
-  {
-    id: '7',
-    title: 'Financial Services',
-    description:
-      'Useful information about financial services.',
-    image:
-      'https://images.unsplash.com/photo-1554224155-6726b3ff858f?auto=format&fit=crop&w=1200&q=90',
-    icon: 'wallet-outline',
-  },
-  {
-    id: '8',
-    title: 'Translation Services',
-    description:
-      'Find translation and language support resources.',
-    image:
-      'https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?auto=format&fit=crop&w=1200&q=90',
-    icon: 'language-outline',
-  },
-  {
-    id: '9',
-    title: 'Document Services',
-    description:
-      'Useful document and application information.',
-    image:
-      'https://images.unsplash.com/photo-1450101499163-c8848c66ca85?auto=format&fit=crop&w=1200&q=90',
-    icon: 'documents-outline',
-  },
-  {
-    id: '10',
-    title: 'Community Support',
-    description:
-      'Connect with useful community support resources.',
-    image:
-      'https://images.unsplash.com/photo-1559027615-cd4628902d4a?auto=format&fit=crop&w=1200&q=90',
-    icon: 'people-outline',
-  },
-  {
-    id: '11',
-    title: 'Business Services',
-    description:
-      'Useful resources for business and entrepreneurs.',
-    image:
-      'https://images.unsplash.com/photo-1556761175-b413da4baf72?auto=format&fit=crop&w=1200&q=90',
-    icon: 'business-outline',
-  },
-  {
-    id: '12',
-    title: 'Emergency Information',
-    description:
-      'Important emergency information and resources.',
-    image:
-      'https://images.unsplash.com/photo-1584515933487-779824d29309?auto=format&fit=crop&w=1200&q=90',
-    icon: 'alert-circle-outline',
-  },
-  {
-    id: '13',
-    title: 'Insurance Services',
-    description:
-      'Find useful insurance information and resources.',
-    image:
-      'https://images.unsplash.com/photo-1450101499163-c8848c66ca85?auto=format&fit=crop&w=1200&q=90',
-    icon: 'shield-checkmark-outline',
-  },
-  {
-    id: '14',
-    title: 'Shopping Services',
-    description:
-      'Useful shopping information and local resources.',
-    image:
-      'https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&w=1200&q=90',
-    icon: 'cart-outline',
-  },
-  {
-    id: '15',
-    title: 'Food & Restaurants',
-    description:
-      'Discover useful food and restaurant resources.',
-    image:
-      'https://images.unsplash.com/photo-1504674900247-0877df9cc836?auto=format&fit=crop&w=1200&q=90',
-    icon: 'restaurant-outline',
-  },
-  {
-    id: '16',
-    title: 'Travel Information',
-    description:
-      'Useful travel information and resources.',
-    image:
-      'https://images.unsplash.com/photo-1488085061387-422e29b40080?auto=format&fit=crop&w=1200&q=90',
-    icon: 'airplane-outline',
-  },
-  {
-    id: '17',
-    title: 'Technology Services',
-    description:
-      'Find useful technology-related services.',
-    image:
-      'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1200&q=90',
-    icon: 'phone-portrait-outline',
-  },
-  {
-    id: '18',
-    title: 'Banking Information',
-    description:
-      'Useful banking and payment information.',
-    image:
-      'https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?auto=format&fit=crop&w=1200&q=90',
-    icon: 'card-outline',
-  },
-  {
-    id: '19',
-    title: 'Government Services',
-    description:
-      'Find useful government service information.',
-    image:
-      'https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?auto=format&fit=crop&w=1200&q=90',
-    icon: 'business-outline',
-  },
-  {
-    id: '20',
-    title: 'Family Services',
-    description:
-      'Useful services and information for families.',
-    image:
-      'https://images.unsplash.com/photo-1511895426328-dc8714191300?auto=format&fit=crop&w=1200&q=90',
-    icon: 'heart-outline',
-  },
-  {
-    id: '21',
-    title: 'Women Support',
-    description:
-      'Helpful resources and support services for women.',
-    image:
-      'https://images.unsplash.com/photo-1516627145497-ae6968895b74?auto=format&fit=crop&w=1200&q=90',
-    icon: 'woman-outline',
-  },
-  {
-    id: '22',
-    title: 'Youth Services',
-    description:
-      'Useful opportunities and resources for young people.',
-    image:
-      'https://images.unsplash.com/photo-1529156069898-49953e39b3ac?auto=format&fit=crop&w=1200&q=90',
-    icon: 'people-circle-outline',
-  },
-  {
-    id: '23',
-    title: 'Community Help',
-    description:
-      'Find helpful community support resources.',
-    image:
-      'https://images.unsplash.com/photo-1531206715517-5c0ba140b2b8?auto=format&fit=crop&w=1200&q=90',
-    icon: 'help-circle-outline',
-  },
-  {
-    id: '24',
-    title: 'Community Events',
-    description:
-      'Discover upcoming community events and activities.',
-    image:
-      'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?auto=format&fit=crop&w=1200&q=90',
-    icon: 'calendar-outline',
-  },
-  {
-    id: '25',
-    title: 'Other Services',
-    description:
-      'Explore additional useful services and resources.',
-    image:
-      'https://images.unsplash.com/photo-1556761175-4b46a572b786?auto=format&fit=crop&w=1200&q=90',
-    icon: 'grid-outline',
-  },
-];
+function imageValue(value: unknown): string {
+  if (typeof value === 'string') return value.trim();
+  if (value && typeof value === 'object') {
+    const v = value as Record<string, unknown>;
+    return textValue(v.url, v.uri, v.path, v.src, v.location);
+  }
+  return '';
+}
 
-/* ============================================================
-   SERVICES SCREEN
-============================================================ */
+function iconValue(value: unknown): keyof typeof Ionicons.glyphMap {
+  return typeof value === 'string' && value in Ionicons.glyphMap
+    ? (value as keyof typeof Ionicons.glyphMap)
+    : DEFAULT_ICON;
+}
+
+function normalizeService(value: unknown, index: number): ServiceItem | null {
+  if (!value || typeof value !== 'object') return null;
+
+  const v = value as Record<string, unknown>;
+  const title = textValue(v.title, v.name, v.serviceName, v.heading);
+  if (!title) return null;
+
+  const status = v.published ?? v.isPublished ?? v.status;
+  const published =
+    typeof status === 'boolean'
+      ? status
+      : typeof status === 'string'
+        ? status.toLowerCase() === 'published'
+        : true;
+
+  if (!published) return null;
+
+  return {
+    id: String(v.id ?? v._id ?? `service-${index + 1}`),
+    title,
+    description: textValue(v.description, v.summary, v.excerpt),
+    image: imageValue(v.image ?? v.imageUrl ?? v.image_url ?? v.photo ?? v.media),
+    icon: iconValue(v.icon),
+    details: textValue(v.details, v.detail, v.content),
+    contact: textValue(v.contact, v.phone, v.email),
+    location: textValue(v.location, v.address),
+    openingHours: textValue(v.openingHours, v.opening_hours),
+    website: textValue(v.website, v.url, v.link),
+  };
+}
+
+function parseServices(payload: unknown): ServiceItem[] {
+  let value: unknown = payload;
+
+  if (payload && typeof payload === 'object') {
+    const v = payload as Record<string, unknown>;
+    value = v.data ?? v.services ?? v.items ?? v.results ?? payload;
+
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const nested = value as Record<string, unknown>;
+      value = nested.services ?? nested.items ?? nested.results ?? value;
+    }
+  }
+
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map(normalizeService)
+    .filter((item): item is ServiceItem => item !== null)
+    .slice(0, 25);
+}
 
 export default function ServicesScreen() {
   const { width, height } = useWindowDimensions();
   const { theme } = useAppTheme();
-
   const styles = createStyles(theme.colors);
 
-  /* ==========================================================
-     SELECTED SERVICE
-  ========================================================== */
+  const [services, setServices] = useState<ServiceItem[]>([]);
+  const [selectedService, setSelectedService] = useState<ServiceItem | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState('');
+  const [searchVisible, setSearchVisible] = useState(false);
+  const [searchText, setSearchText] = useState('');
+  const [notificationVisible, setNotificationVisible] = useState(false);
 
-  const [selectedService, setSelectedService] =
-    useState<ServiceItem | null>(null);
+  const imageHeight = height <= 700 ? 112 : height <= 780 ? 128 : 142;
+  const contentWidth = width - 36;
 
-  /* ==========================================================
-     RESPONSIVE IMAGE HEIGHT
-  ========================================================== */
+  const loadServices = useCallback(async () => {
+    try {
+      setError('');
 
-  const imageHeight =
-    height <= 700
-      ? 112
-      : height <= 780
-        ? 128
-        : 142;
+      const response = await fetch(SERVICES_ENDPOINT, {
+        headers: { Accept: 'application/json' },
+      });
 
-  const horizontalPadding = 18;
-  const contentWidth = width - horizontalPadding * 2;
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-  /* ==========================================================
-     SERVICE CARD
-  ========================================================== */
+      const payload: unknown = await response.json();
+      setServices(parseServices(payload));
+    } catch (requestError) {
+      console.error('Services API error:', requestError);
+      setError('Unable to load services. Make sure the admin API is running.');
+    }
+  }, []);
 
-  const renderServiceCard = ({
-    item,
-  }: {
-    item: ServiceItem;
-  }) => {
-    return (
-      <Pressable
-        style={({ pressed }) => [
-          styles.serviceCard,
-          pressed && styles.cardPressed,
-        ]}
-        onPress={() => setSelectedService(item)}
-      >
-        {/* ====================================================
-            IMAGE
-        ==================================================== */}
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      void loadServices().finally(() => setLoading(false));
+    }, 0);
 
-        <View
-          style={[
-            styles.imageContainer,
-            {
-              height: imageHeight,
-            },
-          ]}
-        >
-          <Image
-            source={{ uri: item.image }}
-            style={styles.serviceImage}
-            resizeMode="cover"
-          />
+    return () => clearTimeout(timer);
+  }, [loadServices]);
 
-          <View style={styles.imageOverlay} />
+  const refresh = useCallback(async () => {
+    setRefreshing(true);
+    await loadServices();
+    setRefreshing(false);
+  }, [loadServices]);
 
-          {/* SERVICE ICON */}
+  const filteredServices = useMemo(() => {
+    const query = searchText.trim().toLowerCase();
+    if (!query) return services;
 
-          <View style={styles.serviceIcon}>
-            <Ionicons
-              name={item.icon}
-              size={19}
-              color="#FFFFFF"
-            />
+    return services.filter((service) =>
+      `${service.title} ${service.description} ${service.location ?? ''}`
+        .toLowerCase()
+        .includes(query),
+    );
+  }, [searchText, services]);
+
+  const renderServiceCard = ({ item }: { item: ServiceItem }) => (
+    <Pressable
+      style={({ pressed }) => [styles.serviceCard, pressed && styles.cardPressed]}
+      onPress={() => setSelectedService(item)}
+    >
+      <View style={[styles.imageContainer, { height: imageHeight }]}>
+        {item.image ? (
+          <Image source={{ uri: item.image }} style={styles.serviceImage} resizeMode="cover" />
+        ) : (
+          <View style={styles.imagePlaceholder}>
+            <Ionicons name={item.icon} size={38} color={theme.colors.primary} />
           </View>
+        )}
+
+        <View style={styles.imageOverlay} />
+
+        <View style={styles.serviceIcon}>
+          <Ionicons name={item.icon} size={19} color="#FFFFFF" />
+        </View>
+      </View>
+
+      <View style={styles.serviceContent}>
+        <View style={styles.titleRow}>
+          <Text
+            style={styles.serviceTitle}
+            numberOfLines={3}
+            ellipsizeMode="tail"
+            allowFontScaling={false}
+          >
+            {item.title}
+          </Text>
+
+          <Ionicons name="chevron-forward" size={19} color={theme.colors.textMuted} />
         </View>
 
-        {/* ====================================================
-            CONTENT
-        ==================================================== */}
-
-        <View style={styles.serviceContent}>
-          <View style={styles.titleRow}>
-            <Text
-              style={styles.serviceTitle}
-              numberOfLines={4}
-              ellipsizeMode="tail"
-              allowFontScaling={false}
-            >
-              {item.title}
-            </Text>
-
-            <Ionicons
-              name="chevron-forward"
-              size={19}
-              color={theme.colors.textMuted}
-            />
-          </View>
-
+        {!!item.description && (
           <Text
             style={styles.serviceDescription}
             numberOfLines={4}
@@ -374,133 +219,191 @@ export default function ServicesScreen() {
           >
             {item.description}
           </Text>
+        )}
 
-          <View style={styles.metaRow}>
-            <View style={styles.availableLabel}>
-              <View style={styles.availableDot} />
-
-              <Text
-                style={styles.availableText}
-                allowFontScaling={false}
-              >
-                Available service
-              </Text>
-            </View>
+        <View style={styles.metaRow}>
+          <View style={styles.availableLabel}>
+            <View style={styles.availableDot} />
+            <Text style={styles.availableText} allowFontScaling={false}>
+              Available service
+            </Text>
           </View>
         </View>
-      </Pressable>
-    );
-  };
-
-  /* ==========================================================
-     SCREEN
-  ========================================================== */
+      </View>
+    </Pressable>
+  );
 
   return (
-    <SafeAreaView
-      style={styles.safeArea}
-      edges={['top']}
-    >
+    <SafeAreaView style={styles.safeArea} edges={['top']}>
       <StatusBar style={theme.statusBarStyle} />
 
       <View style={styles.container}>
-
-        {/* ====================================================
-            HEADER
-        ==================================================== */}
-
         <View style={styles.header}>
-          <Text
-            style={styles.title}
-            allowFontScaling={false}
-          >
-            Services
-          </Text>
+          {searchVisible ? (
+            <View style={styles.searchBar}>
+              <Ionicons name="search-outline" size={19} color={theme.colors.textMuted} />
 
-          <View style={styles.headerActions}>
-
-            {/* SEARCH */}
-
-            <Pressable
-              style={({ pressed }) => [
-                styles.headerButton,
-                pressed && styles.buttonPressed,
-              ]}
-              hitSlop={6}
-              onPress={() => {}}
-            >
-              <Ionicons
-                name="search-outline"
-                size={21}
-                color={theme.colors.text}
-              />
-            </Pressable>
-
-            {/* NOTIFICATION */}
-
-            <Pressable
-              style={({ pressed }) => [
-                styles.headerButton,
-                pressed && styles.buttonPressed,
-              ]}
-              hitSlop={6}
-              onPress={() => {}}
-            >
-              <Ionicons
-                name="notifications-outline"
-                size={21}
-                color={theme.colors.text}
+              <TextInput
+                autoFocus
+                value={searchText}
+                onChangeText={setSearchText}
+                placeholder="Search services"
+                placeholderTextColor={theme.colors.textMuted}
+                style={styles.searchInput}
+                returnKeyType="search"
+                keyboardType="default"
+                autoCorrect={false}
+                autoCapitalize="none"
+                clearButtonMode="while-editing"
+                onSubmitEditing={() => Keyboard.dismiss()}
               />
 
-              <View style={styles.notificationDot} />
-            </Pressable>
-          </View>
+              <Pressable
+                onPress={() => {
+                  Keyboard.dismiss();
+                  setSearchText('');
+                  setSearchVisible(false);
+                }}
+                hitSlop={8}
+              >
+                <Ionicons name="close-circle" size={20} color={theme.colors.textMuted} />
+              </Pressable>
+            </View>
+          ) : (
+            <>
+              <Text style={styles.title} allowFontScaling={false}>
+                Services
+              </Text>
+
+              <View style={styles.headerActions}>
+                <Pressable
+                  style={({ pressed }) => [styles.headerButton, pressed && styles.buttonPressed]}
+                  hitSlop={6}
+                  onPress={() => setSearchVisible(true)}
+                >
+                  <Ionicons name="search-outline" size={21} color={theme.colors.text} />
+                </Pressable>
+
+                <Pressable
+                  style={({ pressed }) => [styles.headerButton, pressed && styles.buttonPressed]}
+                  hitSlop={6}
+                  onPress={() => setNotificationVisible(true)}
+                >
+                  <Ionicons
+                    name="notifications-outline"
+                    size={21}
+                    color={theme.colors.text}
+                  />
+                  {services.length > 0 && <View style={styles.notificationDot} />}
+                </Pressable>
+              </View>
+            </>
+          )}
         </View>
-
-        {/* ====================================================
-            SECTION HEADER
-        ==================================================== */}
 
         <View style={styles.sectionHeader}>
-          <Text
-            style={styles.sectionTitle}
-            allowFontScaling={false}
-          >
+          <Text style={styles.sectionTitle} allowFontScaling={false}>
             All Services
           </Text>
-
-          <Text
-            style={styles.latestText}
-            allowFontScaling={false}
-          >
-            Latest
+          <Text style={styles.latestText} allowFontScaling={false}>
+            {filteredServices.length} available
           </Text>
         </View>
 
-        {/* ====================================================
-            SERVICES LIST
-        ==================================================== */}
+        {!!error && (
+          <View style={styles.errorBox}>
+            <View style={styles.errorIcon}>
+              <Ionicons
+                name="cloud-offline-outline"
+                size={20}
+                color={theme.colors.primary}
+              />
+            </View>
 
-        <FlatList
-          data={SERVICES_DATA.slice(0, 25)}
-          keyExtractor={(item) => item.id}
-          renderItem={renderServiceCard}
-          showsVerticalScrollIndicator={false}
-          showsHorizontalScrollIndicator={false}
-          directionalLockEnabled
-          bounces
-          nestedScrollEnabled
-          contentContainerStyle={[
-            styles.listContent,
-            {
-              width: contentWidth,
-            },
-          ]}
-        />
+            <View style={styles.errorContent}>
+              <Text style={styles.errorTitle} allowFontScaling={false}>
+                Services unavailable
+              </Text>
+              <Text style={styles.errorText} allowFontScaling={false}>
+                {error}
+              </Text>
+            </View>
 
-        {/* ====================================================
-            SERVICE INFORMATION MODAL
-        ==================================================== */}
+            <Pressable
+              style={styles.retryButton}
+              onPress={() => {
+                setLoading(true);
+                void loadServices().finally(() => setLoading(false));
+              }}
+            >
+              <Text style={styles.retryText} allowFontScaling={false}>
+                Retry
+              </Text>
+            </Pressable>
+          </View>
+        )}
+
+        {loading ? (
+          <View style={styles.centerState}>
+            <ActivityIndicator size="small" color={theme.colors.primary} />
+            <Text style={styles.stateText} allowFontScaling={false}>
+              Loading services...
+            </Text>
+          </View>
+        ) : (
+          <FlatList
+            data={filteredServices}
+            keyExtractor={(item) => item.id}
+            renderItem={renderServiceCard}
+            showsVerticalScrollIndicator={false}
+            directionalLockEnabled
+            bounces
+            nestedScrollEnabled
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={refresh}
+                tintColor={theme.colors.primary}
+              />
+            }
+            contentContainerStyle={[
+              styles.listContent,
+              {
+                width: contentWidth,
+                flexGrow: filteredServices.length === 0 ? 1 : 0,
+              },
+            ]}
+            ListEmptyComponent={
+              <View style={styles.emptyState}>
+                <View style={styles.emptyIcon}>
+                  <Ionicons
+                    name={searchText.trim() ? 'search-outline' : 'grid-outline'}
+                    size={28}
+                    color={theme.colors.primary}
+                  />
+                </View>
+
+                <Text style={styles.emptyTitle} allowFontScaling={false}>
+                  {searchText.trim() ? 'No services found' : 'No published services'}
+                </Text>
+
+                <Text style={styles.emptyText} allowFontScaling={false}>
+                  {searchText.trim()
+                    ? 'Try a different search term.'
+                    : 'Published services from the admin dashboard will appear here.'}
+                </Text>
+
+                {!searchText.trim() && (
+                  <Pressable style={styles.emptyButton} onPress={refresh}>
+                    <Text style={styles.emptyButtonText} allowFontScaling={false}>
+                      Refresh
+                    </Text>
+                  </Pressable>
+                )}
+              </View>
+            }
+          />
+        )}
 
         <Modal
           visible={selectedService !== null}
@@ -509,20 +412,12 @@ export default function ServicesScreen() {
           onRequestClose={() => setSelectedService(null)}
         >
           <View style={styles.modalContainer}>
-
-            {/* BACKDROP */}
-
             <Pressable
               style={styles.modalBackdrop}
               onPress={() => setSelectedService(null)}
             />
 
-            {/* MODAL */}
-
             <View style={styles.modalCard}>
-
-              {/* MODAL HEADER */}
-
               <View style={styles.modalHeader}>
                 <Text
                   style={styles.modalTitle}
@@ -533,85 +428,114 @@ export default function ServicesScreen() {
                 </Text>
 
                 <Pressable
-                  style={({ pressed }) => [
-                    styles.modalClose,
-                    pressed && styles.buttonPressed,
-                  ]}
+                  style={({ pressed }) => [styles.modalClose, pressed && styles.buttonPressed]}
                   onPress={() => setSelectedService(null)}
                   hitSlop={6}
                 >
-                  <Ionicons
-                    name="close"
-                    size={21}
-                    color={theme.colors.text}
-                  />
+                  <Ionicons name="close" size={21} color={theme.colors.text} />
                 </Pressable>
               </View>
 
-              {/* MODAL IMAGE */}
-
-              {selectedService && (
+              {selectedService?.image ? (
                 <Image
                   source={{ uri: selectedService.image }}
                   style={styles.modalImage}
                   resizeMode="cover"
                 />
-              )}
-
-              {/* MODAL DESCRIPTION */}
-
-              <Text
-                style={styles.modalDescription}
-                allowFontScaling={false}
-              >
-                {selectedService?.description}
-              </Text>
-
-              {/* INFORMATION */}
-
-              <View style={styles.modalInfoBox}>
-                <View style={styles.modalInfoIcon}>
+              ) : (
+                <View style={styles.modalImagePlaceholder}>
                   <Ionicons
-                    name="information-circle-outline"
-                    size={20}
+                    name={selectedService?.icon ?? DEFAULT_ICON}
+                    size={42}
                     color={theme.colors.primary}
                   />
                 </View>
+              )}
 
-                <View style={styles.modalInfoContent}>
-                  <Text
-                    style={styles.modalInfoTitle}
-                    allowFontScaling={false}
-                  >
-                    Service information
+              {!!selectedService?.description && (
+                <Text style={styles.modalDescription} allowFontScaling={false}>
+                  {selectedService.description}
+                </Text>
+              )}
+
+              {!!selectedService?.details && (
+                <View style={styles.detailBlock}>
+                  <Text style={styles.detailTitle} allowFontScaling={false}>
+                    Details
                   </Text>
-
-                  <Text
-                    style={styles.modalInfoText}
-                    allowFontScaling={false}
-                  >
-                    More information, contact details,
-                    locations, opening hours, links, and
-                    other service details can be managed
-                    by the administrator later.
+                  <Text style={styles.detailText} allowFontScaling={false}>
+                    {selectedService.details}
                   </Text>
                 </View>
-              </View>
+              )}
 
-              {/* CLOSE BUTTON */}
+              {[
+                ['location-outline', selectedService?.location],
+                ['call-outline', selectedService?.contact],
+                ['time-outline', selectedService?.openingHours],
+                ['globe-outline', selectedService?.website],
+              ].map(([icon, value]) =>
+                value ? (
+                  <View style={styles.infoRow} key={`${icon}-${value}`}>
+                    <Ionicons
+                      name={icon as keyof typeof Ionicons.glyphMap}
+                      size={18}
+                      color={theme.colors.primary}
+                    />
+                    <Text style={styles.infoText} numberOfLines={3} allowFontScaling={false}>
+                      {value}
+                    </Text>
+                  </View>
+                ) : null,
+              )}
 
               <Pressable
-                style={({ pressed }) => [
-                  styles.modalDoneButton,
-                  pressed && styles.actionPressed,
-                ]}
+                style={({ pressed }) => [styles.modalDoneButton, pressed && styles.actionPressed]}
                 onPress={() => setSelectedService(null)}
               >
-                <Text
-                  style={styles.modalDoneText}
-                  allowFontScaling={false}
-                >
+                <Text style={styles.modalDoneText} allowFontScaling={false}>
                   Close
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </Modal>
+
+        <Modal
+          visible={notificationVisible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setNotificationVisible(false)}
+        >
+          <View style={styles.notificationModal}>
+            <Pressable
+              style={styles.notificationBackdrop}
+              onPress={() => setNotificationVisible(false)}
+            />
+
+            <View style={styles.notificationCard}>
+              <View style={styles.notificationIconLarge}>
+                <Ionicons
+                  name="notifications-outline"
+                  size={25}
+                  color={theme.colors.primary}
+                />
+              </View>
+
+              <Text style={styles.notificationTitle} allowFontScaling={false}>
+                Services updates
+              </Text>
+
+              <Text style={styles.notificationText} allowFontScaling={false}>
+                Published service updates from the administrator will appear here.
+              </Text>
+
+              <Pressable
+                style={styles.notificationButton}
+                onPress={() => setNotificationVisible(false)}
+              >
+                <Text style={styles.notificationButtonText} allowFontScaling={false}>
+                  Done
                 </Text>
               </Pressable>
             </View>
@@ -726,6 +650,263 @@ const createStyles = (colors: ThemeColors) =>
       borderRadius: 3,
 
       backgroundColor: colors.primary,
+    },
+        imagePlaceholder: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.primarySoft,
+    },
+
+    searchBar: {
+      flex: 1,
+      height: 46,
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 13,
+      borderRadius: 15,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      gap: 9,
+    },
+
+    searchInput: {
+      flex: 1,
+      color: colors.text,
+      fontSize: 15,
+      lineHeight: 20,
+      fontWeight: '500',
+      paddingVertical: 0,
+    },
+
+    errorBox: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      padding: 12,
+      marginBottom: 10,
+      borderRadius: 16,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+
+    errorIcon: {
+      width: 38,
+      height: 38,
+      borderRadius: 12,
+      backgroundColor: colors.primarySoft,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: 10,
+    },
+
+    errorContent: {
+      flex: 1,
+    },
+
+    errorTitle: {
+      color: colors.text,
+      fontSize: 13,
+      lineHeight: 18,
+      fontWeight: '700',
+    },
+
+    errorText: {
+      color: colors.textMuted,
+      fontSize: 11,
+      lineHeight: 16,
+      marginTop: 2,
+    },
+
+    retryButton: {
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      borderRadius: 10,
+      backgroundColor: colors.primarySoft,
+    },
+
+    retryText: {
+      color: colors.primary,
+      fontSize: 11,
+      fontWeight: '700',
+    },
+
+    centerState: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingBottom: 80,
+    },
+
+    stateText: {
+      color: colors.textMuted,
+      fontSize: 12,
+      marginTop: 10,
+    },
+
+    emptyState: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 30,
+      paddingBottom: 90,
+    },
+
+    emptyIcon: {
+      width: 64,
+      height: 64,
+      borderRadius: 20,
+      backgroundColor: colors.primarySoft,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: 14,
+    },
+
+    emptyTitle: {
+      color: colors.text,
+      fontSize: 18,
+      lineHeight: 24,
+      fontWeight: '800',
+      textAlign: 'center',
+    },
+
+    emptyText: {
+      color: colors.textMuted,
+      fontSize: 12,
+      lineHeight: 18,
+      textAlign: 'center',
+      marginTop: 6,
+    },
+
+    emptyButton: {
+      marginTop: 16,
+      paddingHorizontal: 18,
+      height: 42,
+      borderRadius: 13,
+      backgroundColor: colors.primary,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+
+    emptyButtonText: {
+      color: '#FFFFFF',
+      fontSize: 12,
+      fontWeight: '700',
+    },
+
+    modalImagePlaceholder: {
+      width: '100%',
+      height: 180,
+      borderRadius: 18,
+      backgroundColor: colors.primarySoft,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: 15,
+    },
+
+    detailBlock: {
+      padding: 13,
+      borderRadius: 16,
+      backgroundColor: colors.background,
+      borderWidth: 1,
+      borderColor: colors.border,
+      marginBottom: 10,
+    },
+
+    detailTitle: {
+      color: colors.text,
+      fontSize: 13,
+      fontWeight: '700',
+      marginBottom: 4,
+    },
+
+    detailText: {
+      color: colors.textMuted,
+      fontSize: 12,
+      lineHeight: 18,
+    },
+
+    infoRow: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      paddingVertical: 7,
+    },
+
+    infoText: {
+      flex: 1,
+      color: colors.text,
+      fontSize: 12,
+      lineHeight: 18,
+      marginLeft: 9,
+    },
+
+    notificationModal: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 24,
+    },
+
+    notificationBackdrop: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      top: 0,
+      bottom: 0,
+      backgroundColor: 'rgba(0,0,0,0.48)',
+    },
+
+    notificationCard: {
+      width: '100%',
+      backgroundColor: colors.surface,
+      borderRadius: 24,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: 22,
+      alignItems: 'center',
+    },
+
+    notificationIconLarge: {
+      width: 54,
+      height: 54,
+      borderRadius: 18,
+      backgroundColor: colors.primarySoft,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: 13,
+    },
+
+    notificationTitle: {
+      color: colors.text,
+      fontSize: 19,
+      lineHeight: 25,
+      fontWeight: '800',
+      textAlign: 'center',
+    },
+
+    notificationText: {
+      color: colors.textMuted,
+      fontSize: 12,
+      lineHeight: 18,
+      textAlign: 'center',
+      marginTop: 7,
+    },
+
+    notificationButton: {
+      width: '100%',
+      height: 46,
+      borderRadius: 14,
+      backgroundColor: colors.primary,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginTop: 18,
+    },
+
+    notificationButtonText: {
+      color: '#FFFFFF',
+      fontSize: 13,
+      fontWeight: '700',
     },
 
     /* ========================================================

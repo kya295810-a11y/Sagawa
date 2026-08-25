@@ -1,6 +1,8 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ImageBackground,
+  InputAccessoryView,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -10,6 +12,7 @@ import {
   TextInput,
   View,
   useWindowDimensions,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -17,7 +20,19 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useAppTheme } from '@/theme/provider';
 
-const EXCHANGE_RATE = 463.5;
+const API_BASE_URL = 'http://192.168.100.20:3000';
+
+type ExchangeResponse = {
+  success?: boolean;
+  data?: {
+    rate?: number | string;
+    updatedAt?: string;
+    rates?: Array<{
+      currency?: string;
+      buy?: number | string;
+    }>;
+  };
+};
 
 const KL_EXCHANGE = require('../../../assets/images/kl-exchange-premium.png');
 
@@ -27,6 +42,48 @@ export default function ExchangeScreen() {
 
   const [amount, setAmount] = useState('100');
   const [reverse, setReverse] = useState(false);
+  const [exchangeRate, setExchangeRate] = useState<number | null>(null);
+  const [updatedAt, setUpdatedAt] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const loadExchangeRate = useCallback(async () => {
+    try {
+      setRefreshing(true);
+
+      const response = await fetch(`${API_BASE_URL}/api/exchange`);
+
+      if (!response.ok) {
+        throw new Error(`Exchange API returned ${response.status}`);
+      }
+
+      const payload = (await response.json()) as ExchangeResponse;
+
+      const directRate = Number(payload.data?.rate);
+      const firstRate = Number(payload.data?.rates?.[0]?.buy);
+
+      const nextRate =
+        Number.isFinite(directRate) && directRate > 0
+          ? directRate
+          : Number.isFinite(firstRate) && firstRate > 0
+            ? firstRate
+            : NaN;
+
+      if (!Number.isFinite(nextRate) || nextRate <= 0) {
+        throw new Error('Invalid exchange rate received from API');
+      }
+
+      setExchangeRate(nextRate);
+      setUpdatedAt(payload.data?.updatedAt ?? null);
+    } catch (error) {
+      console.error('Exchange API error:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadExchangeRate();
+  }, [loadExchangeRate]);
 
   /*
    * ============================================================
@@ -74,16 +131,23 @@ export default function ExchangeScreen() {
     Number(amount.replace(/,/g, '')) || 0;
 
   const calculatedAmount = useMemo(() => {
-    if (reverse) {
-      return numericAmount / EXCHANGE_RATE;
+    if (!exchangeRate || !Number.isFinite(exchangeRate)) {
+      return null;
     }
 
-    return numericAmount * EXCHANGE_RATE;
-  }, [numericAmount, reverse]);
+    if (reverse) {
+      return numericAmount / exchangeRate;
+    }
 
-  const rateValue = reverse
-    ? 1 / EXCHANGE_RATE
-    : EXCHANGE_RATE;
+    return numericAmount * exchangeRate;
+  }, [numericAmount, reverse, exchangeRate]);
+
+  const rateValue =
+    exchangeRate && Number.isFinite(exchangeRate)
+      ? reverse
+        ? 1 / exchangeRate
+        : exchangeRate
+      : null;
 
   /*
    * ============================================================
@@ -91,9 +155,9 @@ export default function ExchangeScreen() {
    * ============================================================
    */
 
-  const formatNumber = (value: number) => {
-    if (!Number.isFinite(value)) {
-      return '0.00';
+  const formatNumber = (value: number | null) => {
+    if (value === null || !Number.isFinite(value)) {
+      return '—';
     }
 
     return value.toLocaleString('en-US', {
@@ -101,6 +165,19 @@ export default function ExchangeScreen() {
       maximumFractionDigits: 2,
     });
   };
+
+  const formatRate = (value: number | null) => {
+    if (value === null || !Number.isFinite(value)) {
+      return '—';
+    }
+
+    return value.toLocaleString('en-US', {
+      minimumFractionDigits: reverse ? 5 : 2,
+      maximumFractionDigits: reverse ? 5 : 2,
+    });
+  };
+
+  const inputAccessoryViewID = 'exchange-amount-input-accessory';
 
   /*
    * ============================================================
@@ -166,6 +243,10 @@ export default function ExchangeScreen() {
         <ScrollView
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={
+            Platform.OS === 'ios' ? 'interactive' : 'on-drag'
+          }
+          onScrollBeginDrag={Keyboard.dismiss}
           contentContainerStyle={
             styles.scrollContent
           }
@@ -243,14 +324,22 @@ export default function ExchangeScreen() {
                           false
                         }
                       >
-                        Updated 10:30 AM
+                        Updated {updatedAt
+                          ? new Date(updatedAt).toLocaleTimeString(
+                              'en-US',
+                              {
+                                hour: 'numeric',
+                                minute: '2-digit',
+                              },
+                            )
+                          : 'Latest rate'}
                       </Text>
                     </View>
                   </View>
                 </View>
 
                 <Pressable
-                  onPress={resetAmount}
+                  onPress={loadExchangeRate}
                   hitSlop={8}
                   style={({ pressed }) => [
                     styles.refreshButton,
@@ -258,11 +347,18 @@ export default function ExchangeScreen() {
                       styles.pressed,
                   ]}
                 >
-                  <Ionicons
-                    name="refresh"
-                    size={18}
-                    color="#FFFFFF"
-                  />
+                  {refreshing ? (
+                    <ActivityIndicator
+                      size="small"
+                      color="#FFFFFF"
+                    />
+                  ) : (
+                    <Ionicons
+                      name="refresh"
+                      size={18}
+                      color="#FFFFFF"
+                    />
+                  )}
                 </Pressable>
               </View>
 
@@ -379,7 +475,7 @@ export default function ExchangeScreen() {
                     adjustsFontSizeToFit
                     numberOfLines={1}
                   >
-                    {formatNumber(rateValue)}
+                    {formatRate(rateValue)}
                   </Text>
 
                   <Text
@@ -408,7 +504,7 @@ export default function ExchangeScreen() {
                   style={styles.changeText}
                   allowFontScaling={false}
                 >
-                  +0.50 (0.11%) Today
+                  Admin-controlled rate
                 </Text>
               </View>
             </View>
@@ -586,25 +682,61 @@ export default function ExchangeScreen() {
 
                 <TextInput
                   value={amount}
-                  onChangeText={
-                    handleAmountChange
-                  }
+                  onChangeText={handleAmountChange}
                   keyboardType="decimal-pad"
+                  inputMode="decimal"
                   selectTextOnFocus
-                  returnKeyType="done"
+                  blurOnSubmit={false}
                   placeholder="0.00"
-                  placeholderTextColor={
-                    theme.colors.textMuted
+                  placeholderTextColor={theme.colors.textMuted}
+                  selectionColor={theme.colors.primary}
+                  cursorColor={theme.colors.primary}
+                  inputAccessoryViewID={
+                    Platform.OS === 'ios'
+                      ? inputAccessoryViewID
+                      : undefined
                   }
                   style={[
                     styles.amountInput,
                     {
-                      color:
-                        theme.colors.text,
+                      color: theme.colors.text,
                     },
                   ]}
                   allowFontScaling={false}
                 />
+
+                {Platform.OS === 'ios' && (
+                  <InputAccessoryView
+                    nativeID={inputAccessoryViewID}
+                  >
+                    <View
+                      style={[
+                        styles.keyboardAccessory,
+                        {
+                          backgroundColor: theme.colors.surface,
+                          borderTopColor: theme.colors.border,
+                        },
+                      ]}
+                    >
+                      <Pressable
+                        onPress={Keyboard.dismiss}
+                        hitSlop={10}
+                        accessibilityRole="button"
+                        accessibilityLabel="Dismiss keyboard"
+                        style={({ pressed }) => [
+                          styles.keyboardDismissButton,
+                          pressed && styles.pressed,
+                        ]}
+                      >
+                        <Ionicons
+                          name="chevron-down"
+                          size={21}
+                          color={theme.colors.textMuted}
+                        />
+                      </Pressable>
+                    </View>
+                  </InputAccessoryView>
+                )}
               </View>
             </View>
 
@@ -739,9 +871,7 @@ export default function ExchangeScreen() {
                   adjustsFontSizeToFit
                   allowFontScaling={false}
                 >
-                  {formatNumber(
-                    calculatedAmount,
-                  )}
+                  {formatNumber(calculatedAmount)}
                 </Text>
               </View>
             </View>
@@ -772,7 +902,7 @@ export default function ExchangeScreen() {
                 allowFontScaling={false}
               >
                 1 {fromCurrency} ={' '}
-                {formatNumber(rateValue)}{' '}
+                {formatRate(rateValue)}{' '}
                 {toCurrency}
               </Text>
             </View>
@@ -782,7 +912,7 @@ export default function ExchangeScreen() {
             ================================================== */}
 
             <Pressable
-              onPress={() => {}}
+              onPress={Keyboard.dismiss}
               style={({ pressed }) => [
                 styles.calculateButton,
                 {
@@ -1422,6 +1552,27 @@ const createStyles = (colors: {
 
       paddingLeft: 7,
       paddingVertical: 0,
+    },
+
+    keyboardAccessory: {
+      height: 42,
+
+      borderTopWidth: 1,
+
+      alignItems: 'flex-end',
+      justifyContent: 'center',
+
+      paddingHorizontal: 12,
+    },
+
+    keyboardDismissButton: {
+      width: 36,
+      height: 36,
+
+      borderRadius: 18,
+
+      alignItems: 'center',
+      justifyContent: 'center',
     },
 
     resultAmount: {

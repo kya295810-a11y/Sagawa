@@ -1,550 +1,555 @@
 import React from 'react';
 import {
+  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { useRouter } from 'expo-router';
 
-import { useTranslation } from '@/locales';
 import { useAppTheme } from '@/theme/provider';
-import type { AppTheme } from '@/theme/types';
+import { useSettingsStore } from '@/store/settings-store';
+
+type MenuItem = {
+  id: string;
+  title: string;
+  subtitle: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  iconColor: string;
+  iconBackground: string;
+};
+
+const MENU_ITEMS: MenuItem[] = [
+  {
+    id: 'personal',
+    title: 'Personal Information',
+    subtitle: 'Manage your personal details',
+    icon: 'person-outline',
+    iconColor: '#2563EB',
+    iconBackground: '#E8F0FF',
+  },
+  {
+    id: 'notifications',
+    title: 'Notifications',
+    subtitle: 'Manage your notifications',
+    icon: 'notifications-outline',
+    iconColor: '#F59E0B',
+    iconBackground: '#FFF4DE',
+  },
+  {
+    id: 'preferences',
+    title: 'App Preferences',
+    subtitle: 'Customize your experience',
+    icon: 'settings-outline',
+    iconColor: '#10B981',
+    iconBackground: '#E1F8EE',
+  },
+  {
+    id: 'support',
+    title: 'Help & Support',
+    subtitle: 'Get help and support',
+    icon: 'help-circle-outline',
+    iconColor: '#7C3AED',
+    iconBackground: '#F0E9FF',
+  },
+  {
+    id: 'about',
+    title: 'About Malay MM',
+    subtitle: 'App information and version',
+    icon: 'information-circle-outline',
+    iconColor: '#2563EB',
+    iconBackground: '#E8F0FF',
+  },
+];
 
 export default function ProfileScreen() {
-  const { t } = useTranslation();
+  const router = useRouter();
   const { theme } = useAppTheme();
 
-  const styles = createStyles(theme);
+  const themePreference = useSettingsStore(
+    (state) => state.themePreference,
+  );
 
-  const sections = [
-    {
-      title: t('screens.profile.sections.preferences'),
-      icon: 'settings-outline' as const,
-      subtitle: 'Customize your app experience',
-    },
-    {
-      title: t('screens.profile.sections.session'),
-      icon: 'person-circle-outline' as const,
-      subtitle: 'Manage your account and session',
-    },
-    {
-      title: t('screens.profile.sections.privacy'),
-      icon: 'shield-checkmark-outline' as const,
-      subtitle: 'Privacy and security settings',
-    },
-  ];
+  const isDark = theme.isDark;
+  const styles = createStyles(theme.colors, isDark);
+
+  const toggleTheme = () => {
+    useSettingsStore.setState({
+      themePreference: isDark ? 'light' : 'dark',
+    });
+  };
+
+  const handleMenuPress = (id: string) => {
+    switch (id) {
+      case 'personal':
+        Alert.alert(
+          'Personal Information',
+          'This section is ready for your account details when the user-account system is connected.',
+        );
+        break;
+
+      case 'notifications':
+        Alert.alert(
+          'Notifications',
+          'Notification settings will be available when notifications are connected.',
+        );
+        break;
+
+      case 'preferences':
+        Alert.alert(
+          'App Preferences',
+          'Use the light and dark mode switch at the top of this screen to change the app appearance.',
+        );
+        break;
+
+      case 'support':
+        Alert.alert(
+          'Help & Support',
+          'Help and support content will be added in a future update.',
+        );
+        break;
+
+      case 'about':
+        Alert.alert(
+          'About Malay MM',
+          'Malay MM\n\nA simple, useful mobile app for the Malay MM community.',
+        );
+        break;
+
+      default:
+        break;
+    }
+  };
+
+  const handleLogout = () => {
+    Alert.alert(
+      'Log Out',
+      'Are you sure you want to log out?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Log Out',
+          style: 'destructive',
+          onPress: () => router.replace('/login'),
+        },
+      ],
+      { cancelable: true },
+    );
+  };
 
   return (
     <SafeAreaView
       style={styles.safeArea}
       edges={['top']}
     >
-      <StatusBar
-        style={theme.statusBarStyle}
-      />
+      <StatusBar style={theme.statusBarStyle} />
 
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.content}
-      >
-        {/* =====================================================
-            PROFILE HEADER
-        ===================================================== */}
-
-        <View style={styles.profileHeader}>
-          <View style={styles.avatar}>
-            <Ionicons
-              name="person"
-              size={30}
-              color={theme.colors.primary}
-            />
-          </View>
-
-          <View style={styles.profileInfo}>
-            <Text style={styles.eyebrow}>
-              PROFILE
-            </Text>
-
-            <Text style={styles.name}>
-              Kyaw San Lin
-            </Text>
-
-            <Text style={styles.description}>
-              {t('screens.profile.description')}
-            </Text>
-          </View>
-        </View>
-
-        {/* =====================================================
-            ACCOUNT & SETTINGS
-        ===================================================== */}
-
-        <Text style={styles.sectionTitle}>
-          Account & Settings
-        </Text>
-
-        <View style={styles.sectionList}>
-          {sections.map((section, index) => (
-            <Pressable
-              key={`${section.title}-${index}`}
-              style={({ pressed }) => [
-                styles.card,
-                pressed && styles.pressed,
-              ]}
+      <View style={styles.container}>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.content}
+          bounces
+        >
+          {/* HEADER */}
+          <View style={styles.header}>
+            <Text
+              style={styles.headerTitle}
+              allowFontScaling={false}
             >
-              <View style={styles.iconBox}>
+              Profile
+            </Text>
+
+            {/* GLOBAL LIGHT / DARK SWITCH */}
+            <View style={styles.themeControl}>
+              <Ionicons
+                name={isDark ? 'moon' : 'sunny'}
+                size={17}
+                color={isDark ? '#FFFFFF' : theme.colors.primary}
+              />
+
+              <Switch
+                value={isDark}
+                onValueChange={toggleTheme}
+                trackColor={{
+                  false: '#D9E2F2',
+                  true: '#2563EB',
+                }}
+                thumbColor="#FFFFFF"
+                ios_backgroundColor="#D9E2F2"
+                accessibilityRole="switch"
+                accessibilityLabel="Dark mode"
+                accessibilityState={{ checked: isDark }}
+              />
+            </View>
+          </View>
+
+          {/* SIMPLE PROFILE HERO */}
+          <View style={styles.hero}>
+            <View style={styles.heroGlow} />
+
+            <View style={styles.avatarOuter}>
+              <View style={styles.avatar}>
                 <Ionicons
-                  name={section.icon}
-                  size={22}
-                  color={theme.colors.primary}
+                  name="person"
+                  size={48}
+                  color="#FFFFFF"
                 />
               </View>
+            </View>
 
-              <View style={styles.cardContent}>
-                <Text style={styles.cardTitle}>
-                  {section.title}
-                </Text>
-
-                <Text style={styles.cardSubtitle}>
-                  {section.subtitle}
-                </Text>
-              </View>
-
-              <Ionicons
-                name="chevron-forward"
-                size={18}
-                color={theme.colors.textMuted}
-              />
-            </Pressable>
-          ))}
-        </View>
-
-        {/* =====================================================
-            APPEARANCE
-        ===================================================== */}
-
-        <Text style={styles.sectionTitle}>
-          Appearance
-        </Text>
-
-        <View style={styles.appearanceCard}>
-          <View style={styles.appearanceIcon}>
-            <Ionicons
-              name={
-                theme.isDark
-                  ? 'moon'
-                  : 'sunny'
-              }
-              size={21}
-              color={theme.colors.primary}
-            />
-          </View>
-
-          <View style={styles.appearanceContent}>
-            <Text style={styles.appearanceTitle}>
-              {theme.isDark
-                ? 'Dark Mode'
-                : 'Light Mode'}
+            <Text
+              style={styles.heroTitle}
+              allowFontScaling={false}
+            >
+              Profile
             </Text>
 
-            <Text style={styles.appearanceSubtitle}>
-              {theme.isDark
-                ? 'Dark appearance is currently active'
-                : 'Light appearance is currently active'}
+            <Text
+              style={styles.heroSubtitle}
+              allowFontScaling={false}
+            >
+              Manage your account
             </Text>
           </View>
 
-          <View
-            style={[
-              styles.modeBadge,
-              {
-                backgroundColor:
-                  theme.colors.primarySoft,
-              },
+          {/* SETTINGS LIST */}
+          <View style={styles.menuCard}>
+            {MENU_ITEMS.map((item, index) => {
+              const isPreferences = item.id === 'preferences';
+
+              return (
+                <View key={item.id}>
+                  <Pressable
+                    onPress={() => handleMenuPress(item.id)}
+                    accessibilityRole="button"
+                    accessibilityLabel={item.title}
+                    style={({ pressed }) => [
+                      styles.menuRow,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.menuIcon,
+                        {
+                          backgroundColor:
+                            isDark
+                              ? `${item.iconColor}22`
+                              : item.iconBackground,
+                        },
+                      ]}
+                    >
+                      <Ionicons
+                        name={item.icon}
+                        size={21}
+                        color={item.iconColor}
+                      />
+                    </View>
+
+                    <View style={styles.menuText}>
+                      <Text
+                        style={styles.menuTitle}
+                        allowFontScaling={false}
+                      >
+                        {item.title}
+                      </Text>
+
+                      <Text
+                        style={styles.menuSubtitle}
+                        allowFontScaling={false}
+                        numberOfLines={1}
+                      >
+                        {item.subtitle}
+                      </Text>
+                    </View>
+
+                    <Ionicons
+                      name="chevron-forward"
+                      size={19}
+                      color={theme.colors.textMuted}
+                    />
+                  </Pressable>
+
+                  {index < MENU_ITEMS.length - 1 && (
+                    <View style={styles.divider} />
+                  )}
+                </View>
+              );
+            })}
+          </View>
+
+          {/* LOG OUT */}
+          <Pressable
+            onPress={handleLogout}
+            accessibilityRole="button"
+            accessibilityLabel="Log out"
+            style={({ pressed }) => [
+              styles.logoutButton,
+              pressed && styles.logoutPressed,
             ]}
           >
-            <Text
-              style={[
-                styles.modeBadgeText,
-                {
-                  color:
-                    theme.colors.primary,
-                },
-              ]}
-            >
-              {theme.isDark
-                ? 'DARK'
-                : 'LIGHT'}
-            </Text>
-          </View>
-        </View>
-
-        {/* =====================================================
-            PRIVACY
-        ===================================================== */}
-
-        <View style={styles.privacyCard}>
-          <View style={styles.privacyIcon}>
             <Ionicons
-              name="shield-checkmark-outline"
-              size={20}
-              color={theme.colors.success}
+              name="log-out-outline"
+              size={21}
+              color="#EF4444"
             />
-          </View>
 
-          <View style={styles.privacyContent}>
-            <Text style={styles.privacyTitle}>
-              Your privacy matters
+            <Text
+              style={styles.logoutText}
+              allowFontScaling={false}
+            >
+              Log Out
             </Text>
+          </Pressable>
 
-            <Text style={styles.privacyText}>
-              Your preferences and personal settings
-              are managed securely within the app.
-            </Text>
-          </View>
-        </View>
+          <Text
+            style={styles.footer}
+            allowFontScaling={false}
+          >
+            Malay MM
+          </Text>
 
-        <View style={styles.bottomSpace} />
-      </ScrollView>
+          <View style={styles.bottomSpace} />
+        </ScrollView>
+      </View>
     </SafeAreaView>
   );
 }
 
-/* =============================================================
-   STYLES
-============================================================= */
-
-const createStyles = (theme: AppTheme) =>
+const createStyles = (
+  colors: {
+    background: string;
+    surface: string;
+    elevated: string;
+    border: string;
+    text: string;
+    textMuted: string;
+    primary: string;
+    primarySoft: string;
+  },
+  isDark: boolean,
+) =>
   StyleSheet.create({
-    /* =========================================================
-       SCREEN
-    ========================================================= */
-
     safeArea: {
       flex: 1,
-      backgroundColor: theme.colors.background,
+      backgroundColor: colors.background,
+    },
+
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
     },
 
     content: {
-      paddingHorizontal: 20,
-      paddingTop: 12,
-      paddingBottom: 90,
+      paddingHorizontal: 16,
+      paddingTop: 8,
+      paddingBottom: 20,
     },
 
-    /* =========================================================
-       PROFILE HEADER
-    ========================================================= */
-
-    profileHeader: {
+    header: {
+      minHeight: 52,
       flexDirection: 'row',
       alignItems: 'center',
-      paddingVertical: 8,
-      marginBottom: 30,
+      justifyContent: 'space-between',
+      marginBottom: 10,
+    },
+
+    headerTitle: {
+      color: colors.text,
+      fontSize: 29,
+      lineHeight: 34,
+      fontWeight: '900',
+      letterSpacing: -0.8,
+    },
+
+    themeControl: {
+      height: 40,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 3,
+      paddingLeft: 8,
+      paddingRight: 2,
+      borderRadius: 20,
+      backgroundColor: isDark
+        ? 'rgba(255,255,255,0.07)'
+        : '#F3F7FC',
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+
+    hero: {
+      minHeight: 224,
+      borderRadius: 28,
+      alignItems: 'center',
+      justifyContent: 'center',
+      overflow: 'hidden',
+      backgroundColor: isDark
+        ? '#0D1B32'
+        : '#F3F8FF',
+      borderWidth: 1,
+      borderColor: isDark
+        ? 'rgba(74,134,255,0.22)'
+        : '#DDE9FA',
+      marginBottom: 14,
+    },
+
+    heroGlow: {
+      position: 'absolute',
+      width: 210,
+      height: 210,
+      borderRadius: 105,
+      backgroundColor: isDark
+        ? 'rgba(37,99,235,0.13)'
+        : 'rgba(37,99,235,0.09)',
+      top: -48,
+      right: -55,
+    },
+
+    avatarOuter: {
+      width: 108,
+      height: 108,
+      borderRadius: 54,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 2,
+      borderColor: isDark
+        ? '#3B82F6'
+        : '#BFD8FF',
+      backgroundColor: isDark
+        ? '#152B4D'
+        : '#E8F1FF',
     },
 
     avatar: {
-      width: 70,
-      height: 70,
-      borderRadius: 35,
-
-      backgroundColor:
-        theme.colors.primarySoft,
-
-      borderWidth: 1,
-      borderColor:
-        theme.colors.border,
-
+      width: 92,
+      height: 92,
+      borderRadius: 46,
       alignItems: 'center',
       justifyContent: 'center',
-
-      marginRight: 15,
+      backgroundColor: colors.primary,
     },
 
-    profileInfo: {
-      flex: 1,
+    heroTitle: {
+      marginTop: 12,
+      color: colors.text,
+      fontSize: 21,
+      lineHeight: 26,
+      fontWeight: '900',
+      letterSpacing: -0.4,
     },
 
-    eyebrow: {
-      color: theme.colors.primary,
-
-      fontSize: 10,
-      fontWeight: '800',
-
-      letterSpacing: 1.5,
-
-      marginBottom: 4,
-    },
-
-    name: {
-      color: theme.colors.text,
-
-      fontSize: 25,
-      lineHeight: 31,
-
-      fontWeight: '800',
-
-      letterSpacing: -0.5,
-    },
-
-    description: {
-      color: theme.colors.textMuted,
-
+    heroSubtitle: {
+      marginTop: 2,
+      color: colors.textMuted,
       fontSize: 12,
-      lineHeight: 18,
-
-      marginTop: 4,
+      lineHeight: 17,
+      fontWeight: '500',
     },
 
-    /* =========================================================
-       SECTION TITLE
-    ========================================================= */
-
-    sectionTitle: {
-      color: theme.colors.text,
-
-      fontSize: 18,
-      lineHeight: 24,
-
-      fontWeight: '700',
-
-      marginBottom: 12,
+    menuCard: {
+      borderRadius: 22,
+      overflow: 'hidden',
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
     },
 
-    /* =========================================================
-       SETTINGS
-    ========================================================= */
-
-    sectionList: {
-      marginBottom: 29,
-    },
-
-    card: {
-      minHeight: 80,
-
+    menuRow: {
+      minHeight: 76,
       flexDirection: 'row',
       alignItems: 'center',
-
-      backgroundColor:
-        theme.colors.surface,
-
-      borderWidth: 1,
-      borderColor:
-        theme.colors.border,
-
-      borderRadius: 19,
-
-      paddingHorizontal: 13,
-      paddingVertical: 12,
-
-      marginBottom: 11,
-
-      shadowColor: '#000000',
-
-      shadowOffset: {
-        width: 0,
-        height: 3,
-      },
-
-      shadowOpacity:
-        theme.isDark ? 0.16 : 0.04,
-
-      shadowRadius: 8,
-
-      elevation: 2,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
     },
 
-    iconBox: {
-      width: 48,
-      height: 48,
-
-      borderRadius: 15,
-
-      backgroundColor:
-        theme.colors.primarySoft,
-
+    menuIcon: {
+      width: 43,
+      height: 43,
+      borderRadius: 13,
       alignItems: 'center',
       justifyContent: 'center',
-
-      marginRight: 13,
+      marginRight: 12,
     },
 
-    cardContent: {
+    menuText: {
       flex: 1,
       paddingRight: 8,
     },
 
-    cardTitle: {
-      color: theme.colors.text,
-
+    menuTitle: {
+      color: colors.text,
       fontSize: 15,
       lineHeight: 20,
-
-      fontWeight: '700',
-    },
-
-    cardSubtitle: {
-      color: theme.colors.textMuted,
-
-      fontSize: 11,
-      lineHeight: 16,
-
-      marginTop: 3,
-    },
-
-    /* =========================================================
-       APPEARANCE
-    ========================================================= */
-
-    appearanceCard: {
-      minHeight: 78,
-
-      flexDirection: 'row',
-      alignItems: 'center',
-
-      backgroundColor:
-        theme.colors.surface,
-
-      borderWidth: 1,
-      borderColor:
-        theme.colors.border,
-
-      borderRadius: 19,
-
-      paddingHorizontal: 13,
-      paddingVertical: 12,
-
-      marginBottom: 28,
-    },
-
-    appearanceIcon: {
-      width: 46,
-      height: 46,
-
-      borderRadius: 14,
-
-      backgroundColor:
-        theme.colors.primarySoft,
-
-      alignItems: 'center',
-      justifyContent: 'center',
-
-      marginRight: 12,
-    },
-
-    appearanceContent: {
-      flex: 1,
-    },
-
-    appearanceTitle: {
-      color: theme.colors.text,
-
-      fontSize: 14,
-      fontWeight: '700',
-    },
-
-    appearanceSubtitle: {
-      color: theme.colors.textMuted,
-
-      fontSize: 10,
-      lineHeight: 15,
-
-      marginTop: 3,
-    },
-
-    modeBadge: {
-      borderRadius: 10,
-
-      paddingHorizontal: 9,
-      paddingVertical: 6,
-    },
-
-    modeBadgeText: {
-      fontSize: 9,
       fontWeight: '800',
-
-      letterSpacing: 0.6,
     },
 
-    /* =========================================================
-       PRIVACY
-    ========================================================= */
+    menuSubtitle: {
+      color: colors.textMuted,
+      fontSize: 10.5,
+      lineHeight: 15,
+      fontWeight: '500',
+      marginTop: 1,
+    },
 
-    privacyCard: {
+    divider: {
+      height: StyleSheet.hairlineWidth,
+      backgroundColor: colors.border,
+      marginLeft: 69,
+    },
+
+    logoutButton: {
+      height: 52,
+      marginTop: 14,
+      borderRadius: 17,
       flexDirection: 'row',
       alignItems: 'center',
-
-      backgroundColor:
-        theme.colors.elevated,
-
-      borderWidth: 1,
-      borderColor:
-        theme.colors.border,
-
-      borderRadius: 19,
-
-      padding: 15,
-    },
-
-    privacyIcon: {
-      width: 42,
-      height: 42,
-
-      borderRadius: 14,
-
-      backgroundColor:
-        theme.isDark
-          ? 'rgba(111,211,164,0.14)'
-          : 'rgba(33,122,87,0.10)',
-
-      alignItems: 'center',
       justifyContent: 'center',
-
-      marginRight: 12,
+      backgroundColor: isDark
+        ? 'rgba(239,68,68,0.15)'
+        : '#FFF1F1',
+      borderWidth: 1,
+      borderColor: isDark
+        ? 'rgba(239,68,68,0.28)'
+        : '#FFD7D7',
     },
 
-    privacyContent: {
-      flex: 1,
+    logoutText: {
+      color: '#EF4444',
+      fontSize: 14,
+      lineHeight: 19,
+      fontWeight: '900',
+      marginLeft: 7,
     },
 
-    privacyTitle: {
-      color: theme.colors.text,
-
-      fontSize: 13,
-      fontWeight: '700',
-    },
-
-    privacyText: {
-      color: theme.colors.textMuted,
-
+    footer: {
+      textAlign: 'center',
+      color: colors.textMuted,
       fontSize: 10,
-      lineHeight: 15,
-
-      marginTop: 3,
+      fontWeight: '600',
+      marginTop: 16,
+      opacity: 0.75,
     },
-
-    /* =========================================================
-       PRESS
-    ========================================================= */
 
     pressed: {
-      opacity: 0.7,
-
-      transform: [
-        {
-          scale: 0.985,
-        },
-      ],
+      opacity: 0.72,
+      transform: [{ scale: 0.99 }],
     },
 
-    /* =========================================================
-       BOTTOM
-    ========================================================= */
+    logoutPressed: {
+      opacity: 0.72,
+      transform: [{ scale: 0.985 }],
+    },
 
     bottomSpace: {
-      height: 50,
+      height: 16,
     },
   });

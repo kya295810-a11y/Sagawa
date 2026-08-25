@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
+
 import './App.css';
+
 
 type Page = 'dashboard' | 'news' | 'services' | 'exchange';
 
@@ -36,10 +38,8 @@ type ServiceItem = {
 };
 
 type ExchangeItem = {
-  currency: string;
-  name: string;
-  buy: string;
-  sell: string;
+  currency: 'MYR → MMK';
+  rate: string;
 };
 
 const initialNews: NewsItem[] = [
@@ -96,7 +96,10 @@ const initialServices: ServiceItem[] = [
   },
 ];
 
-const API_BASE = 'http://localhost:3000';
+
+
+
+const API_BASE = 'http://192.168.100.20:3000';
 
 const fileToDataUrl = (file: File): Promise<string> =>
   new Promise((resolve, reject) => {
@@ -117,20 +120,10 @@ const fileToDataUrl = (file: File): Promise<string> =>
     reader.readAsDataURL(file);
   });
 
-const initialExchange: ExchangeItem[] = [
-  {
-    currency: 'MYR → MMK',
-    name: 'Malaysian Ringgit',
-    buy: '950',
-    sell: '965',
-  },
-  {
-    currency: 'USD → MMK',
-    name: 'US Dollar',
-    buy: '4,450',
-    sell: '4,500',
-  },
-];
+const initialExchange: ExchangeItem = {
+  currency: 'MYR → MMK',
+  rate: '1053',
+};
 
 function App() {
   const [activePage, setActivePage] =
@@ -145,8 +138,8 @@ function App() {
   const [services, setServices] =
     useState<ServiceItem[]>(initialServices);
 
-  const [exchangeRates, setExchangeRates] =
-    useState<ExchangeItem[]>(initialExchange);
+  const [exchangeRate, setExchangeRate] =
+    useState<ExchangeItem>(initialExchange);
 
   const [searchNews, setSearchNews] =
     useState('');
@@ -230,7 +223,7 @@ function App() {
   ========================================================= */
 
   const [exchangeDraft, setExchangeDraft] =
-    useState<ExchangeItem[]>(initialExchange);
+    useState<ExchangeItem>(initialExchange);
 
   const [apiLoading, setApiLoading] = useState(false);
   const [apiError, setApiError] = useState('');
@@ -240,72 +233,159 @@ function App() {
   ========================================================= */
 
   useEffect(() => {
-    let cancelled = false;
+  let cancelled = false;
 
-    const loadNews = async () => {
-      try {
-        setApiLoading(true);
-        setApiError('');
+  const loadContent = async () => {
+    try {
+      setApiLoading(true);
+      setApiError('');
 
-        const response = await fetch(`${API_BASE}/api/news`);
+      const [newsResponse, servicesResponse, exchangeResponse] =
+        await Promise.all([
+          fetch(`${API_BASE}/api/news`),
+          fetch(`${API_BASE}/api/services`),
+          fetch(`${API_BASE}/api/exchange`),
+        ]);
 
-        if (!response.ok) {
-          throw new Error(`News API returned ${response.status}`);
-        }
+      if (!newsResponse.ok) {
+        throw new Error(`News API returned ${newsResponse.status}`);
+      }
 
-        const result = await response.json();
+      if (!servicesResponse.ok) {
+        throw new Error(
+          `Services API returned ${servicesResponse.status}`,
+        );
+      }
 
-        if (!result.success || !Array.isArray(result.data)) {
-          throw new Error('Invalid news API response.');
-        }
+      if (!exchangeResponse.ok) {
+        throw new Error(
+          `Exchange API returned ${exchangeResponse.status}`,
+        );
+      }
 
-        if (!cancelled) {
-          setNews(result.data);
-        }
-      } catch (error) {
-        console.error('Failed to load news:', error);
+      const newsResult = await newsResponse.json();
+      const servicesResult = await servicesResponse.json();
+      const exchangeResult = await exchangeResponse.json();
 
-        if (!cancelled) {
-          setApiError(
-            'Local API is not available. Start the server on port 3000.'
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          setApiLoading(false);
+      if (
+        !newsResult.success ||
+        !Array.isArray(newsResult.data)
+      ) {
+        throw new Error('Invalid news API response.');
+      }
+
+      if (
+        !servicesResult.success ||
+        !Array.isArray(servicesResult.data)
+      ) {
+        throw new Error('Invalid services API response.');
+      }
+
+      const rawExchange =
+        exchangeResult?.data ?? exchangeResult;
+
+      let loadedRate = '';
+
+      if (
+        typeof rawExchange?.rate === 'string' ||
+        typeof rawExchange?.rate === 'number'
+      ) {
+        loadedRate = String(rawExchange.rate);
+      } else if (Array.isArray(rawExchange?.rates)) {
+        const myrRate = rawExchange.rates.find(
+          (item: Partial<ExchangeItem> & {
+            buy?: string | number;
+            sell?: string | number;
+          }) => item.currency === 'MYR → MMK',
+        );
+
+        loadedRate = String(
+          myrRate?.rate ??
+            myrRate?.buy ??
+            myrRate?.sell ??
+            '',
+        );
+      } else if (Array.isArray(rawExchange)) {
+        const myrRate = rawExchange.find(
+          (item: Partial<ExchangeItem> & {
+            buy?: string | number;
+            sell?: string | number;
+          }) => item.currency === 'MYR → MMK',
+        );
+
+        loadedRate = String(
+          myrRate?.rate ??
+            myrRate?.buy ??
+            myrRate?.sell ??
+            '',
+        );
+      }
+
+      if (!cancelled) {
+        setNews(newsResult.data);
+        setServices(servicesResult.data.slice(0, 25));
+
+        if (
+          loadedRate &&
+          loadedRate !== 'undefined'
+        ) {
+          const loadedExchange: ExchangeItem = {
+            currency: 'MYR → MMK',
+            rate: loadedRate,
+          };
+
+          setExchangeRate(loadedExchange);
+          setExchangeDraft(loadedExchange);
         }
       }
-    };
+    } catch (error) {
+      console.error('Failed to load admin content:', error);
 
-    loadNews();
+      if (!cancelled) {
+        setApiError(
+          'Could not connect to the Local API. Make sure server.js is running.',
+        );
+      }
+    } finally {
+      if (!cancelled) {
+        setApiLoading(false);
+      }
+    }
+  };
 
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  void loadContent();
+
+  return () => {
+    cancelled = true;
+  };
+}, []);
 
   /* =========================================================
      MENU
   ========================================================= */
 
-  const menuItems = [
+  const menuItems: Array<{
+    id: Page;
+    label: string;
+    icon: string;
+  }> = [
     {
-      id: 'dashboard' as Page,
+      id: 'dashboard',
       label: 'Dashboard',
       icon: '⌂',
     },
     {
-      id: 'news' as Page,
+      id: 'news',
       label: 'News',
       icon: '▤',
     },
     {
-      id: 'services' as Page,
+      id: 'services',
       label: 'Services',
       icon: '▦',
     },
     {
-      id: 'exchange' as Page,
+      id: 'exchange',
       label: 'Exchange Rate',
       icon: '$',
     },
@@ -668,70 +748,61 @@ function App() {
 
   const openAddService = () => {
     if (services.length >= 25) {
-      alert(
-        'You can have a maximum of 25 services.'
-      );
+      alert('You can have a maximum of 25 services.');
       return;
     }
 
     setEditingServiceId(null);
-
     setServiceTitle('');
     setServiceDescription('');
     setServicePhone('');
     setServiceWebsite('');
     setServiceLocation('');
     setServicePublished(true);
-
     setServiceImagePreview('');
     setServiceImageName('');
-
     setModal('serviceForm');
   };
 
-  const openEditService = (
-    item: ServiceItem
-  ) => {
+  const openEditService = (item: ServiceItem) => {
     setEditingServiceId(item.id);
-
     setServiceTitle(item.title);
     setServiceDescription(item.description);
     setServicePhone(item.phone);
     setServiceWebsite(item.website);
     setServiceLocation(item.location);
     setServicePublished(item.published);
-
     setServiceImagePreview(item.image);
     setServiceImageName(item.imageName);
-
     setModal('serviceForm');
   };
 
-  const handleServiceImage = (
-    event: React.ChangeEvent<HTMLInputElement>
+  const handleServiceImage = async (
+    event: React.ChangeEvent<HTMLInputElement>,
   ) => {
     const file = event.target.files?.[0];
 
-    if (!file) {
-      return;
-    }
+    if (!file) return;
 
     if (!file.type.startsWith('image/')) {
       alert('Please choose an image file.');
+      event.target.value = '';
       return;
     }
 
-    setServiceImagePreview(
-      URL.createObjectURL(file)
-    );
-
-    setServiceImageName(file.name);
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      setServiceImagePreview(dataUrl);
+      setServiceImageName(file.name);
+    } catch (error) {
+      console.error('Service image read error:', error);
+      alert('Could not read the selected image.');
+    }
   };
 
   const previewServiceDraft = () => {
     const title = serviceTitle.trim();
-    const description =
-      serviceDescription.trim();
+    const description = serviceDescription.trim();
 
     if (!title) {
       alert('Please enter a service title.');
@@ -739,69 +810,97 @@ function App() {
     }
 
     if (!description) {
-      alert(
-        'Please enter a service description.'
-      );
+      alert('Please enter a service description.');
       return;
     }
 
     const draft: ServiceItem = {
       id: editingServiceId ?? Date.now(),
-
       title,
-
       description,
-
       image:
         serviceImagePreview ||
         'https://images.unsplash.com/photo-1521737711867-e3b97375f902?auto=format&fit=crop&w=1200&q=85',
-
-      imageName:
-        serviceImageName || 'service-image',
-
+      imageName: serviceImageName || 'service-image',
       phone: servicePhone.trim(),
-
       website: serviceWebsite.trim(),
-
       location: serviceLocation.trim(),
-
       published: servicePublished,
     };
 
     setPreviewService(draft);
-
     setModal('servicePreview');
   };
 
-  const confirmService = () => {
-    if (!previewService) {
+  const confirmService = async () => {
+    if (!previewService) return;
+
+    if (
+      editingServiceId === null &&
+      services.length >= 25
+    ) {
+      alert('You can have a maximum of 25 services.');
       return;
     }
 
-    if (editingServiceId !== null) {
-      setServices((current) =>
-        current.map((item) =>
-          item.id === editingServiceId
-            ? previewService
-            : item
-        )
-      );
-    } else {
-      if (services.length >= 25) {
-        alert(
-          'You can have a maximum of 25 services.'
+    try {
+      setApiError('');
+      setApiLoading(true);
+
+      const isEditing = editingServiceId !== null;
+      const url = isEditing
+        ? `${API_BASE}/api/services/${editingServiceId}`
+        : `${API_BASE}/api/services`;
+
+      const response = await fetch(url, {
+        method: isEditing ? 'PUT' : 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify(previewService),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(
+          result.message || 'Could not save service.',
         );
-        return;
       }
 
-      setServices((current) => [
-        previewService,
-        ...current,
-      ]);
-    }
+      const savedService =
+        (result.data as ServiceItem | undefined) ||
+        previewService;
 
-    setPreviewService(null);
-    setModal('none');
+      if (isEditing) {
+        setServices((current) =>
+          current.map((item) =>
+            item.id === savedService.id
+              ? savedService
+              : item,
+          ),
+        );
+      } else {
+        setServices((current) => [
+          savedService,
+          ...current,
+        ]);
+      }
+
+      setPreviewService(null);
+      setModal('none');
+    } catch (error) {
+      console.error('Save service error:', error);
+      setApiError(
+        'Could not save service. Make sure the Local API is running.',
+      );
+      alert(
+        'Could not save service. Please check the Local API.',
+      );
+    } finally {
+      setApiLoading(false);
+    }
   };
 
   const askDeleteService = (id: number) => {
@@ -809,49 +908,132 @@ function App() {
     setModal('serviceDelete');
   };
 
-  const confirmDeleteService = () => {
-    if (deleteServiceId === null) {
-      return;
+  const confirmDeleteService = async () => {
+    if (deleteServiceId === null) return;
+
+    try {
+      setApiError('');
+      setApiLoading(true);
+
+      const response = await fetch(
+        `${API_BASE}/api/services/${deleteServiceId}`,
+        {
+          method: 'DELETE',
+          headers: {
+            Accept: 'application/json',
+          },
+        },
+      );
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(
+          result.message || 'Could not delete service.',
+        );
+      }
+
+      setServices((current) =>
+        current.filter(
+          (item) => item.id !== deleteServiceId,
+        ),
+      );
+
+      setDeleteServiceId(null);
+      setModal('none');
+    } catch (error) {
+      console.error('Delete service error:', error);
+      setApiError(
+        'Could not delete service. Make sure the Local API is running.',
+      );
+      alert(
+        'Could not delete service. Please check the Local API.',
+      );
+    } finally {
+      setApiLoading(false);
     }
-
-    setServices((current) =>
-      current.filter(
-        (item) => item.id !== deleteServiceId
-      )
-    );
-
-    setDeleteServiceId(null);
-    setModal('none');
   };
 
   /* =========================================================
      EXCHANGE
   ========================================================= */
 
-  const updateExchange = (
-    index: number,
-    field: keyof ExchangeItem,
-    value: string
-  ) => {
-    setExchangeDraft((current) =>
-      current.map((item, itemIndex) =>
-        itemIndex === index
-          ? {
-              ...item,
-              [field]: value,
-            }
-          : item
-      )
-    );
+  const updateExchange = (value: string) => {
+    setExchangeDraft({
+      currency: 'MYR → MMK',
+      rate: value,
+    });
   };
 
   const openExchangePreview = () => {
     setModal('exchangePreview');
   };
 
-  const confirmExchange = () => {
-    setExchangeRates(exchangeDraft);
-    setModal('none');
+  const confirmExchange = async () => {
+    const rate = exchangeDraft.rate.trim();
+
+    if (!rate) {
+      alert('Please enter an exchange rate.');
+      return;
+    }
+
+    if (!/^\d+(?:\.\d+)?$/.test(rate)) {
+      alert('Please enter a valid exchange rate.');
+      return;
+    }
+
+    try {
+      setApiError('');
+      setApiLoading(true);
+
+      const response = await fetch(
+        `${API_BASE}/api/exchange`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+          },
+          body: JSON.stringify({
+            rate,
+          }),
+        },
+      );
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(
+          result.message ||
+            'Could not save exchange rate.',
+        );
+      }
+
+      const returnedRate =
+        typeof result?.data?.rate === 'string' ||
+        typeof result?.data?.rate === 'number'
+          ? String(result.data.rate)
+          : rate;
+
+      const savedExchange: ExchangeItem = {
+        currency: 'MYR → MMK',
+        rate: returnedRate,
+      };
+
+      setExchangeRate(savedExchange);
+      setExchangeDraft(savedExchange);
+      setModal('none');
+    } catch (error) {
+      console.error('Save exchange error:', error);
+      setApiError(
+        'Could not save exchange rate. Make sure the Local API is running.',
+      );
+      alert(
+        'Could not save exchange rate. Please check the Local API.',
+      );
+    } finally {
+      setApiLoading(false);
+    }
   };
 
   /* =========================================================
@@ -998,11 +1180,11 @@ function App() {
 
           <div>
             <span>
-              Exchange Pairs
+              Current MYR → MMK
             </span>
 
             <strong>
-              {exchangeRates.length}
+              {exchangeRate.rate}
             </strong>
           </div>
         </div>
@@ -1376,14 +1558,15 @@ function App() {
           <h1>Exchange Rate</h1>
 
           <p>
-            Update rates and review changes
-            before saving.
+            Manage the current MYR to MMK exchange
+            rate shown in the mobile app.
           </p>
         </div>
 
         <button
           className="primary-button"
           onClick={openExchangePreview}
+          disabled={apiLoading}
         >
           Review Changes
         </button>
@@ -1393,11 +1576,11 @@ function App() {
         <div className="exchange-header">
           <div>
             <strong>
-              Current Exchange Rates
+              MYR → MMK
             </strong>
 
             <span>
-              Changes are only applied after confirmation.
+              1 Malaysian Ringgit to Myanmar Kyat
             </span>
           </div>
 
@@ -1410,61 +1593,41 @@ function App() {
           <div className="exchange-table-head">
             <span>PAIR</span>
             <span>NAME</span>
-            <span>BUY</span>
-            <span>SELL</span>
+            <span>RATE</span>
           </div>
 
-          {exchangeDraft.map(
-            (item, index) => (
-              <div
-                className="exchange-row"
-                key={`${item.currency}-${index}`}
-              >
-                <strong>
-                  {item.currency}
-                </strong>
+          <div className="exchange-row">
+            <strong>
+              {exchangeDraft.currency}
+            </strong>
 
-                <span>
-                  {item.name}
-                </span>
+            <span>
+              Malaysian Ringgit
+            </span>
 
-                <input
-                  value={item.buy}
-                  onChange={(event) =>
-                    updateExchange(
-                      index,
-                      'buy',
-                      event.target.value
-                    )
-                  }
-                  inputMode="decimal"
-                />
-
-                <input
-                  value={item.sell}
-                  onChange={(event) =>
-                    updateExchange(
-                      index,
-                      'sell',
-                      event.target.value
-                    )
-                  }
-                  inputMode="decimal"
-                />
-              </div>
-            )
-          )}
+            <input
+              value={exchangeDraft.rate}
+              onChange={(event) =>
+                updateExchange(
+                  event.target.value,
+                )
+              }
+              inputMode="decimal"
+              aria-label="MYR to MMK exchange rate"
+            />
+          </div>
         </div>
 
         <div className="exchange-footer">
           <span>
-            Edit values, then preview
-            before saving.
+            Current saved rate: 1 MYR ={' '}
+            {exchangeRate.rate} MMK
           </span>
 
           <button
             className="primary-button"
             onClick={openExchangePreview}
+            disabled={apiLoading}
           >
             Preview & Confirm
           </button>
@@ -2316,7 +2479,7 @@ function App() {
 
           <div>
             <strong>
-              Review all rate changes
+              Review exchange rate change
             </strong>
 
             <small>
@@ -2326,67 +2489,40 @@ function App() {
         </div>
 
         <div className="rate-review">
-          {exchangeDraft.map(
-            (item, index) => {
-              const old =
-                exchangeRates[index];
+          <div
+            className="rate-review-row"
+            key={exchangeDraft.currency}
+          >
+            <div>
+              <strong>
+                {exchangeDraft.currency}
+              </strong>
 
-              return (
-                <div
-                  className="rate-review-row"
-                  key={`${item.currency}-${index}`}
-                >
-                  <div>
-                    <strong>
-                      {item.currency}
-                    </strong>
+              <span>
+                Malaysian Ringgit to Myanmar Kyat
+              </span>
+            </div>
 
-                    <span>
-                      {item.name}
-                    </span>
-                  </div>
+            <div className="rate-values">
+              <div>
+                <small>
+                  CURRENT
+                </small>
 
-                  <div className="rate-values">
-                    <div>
-                      <small>
-                        BUY
-                      </small>
+                <span>
+                  {exchangeRate.rate}
+                </span>
 
-                      <span>
-                        {old?.buy}
-                      </span>
+                <b>
+                  →
+                </b>
 
-                      <b>
-                        →
-                      </b>
-
-                      <strong>
-                        {item.buy}
-                      </strong>
-                    </div>
-
-                    <div>
-                      <small>
-                        SELL
-                      </small>
-
-                      <span>
-                        {old?.sell}
-                      </span>
-
-                      <b>
-                        →
-                      </b>
-
-                      <strong>
-                        {item.sell}
-                      </strong>
-                    </div>
-                  </div>
-                </div>
-              );
-            }
-          )}
+                <strong>
+                  {exchangeDraft.rate}
+                </strong>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div className="modal-actions">
@@ -2399,11 +2535,12 @@ function App() {
 
           <button
             className="confirm-button"
-            onClick={
-              confirmExchange
-            }
+            onClick={confirmExchange}
+            disabled={apiLoading}
           >
-            ✓ Confirm & Save
+            {apiLoading
+              ? 'Saving...'
+              : '✓ Confirm & Save'}
           </button>
         </div>
       </div>
