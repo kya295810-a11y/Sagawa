@@ -760,7 +760,7 @@ app.use(
   },
 );
 
-app.listen(
+const server = app.listen(
   PORT,
   HOST,
   () => {
@@ -784,3 +784,10 @@ app.listen(
     );
   },
 );
+
+server.on('error', (error) => {
+  console.error(
+    'Server failed to start:',
+    error,
+  );
+});
