@@ -1,90 +1,151 @@
-import React from 'react';
+import React, { useRef, useEffect } from 'react';
 import {
-  Alert,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
-  Switch,
-  Text,
   View,
+  Text,
+  Alert,
+  Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useRouter } from 'expo-router';
-
+ 
 import { useAppTheme } from '@/theme/provider';
 import { useSettingsStore } from '@/store/settings-store';
-
+ 
 type MenuItem = {
   id: string;
   title: string;
   subtitle: string;
   icon: keyof typeof Ionicons.glyphMap;
-  iconColor: string;
-  iconBackground: string;
 };
-
-const MENU_ITEMS: MenuItem[] = [
+ 
+// "App Preferences" removed — appearance is now controlled directly
+// by the switch in the header.
+const ACCOUNT_ITEMS: MenuItem[] = [
   {
     id: 'personal',
     title: 'Personal Information',
     subtitle: 'Manage your personal details',
     icon: 'person-outline',
-    iconColor: '#2563EB',
-    iconBackground: '#E8F0FF',
   },
   {
     id: 'notifications',
     title: 'Notifications',
     subtitle: 'Manage your notifications',
     icon: 'notifications-outline',
-    iconColor: '#F59E0B',
-    iconBackground: '#FFF4DE',
   },
-  {
-    id: 'preferences',
-    title: 'App Preferences',
-    subtitle: 'Customize your experience',
-    icon: 'settings-outline',
-    iconColor: '#10B981',
-    iconBackground: '#E1F8EE',
-  },
+];
+ 
+const SUPPORT_ITEMS: MenuItem[] = [
   {
     id: 'support',
     title: 'Help & Support',
     subtitle: 'Get help and support',
     icon: 'help-circle-outline',
-    iconColor: '#7C3AED',
-    iconBackground: '#F0E9FF',
   },
   {
     id: 'about',
     title: 'About Malay MM',
     subtitle: 'App information and version',
     icon: 'information-circle-outline',
-    iconColor: '#2563EB',
-    iconBackground: '#E8F0FF',
   },
 ];
-
+ 
+/**
+ * Premium pill-style appearance switch.
+ * - Only ONE icon exists at a time (rendered inside the thumb) — no
+ *   separate background-icon layer, so there's no risk of two icons
+ *   showing at once (the bug seen on Android with the previous version).
+ * - Track color and thumb position are driven by separate Animated
+ *   values so each can use the most reliable driver for that property:
+ *   translateX uses the native driver (butter-smooth on Android),
+ *   backgroundColor uses the JS driver (required, since native driver
+ *   can't animate colors) — but color is the only thing on the JS
+ *   thread now, which is what makes it settle correctly on Android.
+ */
+function AppearanceSwitch({
+  value,
+  onValueChange,
+}: {
+  value: boolean;
+  onValueChange: (value: boolean) => void;
+}) {
+  const slide = useRef(new Animated.Value(value ? 1 : 0)).current;
+  const colorProgress = useRef(new Animated.Value(value ? 1 : 0)).current;
+ 
+  useEffect(() => {
+    Animated.timing(slide, {
+      toValue: value ? 1 : 0,
+      duration: 220,
+      useNativeDriver: true,
+    }).start();
+ 
+    Animated.timing(colorProgress, {
+      toValue: value ? 1 : 0,
+      duration: 220,
+      useNativeDriver: false,
+    }).start();
+  }, [value, slide, colorProgress]);
+ 
+  const trackColor = colorProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['#E7E7EC', '#1C1C2A'],
+  });
+ 
+  const thumbTranslate = slide.interpolate({
+    inputRange: [0, 1],
+    outputRange: [3, TRACK_WIDTH - THUMB_SIZE - 3],
+  });
+ 
+  return (
+    <Pressable
+      onPress={() => onValueChange(!value)}
+      accessibilityRole="switch"
+      accessibilityLabel="Dark mode"
+      accessibilityState={{ checked: value }}
+      hitSlop={10}
+      style={stylesSwitch.hitArea}
+    >
+      <Animated.View style={[stylesSwitch.track, { backgroundColor: trackColor }]}>
+        <Animated.View
+          style={[
+            stylesSwitch.thumb,
+            { transform: [{ translateX: thumbTranslate }] },
+          ]}
+        >
+          {/* Single icon, swapped on state change — never two at once */}
+          <Ionicons
+            name={value ? 'moon' : 'sunny'}
+            size={13}
+            color={value ? '#5B5FE0' : '#F5A623'}
+          />
+        </Animated.View>
+      </Animated.View>
+    </Pressable>
+  );
+}
+ 
+const TRACK_WIDTH = 56;
+const TRACK_HEIGHT = 30;
+const THUMB_SIZE = 24;
+ 
 export default function ProfileScreen() {
   const router = useRouter();
   const { theme } = useAppTheme();
-
-  const themePreference = useSettingsStore(
-    (state) => state.themePreference,
-  );
-
   const isDark = theme.isDark;
   const styles = createStyles(theme.colors, isDark);
-
+ 
   const toggleTheme = () => {
     useSettingsStore.setState({
       themePreference: isDark ? 'light' : 'dark',
     });
   };
-
+ 
   const handleMenuPress = (id: string) => {
     switch (id) {
       case 'personal':
@@ -93,49 +154,33 @@ export default function ProfileScreen() {
           'This section is ready for your account details when the user-account system is connected.',
         );
         break;
-
       case 'notifications':
         Alert.alert(
           'Notifications',
           'Notification settings will be available when notifications are connected.',
         );
         break;
-
-      case 'preferences':
-        Alert.alert(
-          'App Preferences',
-          'Use the light and dark mode switch at the top of this screen to change the app appearance.',
-        );
-        break;
-
       case 'support':
         Alert.alert(
           'Help & Support',
           'Help and support content will be added in a future update.',
         );
         break;
-
       case 'about':
         Alert.alert(
           'About Malay MM',
           'Malay MM\n\nA simple, useful mobile app for the Malay MM community.',
         );
         break;
-
-      default:
-        break;
     }
   };
-
+ 
   const handleLogout = () => {
     Alert.alert(
       'Log Out',
       'Are you sure you want to log out?',
       [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
+        { text: 'Cancel', style: 'cancel' },
         {
           text: 'Log Out',
           style: 'destructive',
@@ -145,186 +190,126 @@ export default function ProfileScreen() {
       { cancelable: true },
     );
   };
-
-  return (
-    <SafeAreaView
-      style={styles.safeArea}
-      edges={['top']}
-    >
-      <StatusBar style={theme.statusBarStyle} />
-
-      <View style={styles.container}>
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.content}
-          bounces
-        >
-          {/* HEADER */}
-          <View style={styles.header}>
-            <Text
-              style={styles.headerTitle}
-              allowFontScaling={false}
-            >
-              Profile
-            </Text>
-
-            {/* GLOBAL LIGHT / DARK SWITCH */}
-            <View style={styles.themeControl}>
+ 
+  const renderSection = (items: MenuItem[]) => (
+    <View style={styles.sectionCard}>
+      {items.map((item, index) => (
+        <View key={item.id}>
+          <Pressable
+            onPress={() => handleMenuPress(item.id)}
+            accessibilityRole="button"
+            accessibilityLabel={item.title}
+            android_ripple={{ color: isDark ? '#2A2A2E' : '#ECECEE' }}
+            style={({ pressed }) => [
+              styles.menuRow,
+              Platform.OS === 'ios' && pressed && styles.pressed,
+            ]}
+          >
+            <View style={styles.iconColumn}>
               <Ionicons
-                name={isDark ? 'moon' : 'sunny'}
-                size={17}
-                color={isDark ? '#FFFFFF' : theme.colors.primary}
-              />
-
-              <Switch
-                value={isDark}
-                onValueChange={toggleTheme}
-                trackColor={{
-                  false: '#D9E2F2',
-                  true: '#2563EB',
-                }}
-                thumbColor="#FFFFFF"
-                ios_backgroundColor="#D9E2F2"
-                accessibilityRole="switch"
-                accessibilityLabel="Dark mode"
-                accessibilityState={{ checked: isDark }}
+                name={item.icon}
+                size={21}
+                color={isDark ? '#FFFFFF' : '#111111'}
               />
             </View>
+ 
+            <View style={styles.menuText}>
+              <Text style={styles.menuTitle} allowFontScaling={false}>
+                {item.title}
+              </Text>
+              <Text
+                style={styles.menuSubtitle}
+                allowFontScaling={false}
+                numberOfLines={1}
+              >
+                {item.subtitle}
+              </Text>
+            </View>
+ 
+            <Ionicons
+              name="chevron-forward"
+              size={17}
+              color={isDark ? '#636366' : '#A7A7AD'}
+            />
+          </Pressable>
+ 
+          {index < items.length - 1 && <View style={styles.divider} />}
+        </View>
+      ))}
+    </View>
+  );
+ 
+  return (
+    <SafeAreaView style={styles.safeArea} edges={['top']}>
+      <StatusBar style={theme.statusBarStyle} />
+ 
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        bounces
+      >
+        <View style={styles.header}>
+          <Text style={styles.headerTitle} allowFontScaling={false}>
+            Profile
+          </Text>
+ 
+          <AppearanceSwitch
+            value={isDark}
+            onValueChange={toggleTheme}
+          />
+        </View>
+ 
+        <View style={styles.profileHeader}>
+          <View style={styles.avatar}>
+            <Ionicons name="person" size={39} color="#FFFFFF" />
           </View>
-
-          {/* SIMPLE PROFILE HERO */}
-          <View style={styles.hero}>
-            <View style={styles.heroGlow} />
-
-            <View style={styles.avatarOuter}>
-              <View style={styles.avatar}>
-                <Ionicons
-                  name="person"
-                  size={48}
-                  color="#FFFFFF"
-                />
-              </View>
-            </View>
-
-            <Text
-              style={styles.heroTitle}
-              allowFontScaling={false}
-            >
-              Profile
+ 
+          <View style={styles.profileText}>
+            <Text style={styles.profileName} allowFontScaling={false}>
+              Your Profile
             </Text>
-
-            <Text
-              style={styles.heroSubtitle}
-              allowFontScaling={false}
-            >
+            <Text style={styles.profileSubtitle} allowFontScaling={false}>
               Manage your account
             </Text>
           </View>
-
-          {/* SETTINGS LIST */}
-          <View style={styles.menuCard}>
-            {MENU_ITEMS.map((item, index) => {
-              const isPreferences = item.id === 'preferences';
-
-              return (
-                <View key={item.id}>
-                  <Pressable
-                    onPress={() => handleMenuPress(item.id)}
-                    accessibilityRole="button"
-                    accessibilityLabel={item.title}
-                    style={({ pressed }) => [
-                      styles.menuRow,
-                      pressed && styles.pressed,
-                    ]}
-                  >
-                    <View
-                      style={[
-                        styles.menuIcon,
-                        {
-                          backgroundColor:
-                            isDark
-                              ? `${item.iconColor}22`
-                              : item.iconBackground,
-                        },
-                      ]}
-                    >
-                      <Ionicons
-                        name={item.icon}
-                        size={21}
-                        color={item.iconColor}
-                      />
-                    </View>
-
-                    <View style={styles.menuText}>
-                      <Text
-                        style={styles.menuTitle}
-                        allowFontScaling={false}
-                      >
-                        {item.title}
-                      </Text>
-
-                      <Text
-                        style={styles.menuSubtitle}
-                        allowFontScaling={false}
-                        numberOfLines={1}
-                      >
-                        {item.subtitle}
-                      </Text>
-                    </View>
-
-                    <Ionicons
-                      name="chevron-forward"
-                      size={19}
-                      color={theme.colors.textMuted}
-                    />
-                  </Pressable>
-
-                  {index < MENU_ITEMS.length - 1 && (
-                    <View style={styles.divider} />
-                  )}
-                </View>
-              );
-            })}
-          </View>
-
-          {/* LOG OUT */}
-          <Pressable
-            onPress={handleLogout}
-            accessibilityRole="button"
-            accessibilityLabel="Log out"
-            style={({ pressed }) => [
-              styles.logoutButton,
-              pressed && styles.logoutPressed,
-            ]}
-          >
-            <Ionicons
-              name="log-out-outline"
-              size={21}
-              color="#EF4444"
-            />
-
-            <Text
-              style={styles.logoutText}
-              allowFontScaling={false}
-            >
-              Log Out
-            </Text>
-          </Pressable>
-
-          <Text
-            style={styles.footer}
-            allowFontScaling={false}
-          >
-            Malay MM
+        </View>
+ 
+        <Text style={styles.sectionLabel} allowFontScaling={false}>
+          ACCOUNT
+        </Text>
+ 
+        {renderSection(ACCOUNT_ITEMS)}
+ 
+        <Text
+          style={[styles.sectionLabel, styles.supportLabel]}
+          allowFontScaling={false}
+        >
+          SUPPORT
+        </Text>
+ 
+        {renderSection(SUPPORT_ITEMS)}
+ 
+        <Pressable
+          onPress={handleLogout}
+          accessibilityRole="button"
+          accessibilityLabel="Log out"
+          android_ripple={{ color: 'rgba(255,59,48,0.15)' }}
+          style={({ pressed }) => [
+            styles.logoutRow,
+            Platform.OS === 'ios' && pressed && styles.pressed,
+          ]}
+        >
+          <Ionicons name="log-out-outline" size={21} color="#FF3B30" />
+          <Text style={styles.logoutText} allowFontScaling={false}>
+            Log Out
           </Text>
-
-          <View style={styles.bottomSpace} />
-        </ScrollView>
-      </View>
+        </Pressable>
+      </ScrollView>
     </SafeAreaView>
   );
 }
-
+ 
 const createStyles = (
   colors: {
     background: string;
@@ -343,213 +328,189 @@ const createStyles = (
       flex: 1,
       backgroundColor: colors.background,
     },
-
     container: {
       flex: 1,
       backgroundColor: colors.background,
     },
-
     content: {
       paddingHorizontal: 16,
-      paddingTop: 8,
-      paddingBottom: 20,
+      paddingTop: Platform.OS === 'ios' ? 2 : 8,
+      paddingBottom: 28,
     },
-
     header: {
-      minHeight: 52,
+      height: 52,
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      marginBottom: 10,
+      marginBottom: 16,
     },
-
     headerTitle: {
       color: colors.text,
-      fontSize: 29,
-      lineHeight: 34,
-      fontWeight: '900',
-      letterSpacing: -0.8,
+      fontSize: 34,
+      lineHeight: 40,
+      fontWeight: '700',
+      letterSpacing: -1.1,
     },
-
-    themeControl: {
-      height: 40,
+    profileHeader: {
+      minHeight: 78,
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 3,
-      paddingLeft: 8,
-      paddingRight: 2,
-      borderRadius: 20,
-      backgroundColor: isDark
-        ? 'rgba(255,255,255,0.07)'
-        : '#F3F7FC',
-      borderWidth: 1,
-      borderColor: colors.border,
+      marginBottom: 28,
+      paddingHorizontal: 2,
     },
-
-    hero: {
-      minHeight: 224,
-      borderRadius: 28,
-      alignItems: 'center',
-      justifyContent: 'center',
-      overflow: 'hidden',
-      backgroundColor: isDark
-        ? '#0D1B32'
-        : '#F3F8FF',
-      borderWidth: 1,
-      borderColor: isDark
-        ? 'rgba(74,134,255,0.22)'
-        : '#DDE9FA',
-      marginBottom: 14,
-    },
-
-    heroGlow: {
-      position: 'absolute',
-      width: 210,
-      height: 210,
-      borderRadius: 105,
-      backgroundColor: isDark
-        ? 'rgba(37,99,235,0.13)'
-        : 'rgba(37,99,235,0.09)',
-      top: -48,
-      right: -55,
-    },
-
-    avatarOuter: {
-      width: 108,
-      height: 108,
-      borderRadius: 54,
-      alignItems: 'center',
-      justifyContent: 'center',
-      borderWidth: 2,
-      borderColor: isDark
-        ? '#3B82F6'
-        : '#BFD8FF',
-      backgroundColor: isDark
-        ? '#152B4D'
-        : '#E8F1FF',
-    },
-
     avatar: {
-      width: 92,
-      height: 92,
-      borderRadius: 46,
+      width: 72,
+      height: 72,
+      borderRadius: 36,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: colors.primary,
+      backgroundColor: isDark ? '#333333' : '#E5E7EB',
     },
-
-    heroTitle: {
-      marginTop: 12,
+    profileText: {
+      flex: 1,
+      marginLeft: 16,
+    },
+    profileName: {
       color: colors.text,
       fontSize: 21,
       lineHeight: 26,
-      fontWeight: '900',
-      letterSpacing: -0.4,
+      fontWeight: '700',
+      letterSpacing: -0.35,
     },
-
-    heroSubtitle: {
-      marginTop: 2,
+    profileSubtitle: {
+      marginTop: 3,
+      color: colors.textMuted,
+      fontSize: 13,
+      lineHeight: 18,
+      fontWeight: '400',
+    },
+    sectionLabel: {
+      marginLeft: 12,
+      marginBottom: 8,
       color: colors.textMuted,
       fontSize: 12,
-      lineHeight: 17,
+      lineHeight: 16,
       fontWeight: '500',
+      letterSpacing: 0.35,
     },
-
-    menuCard: {
-      borderRadius: 22,
+    supportLabel: {
+      marginTop: 24,
+    },
+    sectionCard: {
       overflow: 'hidden',
+      borderRadius: 16,
       backgroundColor: colors.surface,
-      borderWidth: 1,
+      borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.border,
     },
-
     menuRow: {
-      minHeight: 76,
+      minHeight: 72,
       flexDirection: 'row',
       alignItems: 'center',
       paddingHorizontal: 14,
       paddingVertical: 10,
+      backgroundColor: colors.surface,
     },
-
-    menuIcon: {
-      width: 43,
-      height: 43,
-      borderRadius: 13,
-      alignItems: 'center',
+    pressed: {
+      opacity: 0.62,
+    },
+    iconColumn: {
+      width: 38,
+      alignItems: 'flex-start',
       justifyContent: 'center',
-      marginRight: 12,
     },
-
     menuText: {
       flex: 1,
-      paddingRight: 8,
+      minWidth: 0,
+      paddingRight: 10,
     },
-
     menuTitle: {
       color: colors.text,
-      fontSize: 15,
-      lineHeight: 20,
-      fontWeight: '800',
+      fontSize: 16,
+      lineHeight: 21,
+      fontWeight: '600',
+      letterSpacing: -0.15,
     },
-
     menuSubtitle: {
-      color: colors.textMuted,
-      fontSize: 10.5,
-      lineHeight: 15,
-      fontWeight: '500',
       marginTop: 1,
+      color: colors.textMuted,
+      fontSize: 12,
+      lineHeight: 17,
+      fontWeight: '400',
     },
-
     divider: {
       height: StyleSheet.hairlineWidth,
+      marginLeft: 52,
       backgroundColor: colors.border,
-      marginLeft: 69,
     },
-
-    logoutButton: {
-      height: 52,
-      marginTop: 14,
-      borderRadius: 17,
+    logoutRow: {
+      height: 58,
+      marginTop: 20,
+      borderRadius: 16,
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: isDark
-        ? 'rgba(239,68,68,0.15)'
-        : '#FFF1F1',
-      borderWidth: 1,
+      backgroundColor: colors.surface,
+      borderWidth: StyleSheet.hairlineWidth,
       borderColor: isDark
-        ? 'rgba(239,68,68,0.28)'
-        : '#FFD7D7',
+        ? 'rgba(255,59,48,0.22)'
+        : 'rgba(255,59,48,0.14)',
+      overflow: 'hidden',
     },
-
     logoutText: {
-      color: '#EF4444',
-      fontSize: 14,
-      lineHeight: 19,
-      fontWeight: '900',
-      marginLeft: 7,
-    },
-
-    footer: {
-      textAlign: 'center',
-      color: colors.textMuted,
-      fontSize: 10,
+      marginLeft: 8,
+      color: '#FF3B30',
+      fontSize: 16,
+      lineHeight: 21,
       fontWeight: '600',
-      marginTop: 16,
-      opacity: 0.75,
-    },
-
-    pressed: {
-      opacity: 0.72,
-      transform: [{ scale: 0.99 }],
-    },
-
-    logoutPressed: {
-      opacity: 0.72,
-      transform: [{ scale: 0.985 }],
-    },
-
-    bottomSpace: {
-      height: 16,
     },
   });
+ 
+const stylesSwitch = StyleSheet.create({
+  hitArea: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 4,
+  },
+  track: {
+    width: TRACK_WIDTH,
+    height: TRACK_HEIGHT,
+    borderRadius: TRACK_HEIGHT / 2,
+    justifyContent: 'center',
+    // Soft shadow on iOS, elevation on Android — this is what keeps it
+    // from looking flat/plasticky on Android specifically.
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.08,
+        shadowRadius: 3,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
+  },
+  thumb: {
+    position: 'absolute',
+    top: 3,
+    width: THUMB_SIZE,
+    height: THUMB_SIZE,
+    borderRadius: THUMB_SIZE / 2,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.18,
+        shadowRadius: 2,
+      },
+      android: {
+        elevation: 3,
+      },
+    }),
+  },
+});
+ 
