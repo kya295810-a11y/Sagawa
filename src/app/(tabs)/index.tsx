@@ -1,4 +1,5 @@
 import React, { useCallback, useState } from 'react';
+import { env } from '@/config/env';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import {
   ImageBackground,
@@ -26,7 +27,7 @@ const KL_DAY = require('../../../assets/images/kl-day.png');
 const KL_NIGHT = require('../../../assets/images/kl-night.png');
 
 
-const API_BASE_URL = 'http://192.168.100.20:3000';
+const API_BASE_URL = env.EXPO_PUBLIC_API_URL;
 
 type NewsItem = {
   id: number | string;

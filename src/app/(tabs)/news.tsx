@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { env } from '@/config/env';
 import {
   ActivityIndicator,
   FlatList,
@@ -44,10 +45,8 @@ type NewsItem = {
   type: NewsType;
 };
 
-const API_BASE_URL =
-  Platform.OS === 'android'
-    ? 'http://10.0.2.2:3000'
-    : 'http://localhost:3000';
+const API_BASE_URL = env.EXPO_PUBLIC_API_URL;
+
 
 const mapApiNews = (item: ApiNewsItem): NewsItem => ({
   id: String(item.id),

@@ -21,8 +21,7 @@ import { useAppTheme } from '@/theme/provider';
 import type { ThemeColors } from '@/theme/types';
 import { env } from '@/config/env';
 
-const API_BASE_URL =
-  env.EXPO_PUBLIC_API_URL || 'http://192.168.100.20:3000';
+const API_BASE_URL = env.EXPO_PUBLIC_API_URL;
 
 const SERVICES_ENDPOINT = `${API_BASE_URL}/api/services`;
 

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { env } from '@/config/env';
 import {
   ImageBackground,
   InputAccessoryView,
@@ -20,7 +21,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useAppTheme } from '@/theme/provider';
 
-const API_BASE_URL = 'http://192.168.100.20:3000';
+const API_BASE_URL = env.EXPO_PUBLIC_API_URL;
 
 type ExchangeResponse = {
   success?: boolean;
