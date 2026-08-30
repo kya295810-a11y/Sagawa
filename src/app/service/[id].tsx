@@ -1,6 +1,7 @@
 import React from 'react';
 import {
   Image,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -14,6 +15,8 @@ import { StatusBar } from 'expo-status-bar';
 
 import { useAppTheme } from '@/theme/provider';
 import type { ThemeColors } from '@/theme/types';
+
+const ANDROID_EXTRA_BOLD = Platform.OS === 'android' ? '700' : '800';
 
 /* ============================================================
    SERVICE TYPE
@@ -433,6 +436,7 @@ const createStyles = (colors: ThemeColors) =>
       color: colors.text,
 
       fontSize: 17,
+      lineHeight: 22,
       fontWeight: '700',
 
       textAlign: 'center',
@@ -517,6 +521,7 @@ const createStyles = (colors: ThemeColors) =>
       color: '#087CFF',
 
       fontSize: 10,
+      lineHeight: 13,
       fontWeight: '700',
     },
 
@@ -555,7 +560,7 @@ const createStyles = (colors: ThemeColors) =>
       fontSize: 29,
       lineHeight: 35,
 
-      fontWeight: '800',
+      fontWeight: ANDROID_EXTRA_BOLD,
 
       letterSpacing: -0.7,
 
@@ -584,6 +589,7 @@ const createStyles = (colors: ThemeColors) =>
       color: colors.primary,
 
       fontSize: 11,
+      lineHeight: 15,
       fontWeight: '600',
     },
 
@@ -659,6 +665,7 @@ const createStyles = (colors: ThemeColors) =>
       color: colors.text,
 
       fontSize: 14,
+      lineHeight: 18,
       fontWeight: '700',
     },
 
@@ -705,6 +712,7 @@ const createStyles = (colors: ThemeColors) =>
       color: '#FFFFFF',
 
       fontSize: 14,
+      lineHeight: 18,
       fontWeight: '700',
     },
 
@@ -725,6 +733,7 @@ const createStyles = (colors: ThemeColors) =>
       color: colors.text,
 
       fontSize: 21,
+      lineHeight: 27,
       fontWeight: '700',
 
       marginTop: 14,
@@ -734,6 +743,7 @@ const createStyles = (colors: ThemeColors) =>
       color: colors.textMuted,
 
       fontSize: 13,
+      lineHeight: 18,
 
       marginTop: 6,
 
@@ -755,6 +765,7 @@ const createStyles = (colors: ThemeColors) =>
       color: '#FFFFFF',
 
       fontSize: 13,
+      lineHeight: 17,
       fontWeight: '700',
     },
 

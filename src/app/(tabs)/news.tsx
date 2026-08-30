@@ -1,20 +1,25 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { env } from '@/config/env';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Image,
-  Platform,
+  Keyboard,
   Pressable,
   StyleSheet,
   Text,
+  TextInput,
   View,
   useWindowDimensions,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
+import { useRouter } from 'expo-router';
+import * as Notifications from 'expo-notifications';
 
+import { registerPushToken } from '@/services/notifications/push-token';
 import { useAppTheme } from '@/theme/provider';
 import type { ThemeColors } from '@/theme/types';
 
@@ -72,6 +77,7 @@ const mapApiNews = (item: ApiNewsItem): NewsItem => ({
 
 export default function NewsScreen() {
   const { width, height } = useWindowDimensions();
+  const router = useRouter();
 
   /* ==========================================================
      GLOBAL THEME
@@ -87,6 +93,8 @@ export default function NewsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const [searchVisible, setSearchVisible] = useState(false);
+  const [searchText, setSearchText] = useState('');
 
   const loadNews = useCallback(async () => {
     try {
@@ -146,6 +154,117 @@ export default function NewsScreen() {
     setRefreshing(true);
     loadNews();
   }, [loadNews]);
+
+  const filteredNews = useMemo(() => {
+   const query = searchText.trim().toLowerCase();
+
+   if (!query) {
+     return news;
+   }
+
+   return news.filter((item) =>
+     `${item.title} ${item.description} ${item.category} ${item.time}`
+       .toLowerCase()
+       .includes(query),
+   );
+  }, [news, searchText]);
+
+  const closeSearch = useCallback(() => {
+   Keyboard.dismiss();
+   setSearchText('');
+   setSearchVisible(false);
+  }, []);
+
+  const openNewsDetail = useCallback(
+   (id: string | number | undefined) => {
+     if (id === undefined || id === null || id === '') {
+       return;
+     }
+
+     router.push({
+       pathname: '/news/[id]',
+       params: { id: String(id) },
+     });
+   },
+   [router],
+  );
+
+  const handleBellPress = useCallback(async () => {
+   try {
+     const result = await registerPushToken();
+
+     if (result.status === 'registered') {
+       return;
+     }
+
+     if (result.status === 'denied') {
+       Alert.alert(
+         'Notifications Disabled',
+         'Notification permission was not granted. You can enable it later from your device settings.',
+       );
+       return;
+     }
+
+     Alert.alert(
+       'Notifications Unavailable',
+       'Push notifications require a physical device.',
+     );
+   } catch (requestError) {
+     console.error('News push registration error:', requestError);
+     Alert.alert(
+       'Notifications Error',
+       'Unable to register for push notifications right now.',
+     );
+   }
+  }, []);
+
+  useEffect(() => {
+   const handleNotificationResponse = (
+     response: Notifications.NotificationResponse,
+   ) => {
+     try {
+       const data = response.notification.request.content.data as
+         | Record<string, unknown>
+         | undefined;
+
+       const candidateId =
+         data?.newsId ??
+         data?.news_id ??
+         data?.id ??
+         data?.articleId ??
+         data?.article_id ??
+         data?.postId ??
+         data?.post_id;
+
+       if (typeof candidateId === 'string' || typeof candidateId === 'number') {
+         openNewsDetail(candidateId);
+       }
+     } catch (notificationError) {
+       console.error('Notification tap handling error:', notificationError);
+     }
+   };
+
+   const subscription = Notifications.addNotificationResponseReceivedListener(
+     handleNotificationResponse,
+   );
+
+   let isMounted = true;
+
+   Notifications.getLastNotificationResponseAsync()
+     .then((response) => {
+       if (isMounted && response) {
+         handleNotificationResponse(response);
+       }
+     })
+     .catch((error) => {
+       console.error('Failed to read last notification response:', error);
+     });
+
+   return () => {
+     isMounted = false;
+     subscription.remove();
+   };
+  }, [openNewsDetail]);
 
   /* ==========================================================
      RESPONSIVE IMAGE HEIGHT
@@ -312,50 +431,86 @@ export default function NewsScreen() {
         ==================================================== */}
 
         <View style={styles.header}>
-          <Text
-            style={styles.title}
-            allowFontScaling={false}
-          >
-            News
-          </Text>
-
-          <View style={styles.headerActions}>
-            {/* SEARCH */}
-
-            <Pressable
-              style={({ pressed }) => [
-                styles.headerButton,
-                pressed && styles.buttonPressed,
-              ]}
-              hitSlop={6}
-              onPress={() => {}}
-            >
+          {searchVisible ? (
+            <View style={styles.searchBar}>
               <Ionicons
                 name="search-outline"
-                size={21}
-                color={theme.colors.text}
-              />
-            </Pressable>
-
-            {/* NOTIFICATION */}
-
-            <Pressable
-              style={({ pressed }) => [
-                styles.headerButton,
-                pressed && styles.buttonPressed,
-              ]}
-              hitSlop={6}
-              onPress={() => {}}
-            >
-              <Ionicons
-                name="notifications-outline"
-                size={21}
-                color={theme.colors.text}
+                size={18}
+                color={theme.colors.textMuted}
               />
 
-              <View style={styles.notificationDot} />
-            </Pressable>
-          </View>
+              <TextInput
+                autoFocus
+                value={searchText}
+                onChangeText={setSearchText}
+                placeholder="Search news"
+                placeholderTextColor={theme.colors.textMuted}
+                style={styles.searchInput}
+                returnKeyType="search"
+                autoCorrect={false}
+                autoCapitalize="none"
+                onSubmitEditing={() => Keyboard.dismiss()}
+              />
+
+              <Pressable
+                onPress={closeSearch}
+                hitSlop={8}
+              >
+                <Ionicons
+                  name="close-circle"
+                  size={20}
+                  color={theme.colors.textMuted}
+                />
+              </Pressable>
+            </View>
+          ) : (
+            <>
+              <Text
+                style={styles.title}
+                allowFontScaling={false}
+              >
+                News
+              </Text>
+
+              <View style={styles.headerActions}>
+                {/* SEARCH */}
+
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.headerButton,
+                    pressed && styles.buttonPressed,
+                  ]}
+                  hitSlop={6}
+                  onPress={() => setSearchVisible(true)}
+                >
+                  <Ionicons
+                    name="search-outline"
+                    size={21}
+                    color={theme.colors.text}
+                  />
+                </Pressable>
+
+                {/* NOTIFICATION */}
+
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.headerButton,
+                    pressed && styles.buttonPressed,
+                  ]}
+                  hitSlop={6}
+                  onPress={handleBellPress}
+                >
+                  <Ionicons
+                    name="notifications-outline"
+                    size={21}
+                    color={theme.colors.text}
+                  />
+
+                  <View style={styles.notificationDot} />
+                </Pressable>
+              </View>
+            </>
+          )}
         </View>
 
         {/* ====================================================
@@ -421,24 +576,37 @@ export default function NewsScreen() {
           </View>
         ) : null}
 
-        <FlatList
-          data={news}
-          keyExtractor={(item) => item.id}
-          refreshing={refreshing}
-          onRefresh={handleRefresh}
-          renderItem={renderNewsCard}
-          showsVerticalScrollIndicator={false}
-          showsHorizontalScrollIndicator={false}
-          directionalLockEnabled
-          bounces
-          nestedScrollEnabled
-          contentContainerStyle={[
-            styles.listContent,
-            {
-              width: contentWidth,
-            },
-          ]}
-        />
+        {loading || error ? null : news.length === 0 ? null : (
+          <FlatList
+            data={filteredNews}
+            keyExtractor={(item) => item.id}
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            renderItem={renderNewsCard}
+            showsVerticalScrollIndicator={false}
+            showsHorizontalScrollIndicator={false}
+            directionalLockEnabled
+            bounces
+            nestedScrollEnabled
+            contentContainerStyle={[
+              styles.listContent,
+              {
+                width: contentWidth,
+              },
+            ]}
+            ListEmptyComponent={
+              <View style={styles.stateContainer}>
+                <Text style={styles.stateTitle}>
+                  No matching news
+                </Text>
+                <Text style={styles.stateText}>
+                  Try a different search term.
+                </Text>
+              </View>
+            }
+          />
+        )}
+
       </View>
     </SafeAreaView>
   );
@@ -513,6 +681,35 @@ const createStyles = (colors: ThemeColors) =>
       shadowOpacity: 0.06,
       shadowRadius: 8,
       elevation: 2,
+    },
+
+    searchBar: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      borderRadius: 16,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      shadowColor: '#000000',
+      shadowOffset: {
+        width: 0,
+        height: 3,
+      },
+      shadowOpacity: 0.06,
+      shadowRadius: 8,
+      elevation: 2,
+    },
+
+    searchInput: {
+      flex: 1,
+      color: colors.text,
+      fontSize: 14,
+      lineHeight: 18,
+      paddingVertical: 0,
     },
 
     buttonPressed: {

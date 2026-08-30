@@ -16,6 +16,14 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 
 const LOGIN_BACKGROUND = require("../../assets/images/login-bg.jpg");
+const ANDROID_EXTRA_BOLD = Platform.OS === "android" ? "700" : "800";
+const ANDROID_INPUT_TEXT_FIX = Platform.select({
+  android: {
+    paddingVertical: 0,
+    textAlignVertical: "center" as const,
+  },
+  default: {},
+});
 
 export default function LoginScreen() {
   const [email, setEmail] = useState("");
@@ -353,7 +361,7 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 25,
     lineHeight: 30,
-    fontWeight: "800",
+    fontWeight: ANDROID_EXTRA_BOLD,
     includeFontPadding: false,
   },
 
@@ -398,7 +406,7 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 30,
     lineHeight: 37,
-    fontWeight: "800",
+    fontWeight: ANDROID_EXTRA_BOLD,
     letterSpacing: -0.8,
     marginBottom: 9,
     includeFontPadding: false,
@@ -441,6 +449,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: "#FFFFFF",
     includeFontPadding: false,
+    ...ANDROID_INPUT_TEXT_FIX,
   },
 
   passwordHeader: {
@@ -549,7 +558,7 @@ const styles = StyleSheet.create({
   googleIcon: {
     fontSize: 17,
     lineHeight: 20,
-    fontWeight: "800",
+    fontWeight: ANDROID_EXTRA_BOLD,
     color: "#FFFFFF",
     includeFontPadding: false,
   },

@@ -12,6 +12,15 @@ import {
 } from "react-native";
 import { router } from "expo-router";
 
+const ANDROID_EXTRA_BOLD = Platform.OS === "android" ? "700" : "800";
+const ANDROID_INPUT_TEXT_FIX = Platform.select({
+  android: {
+    paddingVertical: 0,
+    textAlignVertical: "center" as const,
+  },
+  default: {},
+});
+
 export default function ForgotPasswordScreen() {
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
@@ -185,6 +194,7 @@ const styles = StyleSheet.create({
 
   backText: {
     fontSize: 14,
+    lineHeight: 18,
     fontWeight: "600",
     color: "#475467",
   },
@@ -209,11 +219,13 @@ const styles = StyleSheet.create({
   logoText: {
     color: "#FFFFFF",
     fontSize: 23,
-    fontWeight: "800",
+    lineHeight: 28,
+    fontWeight: ANDROID_EXTRA_BOLD,
   },
 
   brandName: {
     fontSize: 16,
+    lineHeight: 20,
     fontWeight: "700",
     color: "#172033",
     letterSpacing: -0.3,
@@ -228,7 +240,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 30,
     lineHeight: 37,
-    fontWeight: "800",
+    fontWeight: ANDROID_EXTRA_BOLD,
     color: "#101828",
     letterSpacing: -0.8,
     marginBottom: 10,
@@ -248,6 +260,7 @@ const styles = StyleSheet.create({
 
   label: {
     fontSize: 14,
+    lineHeight: 18,
     fontWeight: "600",
     color: "#344054",
     marginBottom: 8,
@@ -261,7 +274,9 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     paddingHorizontal: 16,
     fontSize: 16,
+    lineHeight: 20,
     color: "#101828",
+    ...ANDROID_INPUT_TEXT_FIX,
   },
 
   resetButton: {
@@ -289,6 +304,7 @@ const styles = StyleSheet.create({
   resetButtonText: {
     color: "#FFFFFF",
     fontSize: 16,
+    lineHeight: 20,
     fontWeight: "700",
   },
 
@@ -318,7 +334,7 @@ const styles = StyleSheet.create({
   successTitle: {
     fontSize: 25,
     lineHeight: 32,
-    fontWeight: "800",
+    fontWeight: ANDROID_EXTRA_BOLD,
     color: "#101828",
     letterSpacing: -0.5,
     marginBottom: 12,
@@ -344,6 +360,7 @@ const styles = StyleSheet.create({
 
   tryAgainText: {
     fontSize: 14,
+    lineHeight: 18,
     fontWeight: "700",
     color: "#3195F5",
   },
@@ -359,11 +376,13 @@ const styles = StyleSheet.create({
 
   bottomText: {
     fontSize: 14,
+    lineHeight: 18,
     color: "#667085",
   },
 
   loginLink: {
     fontSize: 14,
+    lineHeight: 18,
     fontWeight: "700",
     color: "#3195F5",
   },

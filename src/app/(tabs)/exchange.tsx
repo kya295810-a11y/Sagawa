@@ -22,6 +22,15 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAppTheme } from '@/theme/provider';
 
 const API_BASE_URL = env.EXPO_PUBLIC_API_URL;
+const ANDROID_BLACK = Platform.OS === 'android' ? '700' : '900';
+const ANDROID_EXTRA_BOLD = Platform.OS === 'android' ? '700' : '800';
+const ANDROID_INPUT_TEXT_FIX = Platform.select({
+  android: {
+    paddingVertical: 0,
+    textAlignVertical: 'center' as const,
+  },
+  default: {},
+});
 
 type ExchangeResponse = {
   success?: boolean;
@@ -1129,7 +1138,7 @@ const createStyles = (colors: {
       fontSize: 23,
       lineHeight: 28,
 
-      fontWeight: '900',
+      fontWeight: ANDROID_BLACK,
 
       letterSpacing: -0.6,
 
@@ -1235,7 +1244,7 @@ const createStyles = (colors: {
       fontSize: 18,
       lineHeight: 22,
 
-      fontWeight: '900',
+      fontWeight: ANDROID_BLACK,
 
       textShadowColor:
         'rgba(0,0,0,0.45)',
@@ -1334,7 +1343,7 @@ const createStyles = (colors: {
       fontSize: 43,
       lineHeight: 48,
 
-      fontWeight: '900',
+      fontWeight: ANDROID_BLACK,
 
       letterSpacing: -1.6,
 
@@ -1355,7 +1364,7 @@ const createStyles = (colors: {
       fontSize: 15,
       lineHeight: 20,
 
-      fontWeight: '900',
+      fontWeight: ANDROID_BLACK,
 
       marginLeft: 5,
 
@@ -1397,7 +1406,7 @@ const createStyles = (colors: {
       fontSize: 10,
       lineHeight: 13,
 
-      fontWeight: '800',
+      fontWeight: ANDROID_EXTRA_BOLD,
 
       marginLeft: 4,
     },
@@ -1448,7 +1457,7 @@ const createStyles = (colors: {
       fontSize: 19,
       lineHeight: 24,
 
-      fontWeight: '900',
+      fontWeight: ANDROID_BLACK,
 
       letterSpacing: -0.5,
     },
@@ -1498,7 +1507,7 @@ const createStyles = (colors: {
       fontSize: 9,
       lineHeight: 12,
 
-      fontWeight: '900',
+      fontWeight: ANDROID_BLACK,
 
       letterSpacing: 0.5,
     },
@@ -1529,7 +1538,7 @@ const createStyles = (colors: {
       fontSize: 17,
       lineHeight: 21,
 
-      fontWeight: '900',
+      fontWeight: ANDROID_BLACK,
     },
 
     inputName: {
@@ -1547,12 +1556,12 @@ const createStyles = (colors: {
       fontSize: 24,
       lineHeight: 29,
 
-      fontWeight: '900',
+      fontWeight: ANDROID_BLACK,
 
       textAlign: 'right',
 
       paddingLeft: 7,
-      paddingVertical: 0,
+      ...ANDROID_INPUT_TEXT_FIX,
     },
 
     keyboardAccessory: {
@@ -1584,7 +1593,7 @@ const createStyles = (colors: {
       fontSize: 23,
       lineHeight: 28,
 
-      fontWeight: '900',
+      fontWeight: ANDROID_BLACK,
 
       textAlign: 'right',
 
@@ -1690,7 +1699,7 @@ const createStyles = (colors: {
       fontSize: 13,
       lineHeight: 17,
 
-      fontWeight: '900',
+      fontWeight: ANDROID_BLACK,
 
       marginLeft: 6,
     },
@@ -1737,7 +1746,7 @@ const createStyles = (colors: {
       fontSize: 12,
       lineHeight: 16,
 
-      fontWeight: '900',
+      fontWeight: ANDROID_BLACK,
     },
 
     trustSubtitle: {

@@ -1,31 +1,38 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
+  ActivityIndicator,
+  Alert,
+  Animated,
+  Image,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
-  View,
   Text,
-  Alert,
-  Animated,
+  View,
 } from 'react-native';
+
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useRouter } from 'expo-router';
- 
+import { useFocusEffect, useRouter } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
+
 import { useAppTheme } from '@/theme/provider';
 import { useSettingsStore } from '@/store/settings-store';
- 
+import { apiRequest } from '@/services/api/client';
+import { ApiError } from '@/services/api/errors';
+import { getMediaUrl } from '@/utils/media';
+import { registerPushToken } from '@/services/notifications/push-token';
+import { ApiResponse, Profile } from '@/types/profile';
+
 type MenuItem = {
   id: string;
   title: string;
   subtitle: string;
   icon: keyof typeof Ionicons.glyphMap;
 };
- 
-// "App Preferences" removed — appearance is now controlled directly
-// by the switch in the header.
+
 const ACCOUNT_ITEMS: MenuItem[] = [
   {
     id: 'personal',
@@ -40,7 +47,7 @@ const ACCOUNT_ITEMS: MenuItem[] = [
     icon: 'notifications-outline',
   },
 ];
- 
+
 const SUPPORT_ITEMS: MenuItem[] = [
   {
     id: 'support',
@@ -55,19 +62,18 @@ const SUPPORT_ITEMS: MenuItem[] = [
     icon: 'information-circle-outline',
   },
 ];
- 
-/**
- * Premium pill-style appearance switch.
- * - Only ONE icon exists at a time (rendered inside the thumb) — no
- *   separate background-icon layer, so there's no risk of two icons
- *   showing at once (the bug seen on Android with the previous version).
- * - Track color and thumb position are driven by separate Animated
- *   values so each can use the most reliable driver for that property:
- *   translateX uses the native driver (butter-smooth on Android),
- *   backgroundColor uses the JS driver (required, since native driver
- *   can't animate colors) — but color is the only thing on the JS
- *   thread now, which is what makes it settle correctly on Android.
- */
+
+const EMPTY_PROFILE: Profile = {
+  name: 'Your Profile',
+  phoneNumber: '',
+  address: '',
+  profileImage: '',
+};
+
+const TRACK_WIDTH = 56;
+const TRACK_HEIGHT = 30;
+const THUMB_SIZE = 24;
+
 function AppearanceSwitch({
   value,
   onValueChange,
@@ -75,33 +81,40 @@ function AppearanceSwitch({
   value: boolean;
   onValueChange: (value: boolean) => void;
 }) {
-  const slide = useRef(new Animated.Value(value ? 1 : 0)).current;
-  const colorProgress = useRef(new Animated.Value(value ? 1 : 0)).current;
- 
-  useEffect(() => {
+  const [slide] = useState(
+    () => new Animated.Value(value ? 1 : 0),
+  );
+  const [colorProgress] = useState(
+    () =>
+      new Animated.Value(
+        value ? 1 : 0,
+      ),
+  );
+
+  React.useEffect(() => {
     Animated.timing(slide, {
       toValue: value ? 1 : 0,
       duration: 220,
       useNativeDriver: true,
     }).start();
- 
+
     Animated.timing(colorProgress, {
       toValue: value ? 1 : 0,
       duration: 220,
       useNativeDriver: false,
     }).start();
   }, [value, slide, colorProgress]);
- 
+
   const trackColor = colorProgress.interpolate({
     inputRange: [0, 1],
     outputRange: ['#E7E7EC', '#1C1C2A'],
   });
- 
+
   const thumbTranslate = slide.interpolate({
     inputRange: [0, 1],
     outputRange: [3, TRACK_WIDTH - THUMB_SIZE - 3],
   });
- 
+
   return (
     <Pressable
       onPress={() => onValueChange(!value)}
@@ -113,12 +126,8 @@ function AppearanceSwitch({
     >
       <Animated.View style={[stylesSwitch.track, { backgroundColor: trackColor }]}>
         <Animated.View
-          style={[
-            stylesSwitch.thumb,
-            { transform: [{ translateX: thumbTranslate }] },
-          ]}
+          style={[stylesSwitch.thumb, { transform: [{ translateX: thumbTranslate }] }]}
         >
-          {/* Single icon, swapped on state change — never two at once */}
           <Ionicons
             name={value ? 'moon' : 'sunny'}
             size={13}
@@ -129,52 +138,152 @@ function AppearanceSwitch({
     </Pressable>
   );
 }
- 
-const TRACK_WIDTH = 56;
-const TRACK_HEIGHT = 30;
-const THUMB_SIZE = 24;
- 
+
 export default function ProfileScreen() {
   const router = useRouter();
   const { theme } = useAppTheme();
   const isDark = theme.isDark;
   const styles = createStyles(theme.colors, isDark);
- 
+
+  const [profile, setProfile] = useState<Profile>(EMPTY_PROFILE);
+  const [loading, setLoading] = useState(true);
+  const [uploadingImage, setUploadingImage] = useState(false);
+
   const toggleTheme = () => {
     useSettingsStore.setState({
       themePreference: isDark ? 'light' : 'dark',
     });
   };
- 
+
+  const loadProfile = useCallback(async () => {
+    try {
+      setLoading(true);
+
+      const response = await apiRequest<ApiResponse<Profile>>('/api/profile');
+
+      setProfile(response.data);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) {
+        setProfile(EMPTY_PROFILE);
+        return;
+      }
+
+      console.error('Profile load error:', error);
+      setProfile(EMPTY_PROFILE);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadProfile();
+    }, [loadProfile]),
+  );
+
+  const uploadProfileImage = async (asset: ImagePicker.ImagePickerAsset) => {
+    try {
+      setUploadingImage(true);
+
+      const fileName = asset.fileName ?? `profile-${Date.now()}.jpg`;
+      const fileType = asset.mimeType ?? 'image/jpeg';
+
+      const formData = new FormData();
+      formData.append('image', {
+        uri: asset.uri,
+        name: fileName,
+        type: fileType,
+      } as unknown as Blob);
+
+      const response = await apiRequest<ApiResponse<Profile>>('/api/profile/image', {
+        method: 'POST',
+        body: formData,
+      });
+
+      setProfile(response.data);
+    } catch (error) {
+      console.error('Profile image upload error:', error);
+      Alert.alert('Upload Failed', 'Unable to upload your profile image. Please try again.');
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
+  const selectProfileImage = async () => {
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+      if (permission.status !== 'granted') {
+        Alert.alert(
+          'Permission Required',
+          'Please allow access to your photo library to select a profile picture.',
+        );
+
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.7,
+      });
+
+      if (result.canceled || !result.assets?.length) {
+        return;
+      }
+
+      await uploadProfileImage(result.assets[0]);
+    } catch (error) {
+      console.error('Image picker error:', error);
+      Alert.alert('Image Error', 'Unable to select this image.');
+    }
+  };
+
+  const handleNotificationsPress = async () => {
+    try {
+      const result = await registerPushToken();
+
+      if (result.status === 'registered') {
+        Alert.alert('Notifications Enabled', 'You will now receive push notifications from Sagawa.');
+        return;
+      }
+
+      if (result.status === 'denied') {
+        Alert.alert(
+          'Notifications Disabled',
+          'Notification permission was not granted. You can enable it later from your device settings.',
+        );
+        return;
+      }
+
+      Alert.alert('Notifications Unavailable', 'Push notifications require a physical device.');
+    } catch (error) {
+      console.error('Push notification registration error:', error);
+      Alert.alert('Notifications Error', 'Unable to register for push notifications right now.');
+    }
+  };
+
   const handleMenuPress = (id: string) => {
     switch (id) {
       case 'personal':
-        Alert.alert(
-          'Personal Information',
-          'This section is ready for your account details when the user-account system is connected.',
-        );
+        router.push('/perdonal-information');
         break;
+
       case 'notifications':
-        Alert.alert(
-          'Notifications',
-          'Notification settings will be available when notifications are connected.',
-        );
+        handleNotificationsPress();
         break;
+
       case 'support':
-        Alert.alert(
-          'Help & Support',
-          'Help and support content will be added in a future update.',
-        );
+        router.push('/help-support');
         break;
+
       case 'about':
-        Alert.alert(
-          'About Sagawa',
-          'Sagawa\n\nA simple, useful mobile app for the Sagawa community.',
-        );
+        router.push('/about');
         break;
     }
   };
- 
+
   const handleLogout = () => {
     Alert.alert(
       'Log Out',
@@ -190,7 +299,7 @@ export default function ProfileScreen() {
       { cancelable: true },
     );
   };
- 
+
   const renderSection = (items: MenuItem[]) => (
     <View style={styles.sectionCard}>
       {items.map((item, index) => (
@@ -212,37 +321,46 @@ export default function ProfileScreen() {
                 color={isDark ? '#FFFFFF' : '#111111'}
               />
             </View>
- 
+
             <View style={styles.menuText}>
               <Text style={styles.menuTitle} allowFontScaling={false}>
                 {item.title}
               </Text>
-              <Text
-                style={styles.menuSubtitle}
-                allowFontScaling={false}
-                numberOfLines={1}
-              >
+              <Text style={styles.menuSubtitle} allowFontScaling={false} numberOfLines={1}>
                 {item.subtitle}
               </Text>
             </View>
- 
+
             <Ionicons
               name="chevron-forward"
               size={17}
               color={isDark ? '#636366' : '#A7A7AD'}
             />
           </Pressable>
- 
+
           {index < items.length - 1 && <View style={styles.divider} />}
         </View>
       ))}
     </View>
   );
- 
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar style={theme.statusBarStyle} />
+        <View style={styles.loadingContainer}>
+          <Text style={styles.loadingText}>Loading profile...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  const avatarUri = getMediaUrl(profile.profileImage);
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <StatusBar style={theme.statusBarStyle} />
- 
+
       <ScrollView
         style={styles.container}
         contentContainerStyle={styles.content}
@@ -253,43 +371,57 @@ export default function ProfileScreen() {
           <Text style={styles.headerTitle} allowFontScaling={false}>
             Profile
           </Text>
- 
-          <AppearanceSwitch
-            value={isDark}
-            onValueChange={toggleTheme}
-          />
+
+          <AppearanceSwitch value={isDark} onValueChange={toggleTheme} />
         </View>
- 
+
         <View style={styles.profileHeader}>
-          <View style={styles.avatar}>
-            <Ionicons name="person" size={39} color="#FFFFFF" />
-          </View>
- 
+          <Pressable
+            onPress={selectProfileImage}
+            style={styles.avatarPressable}
+            disabled={uploadingImage}
+          >
+            <View style={styles.avatar}>
+              {avatarUri ? (
+                <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
+              ) : (
+                <Ionicons name="person" size={39} color="#FFFFFF" />
+              )}
+
+              {uploadingImage && (
+                <View style={styles.avatarUploadingOverlay}>
+                  <ActivityIndicator color="#FFFFFF" />
+                </View>
+              )}
+            </View>
+
+            <View style={styles.editAvatarBadge}>
+              <Ionicons name="pencil" size={13} color="#FFFFFF" />
+            </View>
+          </Pressable>
+
           <View style={styles.profileText}>
             <Text style={styles.profileName} allowFontScaling={false}>
-              Your Profile
+              {profile.name}
             </Text>
             <Text style={styles.profileSubtitle} allowFontScaling={false}>
               Manage your account
             </Text>
           </View>
         </View>
- 
+
         <Text style={styles.sectionLabel} allowFontScaling={false}>
           ACCOUNT
         </Text>
- 
+
         {renderSection(ACCOUNT_ITEMS)}
- 
-        <Text
-          style={[styles.sectionLabel, styles.supportLabel]}
-          allowFontScaling={false}
-        >
+
+        <Text style={[styles.sectionLabel, styles.supportLabel]} allowFontScaling={false}>
           SUPPORT
         </Text>
- 
+
         {renderSection(SUPPORT_ITEMS)}
- 
+
         <Pressable
           onPress={handleLogout}
           accessibilityRole="button"
@@ -309,7 +441,7 @@ export default function ProfileScreen() {
     </SafeAreaView>
   );
 }
- 
+
 const createStyles = (
   colors: {
     background: string;
@@ -358,13 +490,42 @@ const createStyles = (
       marginBottom: 28,
       paddingHorizontal: 2,
     },
+    avatarPressable: {
+      position: 'relative',
+    },
     avatar: {
       width: 72,
       height: 72,
       borderRadius: 36,
       alignItems: 'center',
       justifyContent: 'center',
+      overflow: 'hidden',
       backgroundColor: isDark ? '#333333' : '#E5E7EB',
+    },
+    avatarImage: {
+      width: '100%',
+      height: '100%',
+      borderRadius: 999,
+    },
+    avatarUploadingOverlay: {
+      ...StyleSheet.absoluteFill,
+      borderRadius: 36,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: 'rgba(0,0,0,0.45)',
+    },
+    editAvatarBadge: {
+      position: 'absolute',
+      right: -2,
+      bottom: -2,
+      width: 26,
+      height: 26,
+      borderRadius: 13,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.primary,
+      borderWidth: 2,
+      borderColor: colors.background,
     },
     profileText: {
       flex: 1,
@@ -382,7 +543,6 @@ const createStyles = (
       color: colors.textMuted,
       fontSize: 13,
       lineHeight: 18,
-      fontWeight: '400',
     },
     sectionLabel: {
       marginLeft: 12,
@@ -429,14 +589,12 @@ const createStyles = (
       fontSize: 16,
       lineHeight: 21,
       fontWeight: '600',
-      letterSpacing: -0.15,
     },
     menuSubtitle: {
       marginTop: 1,
       color: colors.textMuted,
       fontSize: 12,
       lineHeight: 17,
-      fontWeight: '400',
     },
     divider: {
       height: StyleSheet.hairlineWidth,
@@ -452,9 +610,7 @@ const createStyles = (
       justifyContent: 'center',
       backgroundColor: colors.surface,
       borderWidth: StyleSheet.hairlineWidth,
-      borderColor: isDark
-        ? 'rgba(255,59,48,0.22)'
-        : 'rgba(255,59,48,0.14)',
+      borderColor: isDark ? 'rgba(255,59,48,0.22)' : 'rgba(255,59,48,0.14)',
       overflow: 'hidden',
     },
     logoutText: {
@@ -464,8 +620,17 @@ const createStyles = (
       lineHeight: 21,
       fontWeight: '600',
     },
+    loadingContainer: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    loadingText: {
+      color: colors.textMuted,
+      fontSize: 15,
+    },
   });
- 
+
 const stylesSwitch = StyleSheet.create({
   hitArea: {
     justifyContent: 'center',
@@ -477,8 +642,6 @@ const stylesSwitch = StyleSheet.create({
     height: TRACK_HEIGHT,
     borderRadius: TRACK_HEIGHT / 2,
     justifyContent: 'center',
-    // Soft shadow on iOS, elevation on Android — this is what keeps it
-    // from looking flat/plasticky on Android specifically.
     ...Platform.select({
       ios: {
         shadowColor: '#000000',
@@ -513,4 +676,3 @@ const stylesSwitch = StyleSheet.create({
     }),
   },
 });
- 

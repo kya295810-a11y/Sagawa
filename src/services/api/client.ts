@@ -15,6 +15,13 @@ export function registerAccessTokenProvider(provider: TokenProvider) {
   getAccessToken = provider;
 }
 
+function buildApiUrl(path: string) {
+  const baseUrl = (env.EXPO_PUBLIC_API_URL ?? '').replace(/\/+$/, '');
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+
+  return `${baseUrl}${normalizedPath}`;
+}
+
 export async function apiRequest<T>(
   path: string,
   options: ApiRequestOptions = {},
@@ -33,7 +40,14 @@ export async function apiRequest<T>(
   const headers = new Headers(options.headers);
   headers.set('Accept', 'application/json');
 
-  if (!headers.has('Content-Type') && options.body) {
+  // Do not force a Content-Type when the body is FormData (e.g. multipart
+  // image uploads). fetch/React Native must set its own
+  // "multipart/form-data; boundary=..." header — overriding it here would
+  // break the upload.
+  const isFormData =
+    typeof FormData !== 'undefined' && options.body instanceof FormData;
+
+  if (!headers.has('Content-Type') && options.body && !isFormData) {
     headers.set('Content-Type', 'application/json');
   }
 
@@ -42,7 +56,7 @@ export async function apiRequest<T>(
   }
 
   try {
-    const response = await fetch(`${env.EXPO_PUBLIC_API_URL}${path}`, {
+    const response = await fetch(buildApiUrl(path), {
       ...options,
       headers,
       signal: options.signal ?? controller.signal,

@@ -12,6 +12,15 @@ import {
 } from "react-native";
 import { router } from "expo-router";
 
+const ANDROID_EXTRA_BOLD = Platform.OS === "android" ? "700" : "800";
+const ANDROID_INPUT_TEXT_FIX = Platform.select({
+  android: {
+    paddingVertical: 0,
+    textAlignVertical: "center" as const,
+  },
+  default: {},
+});
+
 export default function SignupScreen() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -280,6 +289,7 @@ const styles = StyleSheet.create({
 
   backText: {
     fontSize: 14,
+    lineHeight: 18,
     fontWeight: "600",
     color: "#475467",
   },
@@ -304,11 +314,13 @@ const styles = StyleSheet.create({
   logoText: {
     color: "#FFFFFF",
     fontSize: 22,
-    fontWeight: "800",
+    lineHeight: 28,
+    fontWeight: ANDROID_EXTRA_BOLD,
   },
 
   brandName: {
     fontSize: 16,
+    lineHeight: 20,
     fontWeight: "700",
     color: "#172033",
     letterSpacing: -0.3,
@@ -323,7 +335,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 30,
     lineHeight: 37,
-    fontWeight: "800",
+    fontWeight: ANDROID_EXTRA_BOLD,
     color: "#101828",
     letterSpacing: -0.8,
     marginBottom: 9,
@@ -348,6 +360,7 @@ const styles = StyleSheet.create({
 
   label: {
     fontSize: 14,
+    lineHeight: 18,
     fontWeight: "600",
     color: "#344054",
     marginBottom: 8,
@@ -361,7 +374,9 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     paddingHorizontal: 16,
     fontSize: 16,
+    lineHeight: 20,
     color: "#101828",
+    ...ANDROID_INPUT_TEXT_FIX,
   },
 
   passwordHeader: {
@@ -372,12 +387,14 @@ const styles = StyleSheet.create({
 
   showPassword: {
     fontSize: 13,
+    lineHeight: 17,
     fontWeight: "600",
     color: "#3195F5",
   },
 
   helperText: {
     fontSize: 12,
+    lineHeight: 16,
     color: "#98A2B3",
     marginTop: 7,
   },
@@ -412,7 +429,8 @@ const styles = StyleSheet.create({
   checkmark: {
     color: "#FFFFFF",
     fontSize: 13,
-    fontWeight: "800",
+    lineHeight: 16,
+    fontWeight: ANDROID_EXTRA_BOLD,
   },
 
   termsText: {
@@ -453,6 +471,7 @@ const styles = StyleSheet.create({
   signupButtonText: {
     color: "#FFFFFF",
     fontSize: 16,
+    lineHeight: 20,
     fontWeight: "700",
   },
 
@@ -473,6 +492,7 @@ const styles = StyleSheet.create({
   dividerText: {
     marginHorizontal: 12,
     fontSize: 12,
+    lineHeight: 16,
     color: "#98A2B3",
   },
 
@@ -502,7 +522,8 @@ const styles = StyleSheet.create({
 
   googleIcon: {
     fontSize: 17,
-    fontWeight: "800",
+    lineHeight: 20,
+    fontWeight: ANDROID_EXTRA_BOLD,
     color: "#4285F4",
   },
 
@@ -513,6 +534,7 @@ const styles = StyleSheet.create({
 
   socialText: {
     fontSize: 14,
+    lineHeight: 18,
     fontWeight: "600",
     color: "#344054",
   },
@@ -528,11 +550,13 @@ const styles = StyleSheet.create({
 
   loginText: {
     fontSize: 14,
+    lineHeight: 18,
     color: "#667085",
   },
 
   loginLink: {
     fontSize: 14,
+    lineHeight: 18,
     fontWeight: "700",
     color: "#3195F5",
   },

@@ -3,5 +3,5 @@ import { apiRequest } from '@/services/api/client';
 
 export async function fetchNews(cursor?: string | null) {
   const queryString = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
-  return apiRequest<PaginatedNewsResponse>(`/news${queryString}`);
+  return apiRequest<PaginatedNewsResponse>(`/api/news${queryString}`);
 }

@@ -36,6 +36,21 @@ const exchangeFile = path.join(
   'exchange.json',
 );
 
+const profileFile = path.join(
+  dataDir,
+  'profile.json',
+);
+
+const supportFile = path.join(
+  dataDir,
+  'support.json',
+);
+
+const notificationTokensFile = path.join(
+  dataDir,
+  'notification-tokens.json',
+);
+
 if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, {
     recursive: true,
@@ -106,6 +121,28 @@ createFileIfMissing(
     updatedAt:
       new Date().toISOString(),
   },
+);
+
+createFileIfMissing(
+  profileFile,
+  {
+    name: 'Your Profile',
+    phoneNumber: '',
+    address: '',
+    profileImage: '',
+    updatedAt:
+      new Date().toISOString(),
+  },
+);
+
+createFileIfMissing(
+  supportFile,
+  [],
+);
+
+createFileIfMissing(
+  notificationTokensFile,
+  [],
 );
 
 function normalizeExchange() {
@@ -223,6 +260,57 @@ function normalizeExchange() {
   return fallback;
 }
 
+function readProfile() {
+  const profile = readJson(
+    profileFile,
+    null,
+  );
+
+  if (
+    profile &&
+    typeof profile === 'object'
+  ) {
+    return {
+      name:
+        String(
+          profile.name ||
+            'Your Profile',
+        ).trim(),
+      phoneNumber:
+        String(
+          profile.phoneNumber || '',
+        ).trim(),
+      address:
+        String(
+          profile.address || '',
+        ).trim(),
+      profileImage:
+        String(
+          profile.profileImage || '',
+        ).trim(),
+      updatedAt:
+        profile.updatedAt ||
+        new Date().toISOString(),
+    };
+  }
+
+  const fallback = {
+    name: 'Your Profile',
+    phoneNumber: '',
+    address: '',
+    profileImage: '',
+    updatedAt:
+      new Date().toISOString(),
+  };
+
+  writeJson(
+    profileFile,
+    fallback,
+  );
+
+  return fallback;
+}
+
 normalizeExchange();
 
 app.get('/', (req, res) => {
@@ -238,6 +326,8 @@ app.get('/', (req, res) => {
       exchange: '/api/exchange',
       exchangeRate:
         '/api/exchange-rate',
+      profile: '/api/profile',
+      support: '/api/support',
     },
   });
 });
@@ -735,6 +825,200 @@ app.post(
 app.put(
   '/api/exchange-rate',
   saveExchangeRate,
+);
+
+app.get(
+  '/api/profile',
+  (req, res) => {
+    const profile =
+      readProfile();
+
+    res.json({
+      success: true,
+      data: profile,
+    });
+  },
+);
+
+app.put(
+  '/api/profile',
+  (req, res) => {
+    const current =
+      readProfile();
+
+    const body =
+      req.body || {};
+
+    const nextProfile = {
+      ...current,
+      name:
+        String(
+          body.name ??
+            current.name,
+        ).trim() ||
+        current.name,
+      phoneNumber:
+        String(
+          body.phoneNumber ??
+            current.phoneNumber,
+        ).trim(),
+      address:
+        String(
+          body.address ??
+            current.address,
+        ).trim(),
+      updatedAt:
+        new Date().toISOString(),
+    };
+
+    writeJson(
+      profileFile,
+      nextProfile,
+    );
+
+    res.json({
+      success: true,
+      data: nextProfile,
+    });
+  },
+);
+
+app.post(
+  '/api/profile/image',
+  (req, res) => {
+    const current =
+      readProfile();
+
+    const nextProfile = {
+      ...current,
+      updatedAt:
+        new Date().toISOString(),
+    };
+
+    writeJson(
+      profileFile,
+      nextProfile,
+    );
+
+    res.json({
+      success: true,
+      data: nextProfile,
+      message:
+        'Profile image upload acknowledged.',
+    });
+  },
+);
+
+app.post(
+  '/api/support',
+  (req, res) => {
+    const body =
+      req.body || {};
+
+    const message = {
+      id: Date.now(),
+      name:
+        String(
+          body.name || '',
+        ).trim(),
+      contact:
+        String(
+          body.contact || '',
+        ).trim(),
+      message:
+        String(
+          body.message || '',
+        ).trim(),
+      createdAt:
+        new Date().toISOString(),
+    };
+
+    if (!message.message) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message:
+            'Support message is required.',
+        });
+    }
+
+    const messages = readJson(
+      supportFile,
+      [],
+    );
+
+    messages.unshift(message);
+
+    writeJson(
+      supportFile,
+      messages,
+    );
+
+    res.status(201).json({
+      success: true,
+      data: message,
+    });
+  },
+);
+
+app.post(
+  '/api/notifications/register-token',
+  (req, res) => {
+    const body =
+      req.body || {};
+
+    const token = String(
+      body.token || '',
+    ).trim();
+
+    if (!token) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message:
+            'Notification token is required.',
+        });
+    }
+
+    const tokens = readJson(
+      notificationTokensFile,
+      [],
+    );
+
+    const record = {
+      token,
+      platform:
+        String(
+          body.platform ||
+            'unknown',
+        ).trim(),
+      updatedAt:
+        new Date().toISOString(),
+    };
+
+    const nextTokens =
+      Array.isArray(tokens)
+        ? tokens.filter(
+            (item) =>
+              item?.token !==
+              token,
+          )
+        : [];
+
+    nextTokens.unshift(record);
+
+    writeJson(
+      notificationTokensFile,
+      nextTokens,
+    );
+
+    res.status(201).json({
+      success: true,
+      data: record,
+    });
+  },
 );
 
 app.use((req, res) => {
