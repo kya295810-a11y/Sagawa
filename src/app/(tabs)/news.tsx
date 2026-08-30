@@ -17,7 +17,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useRouter } from 'expo-router';
-import * as Notifications from 'expo-notifications';
+
 
 import { registerPushToken } from '@/services/notifications/push-token';
 import { useAppTheme } from '@/theme/provider';
@@ -219,52 +219,74 @@ export default function NewsScreen() {
   }, []);
 
   useEffect(() => {
-   const handleNotificationResponse = (
-     response: Notifications.NotificationResponse,
-   ) => {
-     try {
-       const data = response.notification.request.content.data as
-         | Record<string, unknown>
-         | undefined;
+  // Expo Go does not support remote push notifications.
+  // Only enable notification listeners in a development/production build.
+  
 
-       const candidateId =
-         data?.newsId ??
-         data?.news_id ??
-         data?.id ??
-         data?.articleId ??
-         data?.article_id ??
-         data?.postId ??
-         data?.post_id;
+  let isMounted = true;
+  let subscription: { remove: () => void } | undefined;
 
-       if (typeof candidateId === 'string' || typeof candidateId === 'number') {
-         openNewsDetail(candidateId);
-       }
-     } catch (notificationError) {
-       console.error('Notification tap handling error:', notificationError);
-     }
-   };
+  const setupNotifications = async () => {
+    try {
+      const Notifications = await import('expo-notifications');
 
-   const subscription = Notifications.addNotificationResponseReceivedListener(
-     handleNotificationResponse,
-   );
+      const handleNotificationResponse = (
+        response: import('expo-notifications').NotificationResponse,
+      ) => {
+        try {
+          const data = response.notification.request.content.data as
+            | Record<string, unknown>
+            | undefined;
 
-   let isMounted = true;
+          const candidateId =
+            data?.newsId ??
+            data?.news_id ??
+            data?.id ??
+            data?.articleId ??
+            data?.article_id ??
+            data?.postId ??
+            data?.post_id;
 
-   Notifications.getLastNotificationResponseAsync()
-     .then((response) => {
-       if (isMounted && response) {
-         handleNotificationResponse(response);
-       }
-     })
-     .catch((error) => {
-       console.error('Failed to read last notification response:', error);
-     });
+          if (
+            typeof candidateId === 'string' ||
+            typeof candidateId === 'number'
+          ) {
+            openNewsDetail(candidateId);
+          }
+        } catch (notificationError) {
+          console.error(
+            'Notification tap handling error:',
+            notificationError,
+          );
+        }
+      };
 
-   return () => {
-     isMounted = false;
-     subscription.remove();
-   };
-  }, [openNewsDetail]);
+      subscription =
+        Notifications.addNotificationResponseReceivedListener(
+          handleNotificationResponse,
+        );
+
+      const response =
+        await Notifications.getLastNotificationResponseAsync();
+
+      if (isMounted && response) {
+        handleNotificationResponse(response);
+      }
+    } catch (error) {
+      console.log(
+        'Notification listeners unavailable in this environment:',
+        error,
+      );
+    }
+  };
+
+  void setupNotifications();
+
+  return () => {
+    isMounted = false;
+    subscription?.remove();
+  };
+}, [openNewsDetail]);
 
   /* ==========================================================
      RESPONSIVE IMAGE HEIGHT
