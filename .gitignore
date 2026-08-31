@@ -48,3 +48,4 @@ yarn-error.*
 
 # logs
 *.log
+malay-mm-admin/server/data/notification-tokens.json
