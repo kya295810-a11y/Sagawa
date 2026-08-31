@@ -1,6 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import {
+  startAuthentication,
+  startRegistration,
+} from '@simplewebauthn/browser';
 
 import './App.css';
+import { API_BASE, apiUrl } from './config/api';
 
 
 type Page = 'dashboard' | 'news' | 'services' | 'exchange';
@@ -99,8 +104,6 @@ const initialServices: ServiceItem[] = [
 
 
 
-const API_BASE = 'http://192.168.100.20:3000';
-
 const fileToDataUrl = (file: File): Promise<string> =>
   new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -125,7 +128,176 @@ const initialExchange: ExchangeItem = {
   rate: '1053',
 };
 
+type LoginScreenProps = {
+  onAuthenticated: () => void;
+};
+
+type ApiResult<T> = {
+  success: true;
+  message?: string;
+  data: T;
+};
+
+async function readApiResponse<T>(response: Response): Promise<ApiResult<T>> {
+  let result: Partial<ApiResult<T>> & { message?: string };
+
+  try {
+    result = await response.json();
+  } catch {
+    throw new Error('Request failed.');
+  }
+
+  if (!response.ok || result.success !== true) {
+    throw new Error(result.message || 'The request failed.');
+  }
+
+  return result as ApiResult<T>;
+}
+
+function LoginScreen({ onAuthenticated }: LoginScreenProps) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [passkeyAvailable] = useState(
+    () => typeof window !== 'undefined' && 'PublicKeyCredential' in window,
+  );
+
+  const emailIsValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+  const passwordIsPresent = password.length > 0;
+  const submitDisabled = loading || !emailIsValid || !passwordIsPresent;
+
+  const handlePasswordLogin = async (event: React.FormEvent) => {
+    event.preventDefault();
+
+    if (!emailIsValid || !passwordIsPresent) {
+      setError('Please enter a valid email and password.');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+
+    try {
+      await readApiResponse(await fetch(apiUrl('/api/auth/login'), {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      }));
+      onAuthenticated();
+    } catch {
+      setError('Unable to sign in right now. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePasskeyLogin = async () => {
+    if (loading) {
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+
+    try {
+      const optionsResult = await readApiResponse<PublicKeyCredentialRequestOptionsJSON>(await fetch(
+        apiUrl('/api/auth/passkey/authentication-options'),
+        { method: 'POST', credentials: 'include' },
+      ));
+      const response = await startAuthentication({
+        optionsJSON: optionsResult.data as any,
+      });
+      await readApiResponse(await fetch(apiUrl('/api/auth/passkey/authentication'), {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(response),
+      }));
+      onAuthenticated();
+    } catch {
+      setError('Unable to sign in with passkey right now. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <main className="login-shell">
+      <section className="login-panel">
+        <div className="brand login-brand">
+          <div className="brand-mark">MM</div>
+          <div><strong>Sagawa</strong><span>Admin</span></div>
+        </div>
+        <span className="eyebrow">SECURE ADMIN ACCESS</span>
+        <h1>Welcome back</h1>
+        <p>Sign in to manage Malay MM content.</p>
+
+        <form onSubmit={handlePasswordLogin} noValidate>
+          <label htmlFor="admin-email">Email</label>
+          <input
+            id="admin-email"
+            type="email"
+            autoComplete="username"
+            inputMode="email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            required
+            aria-invalid={email.length > 0 && !emailIsValid}
+          />
+
+          <div className="password-row">
+            <label htmlFor="admin-password">Password</label>
+            <button
+              className="password-toggle"
+              type="button"
+              onClick={() => setShowPassword((current) => !current)}
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
+            >
+              {showPassword ? 'Hide' : 'Show'}
+            </button>
+          </div>
+          <input
+            id="admin-password"
+            type={showPassword ? 'text' : 'password'}
+            autoComplete="current-password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            required
+          />
+
+          {error && <div className="login-error" role="alert">{error}</div>}
+
+          <button className="primary-button login-button" type="submit" disabled={submitDisabled}>
+            {loading ? 'Signing in...' : 'Sign in'}
+          </button>
+        </form>
+
+        <button
+          className="secondary-button passkey-button"
+          type="button"
+          onClick={handlePasskeyLogin}
+          disabled={loading || !passkeyAvailable}
+        >
+          {passkeyAvailable ? 'Sign in with Fingerprint / Touch ID' : 'Passkeys not supported on this device'}
+        </button>
+
+        <button className="secondary-button reset-button" type="button" disabled>
+          Password reset unavailable
+        </button>
+        <p className="helper-text">Secure password recovery is not configured for this admin deployment.</p>
+      </section>
+    </main>
+  );
+}
+
+const adminFetch = (input: RequestInfo | URL, init: RequestInit = {}) =>
+  fetch(input, { ...init, credentials: 'include' });
+
 function App() {
+  const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [activePage, setActivePage] =
     useState<Page>('dashboard');
 
@@ -227,12 +399,120 @@ function App() {
 
   const [apiLoading, setApiLoading] = useState(false);
   const [apiError, setApiError] = useState('');
+  const [showPasswordChange, setShowPasswordChange] = useState(false);
+  const [passwordChangeForm, setPasswordChangeForm] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: '',
+  });
+  const [passwordChangeError, setPasswordChangeError] = useState('');
+  const [passwordChangeSuccess, setPasswordChangeSuccess] = useState('');
+  const [passwordChangeLoading, setPasswordChangeLoading] = useState(false);
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  useEffect(() => {
+    void adminFetch(apiUrl('/api/auth/me'))
+      .then((response) => readApiResponse<{ authenticated?: boolean }>(response))
+      .then((result) => setAuthenticated(Boolean(result.data?.authenticated)))
+      .catch((error) => {
+        console.error('[Admin Auth] Session check failed:', error);
+        setAuthenticated(false);
+      });
+  }, []);
+
+  const logout = async () => {
+    try {
+      await adminFetch(apiUrl('/api/auth/logout'), { method: 'POST' });
+    } finally {
+      setAuthenticated(false);
+      setShowPasswordChange(false);
+    }
+  };
+
+  const submitPasswordChange = async () => {
+    const currentPassword = passwordChangeForm.currentPassword.trim();
+    const newPassword = passwordChangeForm.newPassword;
+    const confirmPassword = passwordChangeForm.confirmPassword;
+
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      setPasswordChangeError('Please complete all password fields.');
+      return;
+    }
+
+    if (newPassword.length < 12) {
+      setPasswordChangeError('New password must be at least 12 characters long.');
+      return;
+    }
+
+    if (!/[a-z]/.test(newPassword) || !/[A-Z]/.test(newPassword) || !/\d/.test(newPassword) || !/[^A-Za-z0-9]/.test(newPassword)) {
+      setPasswordChangeError('New password must include uppercase, lowercase, a number, and a special character.');
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setPasswordChangeError('New passwords do not match.');
+      return;
+    }
+
+    setPasswordChangeLoading(true);
+    setPasswordChangeError('');
+    setPasswordChangeSuccess('');
+
+    try {
+      const response = await adminFetch(apiUrl('/api/auth/change-password'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          currentPassword,
+          newPassword,
+          confirmPassword,
+        }),
+      });
+
+      const result = await readApiResponse(response);
+      setPasswordChangeSuccess(result.message || 'Password updated successfully.');
+      setPasswordChangeForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+      setShowCurrentPassword(false);
+      setShowNewPassword(false);
+      setShowConfirmPassword(false);
+      setAuthenticated(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Password change failed.';
+      setPasswordChangeError(message);
+    } finally {
+      setPasswordChangeLoading(false);
+    }
+  };
+
+  const registerPasskey = async () => {
+    try {
+      const optionsResult = await readApiResponse<PublicKeyCredentialCreationOptionsJSON>(await adminFetch(
+        apiUrl('/api/auth/passkey/registration-options'),
+        { method: 'POST' },
+      ));
+      const response = await startRegistration({
+        optionsJSON: optionsResult.data as any,
+      });
+      await readApiResponse(await adminFetch(apiUrl('/api/auth/passkey/registration'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(response),
+      }));
+      alert('Passkey registered successfully.');
+    } catch (error) {
+      console.error('[Admin Auth] Passkey registration failed:', error);
+      alert(error instanceof Error ? error.message : 'Could not register passkey.');
+    }
+  };
 
   /* =========================================================
      API
   ========================================================= */
 
   useEffect(() => {
+  if (authenticated !== true) return undefined;
   let cancelled = false;
 
   const loadContent = async () => {
@@ -242,9 +522,9 @@ function App() {
 
       const [newsResponse, servicesResponse, exchangeResponse] =
         await Promise.all([
-          fetch(`${API_BASE}/api/news`),
-          fetch(`${API_BASE}/api/services`),
-          fetch(`${API_BASE}/api/exchange`),
+          adminFetch(apiUrl('/api/news')),
+          adminFetch(apiUrl('/api/services')),
+          adminFetch(apiUrl('/api/exchange-rate')),
         ]);
 
       if (!newsResponse.ok) {
@@ -342,8 +622,16 @@ function App() {
       console.error('Failed to load admin content:', error);
 
       if (!cancelled) {
+        const message =
+          error instanceof Error ? error.message : String(error);
+        console.error('[Admin API] Load failed:', {
+          baseUrl: API_BASE || '(missing)',
+          message,
+        });
         setApiError(
-          'Could not connect to the Local API. Make sure server.js is running.',
+          API_BASE
+            ? 'Could not connect to the API. Check the backend URL and server logs.'
+            : 'Admin API URL is not configured. Set VITE_API_URL and restart the admin panel.',
         );
       }
     } finally {
@@ -358,7 +646,7 @@ function App() {
   return () => {
     cancelled = true;
   };
-}, []);
+}, [authenticated]);
 
   /* =========================================================
      MENU
@@ -586,10 +874,10 @@ function App() {
 
       const isEditing = editingNewsId !== null;
       const url = isEditing
-        ? `${API_BASE}/api/news/${editingNewsId}`
-        : `${API_BASE}/api/news`;
+        ? apiUrl(`/api/news/${editingNewsId}`)
+        : apiUrl('/api/news');
 
-      const response = await fetch(url, {
+      const response = await adminFetch(url, {
         method: isEditing ? 'PUT' : 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -652,8 +940,8 @@ function App() {
       setApiError('');
       setApiLoading(true);
 
-      const response = await fetch(
-        `${API_BASE}/api/news/${deleteNewsId}`,
+      const response = await adminFetch(
+        apiUrl(`/api/news/${deleteNewsId}`),
         {
           method: 'DELETE',
         }
@@ -700,8 +988,8 @@ function App() {
       setApiError('');
       setApiLoading(true);
 
-      const response = await fetch(
-        `${API_BASE}/api/news/${id}`,
+      const response = await adminFetch(
+        apiUrl(`/api/news/${id}`),
         {
           method: 'PUT',
           headers: {
@@ -849,10 +1137,10 @@ function App() {
 
       const isEditing = editingServiceId !== null;
       const url = isEditing
-        ? `${API_BASE}/api/services/${editingServiceId}`
-        : `${API_BASE}/api/services`;
+        ? apiUrl(`/api/services/${editingServiceId}`)
+        : apiUrl('/api/services');
 
-      const response = await fetch(url, {
+      const response = await adminFetch(url, {
         method: isEditing ? 'PUT' : 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -915,8 +1203,8 @@ function App() {
       setApiError('');
       setApiLoading(true);
 
-      const response = await fetch(
-        `${API_BASE}/api/services/${deleteServiceId}`,
+      const response = await adminFetch(
+        apiUrl(`/api/services/${deleteServiceId}`),
         {
           method: 'DELETE',
           headers: {
@@ -986,8 +1274,8 @@ function App() {
       setApiError('');
       setApiLoading(true);
 
-      const response = await fetch(
-        `${API_BASE}/api/exchange`,
+      const response = await adminFetch(
+        apiUrl('/api/exchange-rate'),
         {
           method: 'PUT',
           headers: {
@@ -1024,9 +1312,15 @@ function App() {
       setExchangeDraft(savedExchange);
       setModal('none');
     } catch (error) {
-      console.error('Save exchange error:', error);
+      console.error('[Admin API] Save exchange failed:', {
+        baseUrl: API_BASE || '(missing)',
+        endpoint: apiUrl('/api/exchange-rate'),
+        method: 'PUT',
+        body: { rate },
+        error,
+      });
       setApiError(
-        'Could not save exchange rate. Make sure the Local API is running.',
+        'Could not save exchange rate. Check the API URL and backend logs.',
       );
       alert(
         'Could not save exchange rate. Please check the Local API.',
@@ -2571,8 +2865,83 @@ function App() {
      APP
   ========================================================= */
 
+  if (authenticated === null) {
+    return <main className="login-shell"><p>Checking secure session...</p></main>;
+  }
+
+  if (!authenticated) {
+    return <LoginScreen onAuthenticated={() => setAuthenticated(true)} />;
+  }
+
   return (
     <div className="admin-app">
+      {showPasswordChange && (
+        <div className="modal-overlay">
+          <div className="modal-card compact-modal">
+            <div className="modal-heading">
+              <div>
+                <span className="eyebrow">SECURITY</span>
+                <h2>Change Password</h2>
+              </div>
+              <button className="modal-close" type="button" onClick={() => setShowPasswordChange(false)} aria-label="Close change password modal">
+                ×
+              </button>
+            </div>
+
+            <div className="password-change-stack">
+              <div className="password-field">
+                <label htmlFor="current-password">Current password</label>
+                <div className="password-input-wrap">
+                  <input id="current-password" type={showCurrentPassword ? 'text' : 'password'} value={passwordChangeForm.currentPassword} onChange={(event) => setPasswordChangeForm((current) => ({ ...current, currentPassword: event.target.value }))} autoComplete="current-password" />
+                  <button type="button" className="password-toggle small" onClick={() => setShowCurrentPassword((current) => !current)} aria-label={showCurrentPassword ? 'Hide current password' : 'Show current password'}>
+                    {showCurrentPassword ? 'Hide' : 'Show'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="password-field">
+                <label htmlFor="new-password">New password</label>
+                <div className="password-input-wrap">
+                  <input id="new-password" type={showNewPassword ? 'text' : 'password'} value={passwordChangeForm.newPassword} onChange={(event) => setPasswordChangeForm((current) => ({ ...current, newPassword: event.target.value }))} autoComplete="new-password" />
+                  <button type="button" className="password-toggle small" onClick={() => setShowNewPassword((current) => !current)} aria-label={showNewPassword ? 'Hide new password' : 'Show new password'}>
+                    {showNewPassword ? 'Hide' : 'Show'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="password-field">
+                <label htmlFor="confirm-password">Confirm new password</label>
+                <div className="password-input-wrap">
+                  <input id="confirm-password" type={showConfirmPassword ? 'text' : 'password'} value={passwordChangeForm.confirmPassword} onChange={(event) => setPasswordChangeForm((current) => ({ ...current, confirmPassword: event.target.value }))} autoComplete="new-password" />
+                  <button type="button" className="password-toggle small" onClick={() => setShowConfirmPassword((current) => !current)} aria-label={showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'}>
+                    {showConfirmPassword ? 'Hide' : 'Show'}
+                  </button>
+                </div>
+              </div>
+
+              <ul className="password-policy-list">
+                <li>At least 12 characters</li>
+                <li>One lowercase letter</li>
+                <li>One uppercase letter</li>
+                <li>One number</li>
+                <li>One special character</li>
+              </ul>
+
+              {passwordChangeError && <div className="login-error" role="alert">{passwordChangeError}</div>}
+              {passwordChangeSuccess && <div className="login-success" role="status">{passwordChangeSuccess}</div>}
+            </div>
+
+            <div className="modal-actions">
+              <button className="secondary-button" type="button" onClick={() => setShowPasswordChange(false)}>
+                Close
+              </button>
+              <button className="primary-button" type="button" onClick={submitPasswordChange} disabled={passwordChangeLoading}>
+                {passwordChangeLoading ? 'Updating...' : 'Update password'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <aside className="sidebar">
         <div className="brand">
@@ -2623,13 +2992,14 @@ function App() {
           <button
             className="nav-item"
             type="button"
+            onClick={() => setShowPasswordChange(true)}
           >
             <span className="nav-icon">
               ⚙
             </span>
 
             <span>
-              Settings
+              Change Password
             </span>
           </button>
 
@@ -2648,6 +3018,15 @@ function App() {
               </span>
             </div>
           </div>
+
+          <button className="nav-item logout-button" type="button" onClick={logout}>
+            <span className="nav-icon">↪</span>
+            <span>Log out</span>
+          </button>
+
+          <button className="secondary-button passkey-manage-button" type="button" onClick={registerPasskey}>
+            Register Fingerprint / Passkey
+          </button>
         </div>
       </aside>
 
@@ -2665,6 +3044,14 @@ function App() {
 
           <div className="topbar-actions">
             <button
+              className="secondary-button topbar-passkey-button"
+              type="button"
+              onClick={registerPasskey}
+            >
+              Register Passkey
+            </button>
+
+            <button
               className="icon-button"
               type="button"
               aria-label="Notifications"
@@ -2675,6 +3062,8 @@ function App() {
             <button
               className="profile-button"
               type="button"
+              onClick={logout}
+              aria-label="Log out"
             >
               <span className="profile-avatar">
                 A

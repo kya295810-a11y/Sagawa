@@ -34,6 +34,22 @@ yarn-error.*
 .env
 .env.*
 .env*.local
+**/.env
+**/.env.*
+
+# secret data and local credentials
+**/passkeys.json
+**/server/data/passkeys.json
+**/admin-auth.json
+**/server/data/admin-auth.json
+**/notification-tokens.json
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+credentials.json
+serviceAccountKey.json
 
 # typescript
 *.tsbuildinfo

@@ -1,16 +1,89 @@
 // server.js
 
+require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
+
 const express = require('express');
 const cors = require('cors');
+const rateLimit = require('express-rate-limit');
+const bcrypt = require('bcryptjs');
 const fs = require('fs');
 const path = require('path');
+const {
+  ADMIN_ORIGIN,
+  beginAuthentication,
+  beginRegistration,
+  clearSessionCookie,
+  createSession,
+  destroySession,
+  finishAuthentication,
+  finishRegistration,
+  isAdminAuthenticated,
+  login,
+  requireAdmin,
+  replaceAdminPasswordHash,
+  setSessionCookie,
+  validatePasswordPolicy,
+  verifyPassword,
+} = require('./auth');
 
 const app = express();
 
-const PORT = 3000;
-const HOST = '0.0.0.0';
+const PORT = Number(process.env.API_PORT || process.env.PORT || 3000);
+const HOST = process.env.HOST || '0.0.0.0';
+const configuredCorsOrigins = (process.env.CORS_ORIGIN || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+const allowedCorsOrigins = configuredCorsOrigins.length ? configuredCorsOrigins : [ADMIN_ORIGIN];
 
-app.use(cors());
+if (!allowedCorsOrigins.length || !allowedCorsOrigins.every(Boolean)) {
+  throw new Error('CORS_ORIGIN or ADMIN_ORIGIN must be set to a trusted browser origin before starting the server.');
+}
+
+const corsOptions = {
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  origin(origin, callback) {
+    if (!origin || allowedCorsOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    console.error('[CORS] Rejected origin:', origin);
+    return callback(new Error('Origin is not allowed by CORS.'));
+  },
+};
+
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 250,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: 'Too many requests. Try again later.',
+  },
+});
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 8,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: 'Too many authentication attempts. Try again later.',
+  },
+});
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
+app.use('/api', apiLimiter);
+app.use('/api/auth', authLimiter);
+app.use((req, res, next) => {
+  console.log(`[API] ${req.method} ${req.originalUrl}`);
+  next();
+});
 app.use(express.json({ limit: '20mb' }));
 app.use(
   express.urlencoded({
@@ -18,6 +91,123 @@ app.use(
     limit: '20mb',
   }),
 );
+
+app.post('/api/auth/login', authLimiter, async (req, res) => {
+  const email = String(req.body?.email || '').trim();
+  const password = req.body?.password;
+  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  if (!email || !emailPattern.test(email) || typeof password !== 'string' || password.length < 1) {
+    return res.status(400).json({ success: false, message: 'Email and password are required.' });
+  }
+
+  try {
+    if (!(await login(email, password))) {
+      console.error('[Auth] Password login rejected for configured admin account.');
+      return res.status(401).json({ success: false, message: 'Invalid email or password.' });
+    }
+
+    setSessionCookie(res, createSession());
+    console.log('[Auth] Password login succeeded.');
+    return res.json({ success: true, data: { authenticated: true } });
+  } catch (error) {
+    console.error('[Auth] Password login failed:', error.message);
+    return res.status(500).json({ success: false, message: 'Authentication service unavailable.' });
+  }
+});
+
+app.get('/api/auth/me', (req, res) => {
+  res.json({ success: true, data: { authenticated: isAdminAuthenticated(req) } });
+});
+
+app.post('/api/auth/change-password', requireAdmin, async (req, res) => {
+  const currentPassword = typeof req.body?.currentPassword === 'string' ? req.body.currentPassword : '';
+  const newPassword = typeof req.body?.newPassword === 'string' ? req.body.newPassword : '';
+  const confirmPassword = typeof req.body?.confirmPassword === 'string' ? req.body.confirmPassword : '';
+
+  if (!currentPassword || !newPassword || !confirmPassword) {
+    return res.status(400).json({ success: false, message: 'Current password, new password, and confirmation are required.' });
+  }
+
+  const policyError = validatePasswordPolicy(newPassword);
+  if (policyError) {
+    return res.status(400).json({ success: false, message: policyError });
+  }
+
+  if (newPassword !== confirmPassword) {
+    return res.status(400).json({ success: false, message: 'New passwords do not match.' });
+  }
+
+  try {
+    if (!(await verifyPassword(currentPassword))) {
+      return res.status(401).json({ success: false, message: 'Current password is incorrect.' });
+    }
+
+    const nextHash = await bcrypt.hash(newPassword, 12);
+    replaceAdminPasswordHash(nextHash);
+    sessions.clear();
+    clearSessionCookie(res);
+
+    return res.json({ success: true, message: 'Password updated successfully. Please sign in again.' });
+  } catch (error) {
+    console.error('[Auth] Change password failed:', error.message);
+    return res.status(500).json({ success: false, message: 'Password change failed.' });
+  }
+});
+
+app.post('/api/auth/logout', (req, res) => {
+  destroySession(req);
+  clearSessionCookie(res);
+  res.json({ success: true });
+});
+
+app.post('/api/auth/passkey/authentication-options', authLimiter, (req, res) => {
+  try {
+    return res.json({ success: true, data: beginAuthentication() });
+  } catch (error) {
+    console.error('[Auth] Passkey options failed:', error.message);
+    return res.status(400).json({ success: false, message: 'Passkey authentication is unavailable.' });
+  }
+});
+
+app.post('/api/auth/passkey/authentication', authLimiter, async (req, res) => {
+  try {
+    await finishAuthentication(req.body);
+    setSessionCookie(res, createSession());
+    console.log('[Auth] Passkey login succeeded.');
+    return res.json({ success: true, data: { authenticated: true } });
+  } catch (error) {
+    console.error('[Auth] Passkey login failed:', error.message);
+    return res.status(401).json({ success: false, message: 'Passkey authentication failed.' });
+  }
+});
+
+app.post('/api/auth/passkey/registration-options', requireAdmin, (req, res) => {
+  try {
+    return res.json({ success: true, data: beginRegistration(req) });
+  } catch (error) {
+    console.error('[Auth] Passkey registration options failed:', error.message);
+    return res.status(400).json({ success: false, message: 'Passkey registration is unavailable.' });
+  }
+});
+
+app.post('/api/auth/passkey/registration', requireAdmin, async (req, res) => {
+  try {
+    await finishRegistration(req, req.body);
+    console.log('[Auth] Passkey registration succeeded.');
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('[Auth] Passkey registration failed:', error.message);
+    return res.status(400).json({ success: false, message: 'Passkey registration failed.' });
+  }
+});
+
+// Public GETs are consumed by the mobile app. All admin mutations require a session.
+app.use('/api', (req, res, next) => {
+  if (req.path.startsWith('/auth/') || req.path === '/auth/me') return next();
+  if (req.method === 'GET') return next();
+  return requireAdmin(req, res, next);
+});
 
 const dataDir = path.join(__dirname, 'data');
 
@@ -318,8 +508,6 @@ app.get('/', (req, res) => {
     success: true,
     message:
       'Sagawa Local API is running',
-    host:
-      `http://192.168.100.20:${PORT}`,
     endpoints: {
       news: '/api/news',
       services: '/api/services',
@@ -742,6 +930,12 @@ function saveExchangeRate(
     body.rate ?? '',
   ).trim();
 
+  console.log('[Exchange] Save requested:', {
+    method: req.method,
+    path: req.originalUrl,
+    rate,
+  });
+
   if (!rate) {
     return res
       .status(400)
@@ -800,6 +994,8 @@ function saveExchangeRate(
     exchangeFile,
     exchange,
   );
+
+  console.log('[Exchange] Saved:', exchange);
 
   res.json({
     success: true,
@@ -1030,7 +1226,7 @@ app.use((req, res) => {
 });
 
 app.use(
-  (error, req, res, next) => {
+  (error, req, res, _next) => {
     console.error(
       'API Error:',
       error,
@@ -1058,10 +1254,10 @@ const server = app.listen(
       '==========================================',
     );
     console.log(
-      `Local:   http://localhost:${PORT}`,
+      `Listening on ${HOST}:${PORT}`,
     );
     console.log(
-      `Network: http://192.168.100.20:${PORT}`,
+      `CORS origins: ${allowedCorsOrigins.join(', ')}`,
     );
     console.log(
       '==========================================',

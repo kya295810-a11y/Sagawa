@@ -10,6 +10,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@simplewebauthn/browser": "^13.3.0",
+    "@simplewebauthn/server": "^13.3.3",
+    "bcryptjs": "^3.0.3",
+    "dotenv": "^17.4.2",
+    "express-rate-limit": "^8.7.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
