@@ -16,14 +16,11 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
+import { useRouter } from 'expo-router';
 
 import { useAppTheme } from '@/theme/provider';
 import type { ThemeColors } from '@/theme/types';
-import { env } from '@/config/env';
-
-const API_BASE_URL = env.EXPO_PUBLIC_API_URL;
-
-const SERVICES_ENDPOINT = `${API_BASE_URL}/api/services`;
+import { apiRequest } from '@/services/api/client';
 
 type ServiceItem = {
   id: string;
@@ -116,6 +113,7 @@ function parseServices(payload: unknown): ServiceItem[] {
 
 export default function ServicesScreen() {
   const { width, height } = useWindowDimensions();
+  const router = useRouter();
   const { theme } = useAppTheme();
   const styles = createStyles(theme.colors);
 
@@ -135,13 +133,7 @@ export default function ServicesScreen() {
     try {
       setError('');
 
-      const response = await fetch(SERVICES_ENDPOINT, {
-        headers: { Accept: 'application/json' },
-      });
-
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-      const payload: unknown = await response.json();
+      const payload: unknown = await apiRequest<unknown>('/api/services');
       setServices(parseServices(payload));
     } catch (requestError) {
       console.error('Services API error:', requestError);
@@ -177,7 +169,7 @@ export default function ServicesScreen() {
   const renderServiceCard = ({ item }: { item: ServiceItem }) => (
     <Pressable
       style={({ pressed }) => [styles.serviceCard, pressed && styles.cardPressed]}
-      onPress={() => setSelectedService(item)}
+      onPress={() => router.push({ pathname: '/services/[id]', params: { id: item.id } })}
     >
       <View style={[styles.imageContainer, { height: imageHeight }]}>
         {item.image ? (

@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { env } from '@/config/env';
 import {
   ImageBackground,
   InputAccessoryView,
@@ -20,8 +19,8 @@ import { StatusBar } from 'expo-status-bar';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useAppTheme } from '@/theme/provider';
+import { apiRequest } from '@/services/api/client';
 
-const API_BASE_URL = env.EXPO_PUBLIC_API_URL;
 const ANDROID_BLACK = Platform.OS === 'android' ? '700' : '900';
 const ANDROID_EXTRA_BOLD = Platform.OS === 'android' ? '700' : '800';
 const ANDROID_INPUT_TEXT_FIX = Platform.select({
@@ -60,13 +59,7 @@ export default function ExchangeScreen() {
     try {
       setRefreshing(true);
 
-      const response = await fetch(`${API_BASE_URL}/api/exchange`);
-
-      if (!response.ok) {
-        throw new Error(`Exchange API returned ${response.status}`);
-      }
-
-      const payload = (await response.json()) as ExchangeResponse;
+      const payload = await apiRequest<ExchangeResponse>('/api/exchange-rate');
 
       const directRate = Number(payload.data?.rate);
       const firstRate = Number(payload.data?.rates?.[0]?.buy);
@@ -92,7 +85,11 @@ export default function ExchangeScreen() {
   }, []);
 
   useEffect(() => {
-    loadExchangeRate();
+    const timer = setTimeout(() => {
+      void loadExchangeRate();
+    }, 0);
+
+    return () => clearTimeout(timer);
   }, [loadExchangeRate]);
 
   /*

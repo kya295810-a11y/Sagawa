@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-
+const bcrypt = require('bcryptjs');
 const {
   generateAuthenticationOptions,
   generateRegistrationOptions,
@@ -9,9 +9,8 @@ const {
   verifyRegistrationResponse,
 } = require('@simplewebauthn/server');
 
-const ADMIN_EMAIL = 'kya295810@gmail.com';
-const ADMIN_NAME = String(process.env.ADMIN_NAME || '').trim() || 'Admin';
-const ADMIN_PASSWORD = 'Zin295810@';
+const ADMIN_EMAIL = String(process.env.ADMIN_EMAIL || '').trim().toLowerCase();
+const ADMIN_PASSWORD_HASH = String(process.env.ADMIN_PASSWORD_HASH || '').trim();
 const SESSION_SECRET = 'sagawa-admin-local-session-key-change-before-production';
 const ADMIN_ORIGIN = String(process.env.ADMIN_ORIGIN || '').trim().replace(/\/$/, '');
 const RP_ID = String(process.env.WEBAUTHN_RP_ID || '').trim() || (ADMIN_ORIGIN ? new URL(ADMIN_ORIGIN).hostname : '');
@@ -24,7 +23,7 @@ const COOKIE_NAME = 'sagawa_admin_session';
 const USER_ID = crypto.createHash('sha256').update(ADMIN_EMAIL).digest('base64url');
 const ADMIN_AUTH_FILE = path.join(__dirname, 'data', 'admin-auth.json');
 
-
+let adminPasswordHash = ADMIN_PASSWORD_HASH;
 
 function isValidBcryptHash(value) {
   return typeof value === 'string'
@@ -46,8 +45,12 @@ function validateConfiguration() {
     throw new Error('Missing ADMIN_EMAIL. Configure it in the local .env file before starting the server.');
   }
 
-  if (!ADMIN_PASSWORD || ADMIN_PASSWORD.length < 6) {
-    throw new Error('ADMIN_PASSWORD must be at least 6 characters and stored in the local .env file.');
+  if (!ADMIN_PASSWORD_HASH || !isValidBcryptHash(ADMIN_PASSWORD_HASH)) {
+    throw new Error('ADMIN_PASSWORD_HASH must be a valid bcrypt hash stored in the local .env file.');
+  }
+
+  if (!SESSION_SECRET || SESSION_SECRET.length < 32) {
+    throw new Error('SESSION_SECRET must be at least 32 characters and stored in the local .env file.');
   }
 
   if (!ADMIN_ORIGIN) {
@@ -115,7 +118,7 @@ function writeJsonAtomically(filePath, data) {
         fs.unlinkSync(tempPath);
       }
     } catch {
-      // Best-effort cleanup only
+      // Best-effort cleanup only; the original error is preserved.
     }
     throw error;
   }
@@ -317,24 +320,18 @@ function isAdminAuthenticated(req) {
   return Boolean(getSession(req));
 }
 
-function getAuthenticatedUser(req) {
-  const session = getSession(req);
-  if (!session) {
-    return null;
-  }
-
-  return {
-    name: ADMIN_NAME || 'Admin',
-    email: ADMIN_EMAIL,
-  };
+function verifyPassword(password) {
+  return typeof password === 'string' && password === ADMIN_PASSWORD;
 }
 
-async function verifyPassword(password) {
-  if (typeof password !== 'string' || password.length === 0) {
-    return false;
-  }
+function login(email, password) {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
 
-  return bcrypt.compare(password, adminPasswordHash);
+  return (
+    normalizedEmail === ADMIN_EMAIL &&
+    typeof password === 'string' &&
+    password === ADMIN_PASSWORD
+  );
 }
 
 async function login(email, password) {
@@ -370,7 +367,7 @@ function beginRegistration(req) {
     rpName: RP_NAME,
     rpID: RP_ID,
     userName: ADMIN_EMAIL,
-    userDisplayName: ADMIN_NAME || 'Admin',
+    userDisplayName: 'Administrator',
     userID: Buffer.from(USER_ID),
     attestationType: 'none',
     challenge,
@@ -470,20 +467,133 @@ async function finishAuthentication(response) {
   return true;
 }
 
+function generateVerificationCode() {
+  return crypto.randomInt(100000, 999999).toString();
+}
+
+function hashVerificationCode(code) {
+  return crypto
+    .createHmac('sha256', SESSION_SECRET)
+    .update(code)
+    .digest('hex');
+}
+
+const verificationStates = new Map();
+
+function createVerificationState() {
+  const code = generateVerificationCode();
+  const codeHash = hashVerificationCode(code);
+  const stateId = crypto.randomBytes(16).toString('hex');
+
+  verificationStates.set(stateId, {
+    codeHash,
+    attempts: 0,
+    expiresAt: Date.now() + VERIFICATION_CODE_TTL_MS,
+    used: false,
+  });
+
+  return { stateId, code };
+}
+
+function validateVerificationCode(stateId, code) {
+  const state = verificationStates.get(stateId);
+  if (!state) {
+    return { valid: false, reason: 'Verification state not found or expired.' };
+  }
+
+  if (state.expiresAt <= Date.now()) {
+    verificationStates.delete(stateId);
+    return { valid: false, reason: 'Verification code has expired.' };
+  }
+
+  if (state.used) {
+    verificationStates.delete(stateId);
+    return { valid: false, reason: 'Verification code has already been used.' };
+  }
+
+  if (state.attempts >= VERIFICATION_CODE_MAX_ATTEMPTS) {
+    verificationStates.delete(stateId);
+    return { valid: false, reason: 'Maximum verification attempts exceeded.' };
+  }
+
+  state.attempts += 1;
+
+  const providedHash = hashVerificationCode(code);
+  if (providedHash !== state.codeHash) {
+    return { valid: false, reason: 'Invalid verification code.' };
+  }
+
+  state.used = true;
+  verificationStates.delete(stateId);
+  return { valid: true };
+}
+
+const resetPasswordStates = new Map();
+
+function createPasswordResetState() {
+  const code = generateVerificationCode();
+  const codeHash = hashVerificationCode(code);
+  const stateId = crypto.randomBytes(16).toString('hex');
+
+  resetPasswordStates.set(stateId, {
+    codeHash,
+    attempts: 0,
+    expiresAt: Date.now() + VERIFICATION_CODE_TTL_MS,
+    used: false,
+  });
+
+  return { stateId, code };
+}
+
+function validateResetCode(stateId, code) {
+  const state = resetPasswordStates.get(stateId);
+  if (!state) {
+    return { valid: false, reason: 'Password reset state not found or expired.' };
+  }
+
+  if (state.expiresAt <= Date.now()) {
+    resetPasswordStates.delete(stateId);
+    return { valid: false, reason: 'Password reset code has expired.' };
+  }
+
+  if (state.used) {
+    resetPasswordStates.delete(stateId);
+    return { valid: false, reason: 'Password reset code has already been used.' };
+  }
+
+  if (state.attempts >= VERIFICATION_CODE_MAX_ATTEMPTS) {
+    resetPasswordStates.delete(stateId);
+    return { valid: false, reason: 'Maximum reset attempts exceeded.' };
+  }
+
+  state.attempts += 1;
+
+  const providedHash = hashVerificationCode(code);
+  if (providedHash !== state.codeHash) {
+    return { valid: false, reason: 'Invalid password reset code.' };
+  }
+
+  state.used = true;
+  resetPasswordStates.delete(stateId);
+  return { valid: true };
+}
+
 module.exports = {
-  ADMIN_EMAIL,
-  ADMIN_NAME,
   ADMIN_ORIGIN,
   COOKIE_NAME,
   SESSION_TTL_MS,
+  VERIFICATION_CODE_COOKIE_NAME,
   beginAuthentication,
   beginRegistration,
   clearSessionCookie,
   createSession,
+  createVerificationState,
+  validateVerificationCode,
+  createPasswordResetState,
+  validateResetCode,
   destroySession,
   finishAuthentication,
   finishRegistration,
-  getAuthenticatedUser,
   isAdminAuthenticated,
   login,
   requireAdmin,

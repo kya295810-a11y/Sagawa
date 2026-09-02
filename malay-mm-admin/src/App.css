@@ -6,17 +6,36 @@
   min-height: 100vh;
   display: grid;
   place-items: center;
-  padding: 24px;
-  background: #f5f8fc;
+  padding: 20px;
+  background: linear-gradient(135deg, #f5f8fc 0%, #e8ecf1 100%);
 }
 
 .login-panel {
-  width: min(100%, 440px);
-  padding: 42px;
+  width: min(100%, 420px);
+  padding: 40px;
   background: #ffffff;
-  border: 1px solid #e7edf4;
-  border-radius: 16px;
-  box-shadow: 0 18px 55px rgba(23, 32, 51, 0.08);
+  border: 1px solid #e0e7f1;
+  border-radius: 12px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.06);
+}
+
+@media (max-width: 480px) {
+  .login-panel {
+    width: 100%;
+    padding: 32px 24px;
+    border-radius: 12px;
+  }
+}
+
+
+.eyebrow {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: #8d97a7;
+  text-transform: uppercase;
+  margin-bottom: 12px;
 }
 
 .login-brand {
@@ -24,96 +43,163 @@
 }
 
 .login-panel h1 {
-  margin: 8px 0;
+  margin: 12px 0 8px;
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: #172033;
 }
 
 .login-panel p {
-  margin: 0 0 28px;
-  color: #667085;
+  margin: 0 0 24px;
+  color: #6b7280;
+  font-size: 14px;
+  line-height: 1.5;
 }
 
 .login-panel label {
   display: block;
-  margin: 16px 0 7px;
-  color: #344054;
+  margin: 0 0 8px;
+  color: #374151;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+.login-panel > label:not(:first-of-type) {
+  margin-top: 18px;
 }
 
 .login-panel input {
   width: 100%;
-  padding: 13px 14px;
+  padding: 12px 14px;
   border: 1px solid #d0d5dd;
   border-radius: 8px;
   background: #fff;
+  font-size: 14px;
+  color: #172033;
+  transition: border-color 0.2s, box-shadow 0.2s, background-color 0.2s;
+  line-height: 1.5;
 }
 
-.password-row {
+
+.login-panel input:hover:not(:disabled) {
+  border-color: #9b9b9b;
+  background-color: #fafafa;
+}
+
+.login-panel input:focus {
+  outline: none;
+  border-color: #1688ff;
+  box-shadow: 0 0 0 3px rgba(22, 136, 255, 0.08), inset 0 0 0 0 transparent;
+  background-color: #fff;
+}
+
+.login-panel input:disabled {
+  background: #f9fafb;
+  color: #9ca3af;
+  cursor: not-allowed;
+  border-color: #e5e7eb;
+}
+
+.login-panel input::placeholder {
+  color: #9ca3af;
+}
+
+.password-input-container {
+  position: relative;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 16px;
+  margin-top: 8px;
 }
 
-.password-row label {
+.password-input-container .password-input-field {
+  padding-right: 44px !important;
+}
+
+.password-input-button {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #667085;
+  transition: color 0.2s;
   margin: 0;
+  font-size: 0;
+  width: 30px;
+  height: 30px;
+}
+
+.password-input-button:hover:not(:disabled) {
+  color: #444;
+}
+
+.password-input-button:focus-visible {
+  outline: 2px solid #1688ff;
+  outline-offset: 2px;
+  color: #1688ff;
+}
+
+.password-input-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.password-input-button svg {
+  display: block;
+}
+
+
+.password-row {
+  display: none;
 }
 
 .password-toggle {
-  border: 1px solid #dfe6ee;
-  background: #f7f9fb;
-  color: #445067;
-  border-radius: 8px;
-  padding: 6px 10px;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.password-toggle.small {
-  margin-left: 8px;
+  display: none;
 }
 
 .password-input-wrap {
-  display: flex;
-  align-items: center;
-  padding: 0 8px 0 12px;
-  border: 1px solid #d0d5dd;
-  border-radius: 8px;
-  background: #fff;
+  display: none;
 }
 
-.password-input-wrap input {
-  border: 0;
-  outline: 0;
-  box-shadow: none;
-  background: transparent;
-  padding-left: 0;
-}
 
 .login-button,
 .passkey-button,
 .passkey-manage-button,
 .reset-button {
   width: 100%;
-  margin-top: 20px;
+  margin-top: 24px;
+}
+
+.reset-button,
+.passkey-button {
+  margin-top: 12px;
 }
 
 .helper-text {
-  margin-top: 10px;
-  font-size: 12px;
-  color: #667085;
+  margin-top: 12px;
+  font-size: 13px;
+  color: #6b7280;
+  line-height: 1.5;
 }
+
 
 .login-error {
   margin-top: 16px;
-  padding: 11px 12px;
-  border: 1px solid #f1c4c4;
-  border-radius: 8px;
-  background: #fff7f7;
-  color: #b42318;
+  padding: 12px 14px;
+  border: 1px solid #fca5a5;
+  border-radius: 6px;
+  background: #fef2f2;
+  color: #991b1b;
   font-size: 13px;
+  line-height: 1.5;
 }
 
 .login-success {
@@ -616,48 +702,41 @@ textarea:focus-visible {
 .confirm-button,
 .danger-button,
 .secondary-button {
-  height: 42px;
-
-  padding: 0 16px;
-
-  border-radius: 12px;
-
+  height: 40px;
+  padding: 0 18px;
+  border-radius: 8px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-
-  gap: 7px;
-
-  font-size: 12px;
-  font-weight: 700;
-
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
   cursor: pointer;
-
-  transition:
-    transform 0.2s ease,
-    background 0.2s ease,
-    opacity 0.2s ease;
+  transition: all 0.2s ease;
+  border: none;
 }
 
 .primary-button {
   background: #1688ff;
   color: #ffffff;
-
-  box-shadow:
-    0 8px 20px
-    rgba(22, 136, 255, 0.18);
+  box-shadow: 0 4px 12px rgba(22, 136, 255, 0.15);
 }
 
-.primary-button:hover,
-.confirm-button:hover {
+.primary-button:hover:not(:disabled) {
+  background: #0a73e6;
+  box-shadow: 0 6px 16px rgba(22, 136, 255, 0.25);
   transform: translateY(-1px);
-  background: #0879ef;
 }
 
 .primary-button:disabled {
-  opacity: 0.45;
+  opacity: 0.5;
   cursor: not-allowed;
   transform: none;
+}
+
+.primary-button:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 2px 8px rgba(22, 136, 255, 0.2);
 }
 
 .confirm-button {
@@ -665,16 +744,29 @@ textarea:focus-visible {
   color: #ffffff;
 }
 
-.secondary-button {
-  background: #ffffff;
-
-  border: 1px solid #dfe6ee;
-
-  color: #687386;
+.confirm-button:hover {
+  background: #0a73e6;
+  transform: translateY(-1px);
 }
 
-.secondary-button:hover {
-  background: #f7f9fb;
+.secondary-button {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  color: #6b7280;
+}
+
+.secondary-button:hover:not(:disabled) {
+  background: #f3f4f6;
+  border-color: #d1d5db;
+}
+
+.secondary-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.secondary-button:active:not(:disabled) {
+  background: #f0f2f5;
 }
 
 .danger-button {

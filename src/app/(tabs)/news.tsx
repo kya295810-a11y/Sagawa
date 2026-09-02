@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { env } from '@/config/env';
 import {
   ActivityIndicator,
   Alert,
@@ -22,6 +21,7 @@ import { useRouter } from 'expo-router';
 import { registerPushToken } from '@/services/notifications/push-token';
 import { useAppTheme } from '@/theme/provider';
 import type { ThemeColors } from '@/theme/types';
+import { apiRequest } from '@/services/api/client';
 
 /* ============================================================
    TYPES
@@ -49,9 +49,6 @@ type NewsItem = {
   video: string;
   type: NewsType;
 };
-
-const API_BASE_URL = env.EXPO_PUBLIC_API_URL;
-
 
 const mapApiNews = (item: ApiNewsItem): NewsItem => ({
   id: String(item.id),
@@ -100,17 +97,7 @@ export default function NewsScreen() {
     try {
       setError('');
 
-      const response = await fetch(
-        `${API_BASE_URL}/api/news`
-      );
-
-      if (!response.ok) {
-        throw new Error(
-          `News API returned ${response.status}`
-        );
-      }
-
-      const result = await response.json();
+      const result = await apiRequest<{ success?: boolean; data?: ApiNewsItem[] }>('/api/news');
 
       if (!result.success || !Array.isArray(result.data)) {
         throw new Error('Invalid news API response.');
@@ -318,7 +305,7 @@ export default function NewsScreen() {
           styles.newsCard,
           pressed && styles.cardPressed,
         ]}
-        onPress={() => {}}
+        onPress={() => openNewsDetail(item.id)}
       >
         {/* ====================================================
             IMAGE

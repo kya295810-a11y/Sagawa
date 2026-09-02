@@ -129,7 +129,12 @@ const initialExchange: ExchangeItem = {
 };
 
 type LoginScreenProps = {
-  onAuthenticated: () => void;
+  onAuthenticated: (user?: Partial<CurrentUser> | null) => void;
+};
+
+type CurrentUser = {
+  name: string;
+  email: string;
 };
 
 type ApiResult<T> = {
@@ -154,7 +159,10 @@ async function readApiResponse<T>(response: Response): Promise<ApiResult<T>> {
   return result as ApiResult<T>;
 }
 
+type LoginStep = 'credentials' | 'forgotPassword' | 'resetPassword';
+
 function LoginScreen({ onAuthenticated }: LoginScreenProps) {
+  const [step, setStep] = useState<LoginStep>('credentials');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -163,6 +171,15 @@ function LoginScreen({ onAuthenticated }: LoginScreenProps) {
   const [passkeyAvailable] = useState(
     () => typeof window !== 'undefined' && 'PublicKeyCredential' in window,
   );
+
+  // Forgot password step state
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [resetCode, setResetCode] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [resetStep, setResetStep] = useState<'request' | 'verify' | 'newpassword'>('request');
 
   const emailIsValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
   const passwordIsPresent = password.length > 0;
@@ -179,20 +196,25 @@ function LoginScreen({ onAuthenticated }: LoginScreenProps) {
     setLoading(true);
     setError('');
 
-    try {
-      await readApiResponse(await fetch(apiUrl('/api/auth/login'), {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      }));
-      onAuthenticated();
-    } catch {
-      setError('Unable to sign in right now. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
+   try {
+     const result = await readApiResponse<{
+       authenticated?: boolean;
+       user?: Partial<CurrentUser> | null;
+     }>(await fetch(apiUrl('/api/auth/login'), {
+       method: 'POST',
+       credentials: 'include',
+       headers: { 'Content-Type': 'application/json' },
+       body: JSON.stringify({ email, password }),
+     }));
+
+     setError('');
+     onAuthenticated(result.data?.user ?? null);
+   } catch (_err) {
+     setError('Invalid email or password. Please try again.');
+   } finally {
+     setLoading(false);
+   }
+ };
 
   const handlePasskeyLogin = async () => {
     if (loading) {
@@ -210,21 +232,115 @@ function LoginScreen({ onAuthenticated }: LoginScreenProps) {
       const response = await startAuthentication({
         optionsJSON: optionsResult.data as any,
       });
-      await readApiResponse(await fetch(apiUrl('/api/auth/passkey/authentication'), {
+      const result = await readApiResponse<{
+        authenticated?: boolean;
+        user?: Partial<CurrentUser> | null;
+      }>(await fetch(apiUrl('/api/auth/passkey/authentication'), {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(response),
       }));
-      onAuthenticated();
+      onAuthenticated(result.data?.user ?? null);
     } catch {
-      setError('Unable to sign in with passkey right now. Please try again.');
+      setError('Unable to sign in with passkey. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
-  return (
+  const handleForgotPasswordRequest = async (event: React.FormEvent) => {
+    event.preventDefault();
+
+    if (!forgotEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(forgotEmail.trim())) {
+      setError('Please enter a valid email address.');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+
+    try {
+      await readApiResponse<{ resetCodeSent?: boolean }>(await fetch(apiUrl('/api/auth/forgot-password'), {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: forgotEmail }),
+      }));
+      setResetStep('verify');
+      setError('');
+    } catch (_err) {
+      setError('Unable to send reset code. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResetPasswordVerify = async (event: React.FormEvent) => {
+    event.preventDefault();
+
+    if (!resetCode || resetCode.length !== 6 || !/^\d{6}$/.test(resetCode)) {
+      setError('Please enter a valid 6-digit code.');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    setResetStep('newpassword');
+    setLoading(false);
+  };
+
+  const handleResetPasswordSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+
+    if (!newPassword || !confirmPassword) {
+      setError('Please enter a new password.');
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setError('Passwords do not match.');
+      return;
+    }
+
+    if (newPassword.length < 12) {
+      setError('Password must be at least 12 characters long.');
+      return;
+    }
+
+    if (!/[a-z]/.test(newPassword) || !/[A-Z]/.test(newPassword) || !/\d/.test(newPassword) || !/[^A-Za-z0-9]/.test(newPassword)) {
+      setError('Password must include uppercase, lowercase, a number, and a special character.');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+
+    try {
+      await readApiResponse<{ passwordReset?: boolean }>(await fetch(apiUrl('/api/auth/reset-password'), {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: resetCode, newPassword, confirmPassword }),
+      }));
+      setStep('credentials');
+      setEmail('');
+      setPassword('');
+      setForgotEmail('');
+      setResetCode('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setResetStep('request');
+      setError('');
+      alert('Password reset successful. Please sign in with your new password.');
+    } catch (_err) {
+      setError('Failed to reset password. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const renderLoginShell = (title: string, subtitle: string, children: React.ReactNode) => (
     <main className="login-shell">
       <section className="login-panel">
         <div className="brand login-brand">
@@ -232,9 +348,16 @@ function LoginScreen({ onAuthenticated }: LoginScreenProps) {
           <div><strong>Sagawa</strong><span>Admin</span></div>
         </div>
         <span className="eyebrow">SECURE ADMIN ACCESS</span>
-        <h1>Welcome back</h1>
-        <p>Sign in to manage Malay MM content.</p>
+        <h1>{title}</h1>
+        <p>{subtitle}</p>
+        {children}
+      </section>
+    </main>
+  );
 
+  if (step === 'credentials') {
+    return renderLoginShell('Welcome back', 'Sign in to manage Malay MM content.', (
+      <>
         <form onSubmit={handlePasswordLogin} noValidate>
           <label htmlFor="admin-email">Email</label>
           <input
@@ -246,27 +369,45 @@ function LoginScreen({ onAuthenticated }: LoginScreenProps) {
             onChange={(event) => setEmail(event.target.value)}
             required
             aria-invalid={email.length > 0 && !emailIsValid}
+            disabled={loading}
+            placeholder="admin@example.com"
           />
 
-          <div className="password-row">
-            <label htmlFor="admin-password">Password</label>
+          <label htmlFor="admin-password">Password</label>
+          <div className="password-input-container">
+            <input
+              id="admin-password"
+              type={showPassword ? 'text' : 'password'}
+              autoComplete="current-password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              required
+              disabled={loading}
+              placeholder="••••••••"
+              spellCheck="false"
+              className="password-input-field"
+            />
             <button
-              className="password-toggle"
+              className="password-input-button"
               type="button"
               onClick={() => setShowPassword((current) => !current)}
               aria-label={showPassword ? 'Hide password' : 'Show password'}
+              disabled={loading}
+              tabIndex={-1}
             >
-              {showPassword ? 'Hide' : 'Show'}
+              {showPassword ? (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+              ) : (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                  <line x1="1" y1="1" x2="23" y2="23" />
+                </svg>
+              )}
             </button>
           </div>
-          <input
-            id="admin-password"
-            type={showPassword ? 'text' : 'password'}
-            autoComplete="current-password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            required
-          />
 
           {error && <div className="login-error" role="alert">{error}</div>}
 
@@ -284,13 +425,223 @@ function LoginScreen({ onAuthenticated }: LoginScreenProps) {
           {passkeyAvailable ? 'Sign in with Fingerprint / Touch ID' : 'Passkeys not supported on this device'}
         </button>
 
-        <button className="secondary-button reset-button" type="button" disabled>
-          Password reset unavailable
+        <button
+          className="secondary-button reset-button"
+          type="button"
+          onClick={() => {
+            setStep('forgotPassword');
+            setForgotEmail('');
+            setResetCode('');
+            setNewPassword('');
+            setConfirmPassword('');
+            setResetStep('request');
+            setError('');
+          }}
+          disabled={loading}
+        >
+          Forgot password?
         </button>
-        <p className="helper-text">Secure password recovery is not configured for this admin deployment.</p>
-      </section>
-    </main>
-  );
+      </>
+    ));
+  }
+
+  if (step === 'forgotPassword') {
+    if (resetStep === 'request') {
+      return renderLoginShell('Reset password', 'Enter your email address to receive a password reset code.', (
+        <>
+          <form onSubmit={handleForgotPasswordRequest} noValidate>
+            <label htmlFor="forgot-email">Email</label>
+            <input
+              id="forgot-email"
+              type="email"
+              autoComplete="email"
+              inputMode="email"
+              value={forgotEmail}
+              onChange={(event) => setForgotEmail(event.target.value)}
+              required
+              disabled={loading}
+              placeholder="admin@example.com"
+            />
+
+            {error && <div className="login-error" role="alert">{error}</div>}
+
+            <button className="primary-button login-button" type="submit" disabled={loading || !forgotEmail}>
+              {loading ? 'Sending...' : 'Send reset code'}
+            </button>
+          </form>
+
+          <button
+            className="secondary-button reset-button"
+            type="button"
+            onClick={() => {
+              setStep('credentials');
+              setForgotEmail('');
+              setError('');
+            }}
+            disabled={loading}
+          >
+            Back to sign in
+          </button>
+        </>
+      ));
+    }
+
+    if (resetStep === 'verify') {
+      return renderLoginShell('Verify reset code', 'Enter the code sent to your email.', (
+        <>
+          <form onSubmit={handleResetPasswordVerify} noValidate>
+            <label htmlFor="reset-code">6-Digit Code</label>
+            <input
+              id="reset-code"
+              type="text"
+              inputMode="numeric"
+              maxLength={6}
+              value={resetCode}
+              onChange={(event) => setResetCode(event.target.value.replace(/\D/g, ''))}
+              required
+              disabled={loading}
+              placeholder="000000"
+              autoComplete="one-time-code"
+            />
+
+            {error && <div className="login-error" role="alert">{error}</div>}
+
+            <button
+              className="primary-button login-button"
+              type="submit"
+              disabled={loading || resetCode.length !== 6}
+            >
+              {loading ? 'Verifying...' : 'Continue'}
+            </button>
+          </form>
+
+          <button
+            className="secondary-button reset-button"
+            type="button"
+            onClick={() => {
+              setResetStep('request');
+              setResetCode('');
+              setError('');
+            }}
+            disabled={loading}
+          >
+            Back to request code
+          </button>
+        </>
+      ));
+    }
+
+    if (resetStep === 'newpassword') {
+      return renderLoginShell('Create new password', 'Set a strong new password for your account.', (
+        <>
+          <form onSubmit={handleResetPasswordSubmit} noValidate>
+            <label htmlFor="new-password">New Password</label>
+            <div className="password-input-container">
+              <input
+                id="new-password"
+                type={showNewPassword ? 'text' : 'password'}
+                value={newPassword}
+                onChange={(event) => setNewPassword(event.target.value)}
+                required
+                disabled={loading}
+                placeholder="••••••••"
+                spellCheck="false"
+                className="password-input-field"
+              />
+              <button
+                className="password-input-button"
+                type="button"
+                onClick={() => setShowNewPassword((current) => !current)}
+                aria-label={showNewPassword ? 'Hide password' : 'Show password'}
+                disabled={loading}
+                tabIndex={-1}
+              >
+                {showNewPassword ? (
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                    <circle cx="12" cy="12" r="3" />
+                  </svg>
+                ) : (
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                    <line x1="1" y1="1" x2="23" y2="23" />
+                  </svg>
+                )}
+              </button>
+            </div>
+
+            <label htmlFor="confirm-password">Confirm Password</label>
+            <div className="password-input-container">
+              <input
+                id="confirm-password"
+                type={showConfirmPassword ? 'text' : 'password'}
+                value={confirmPassword}
+                onChange={(event) => setConfirmPassword(event.target.value)}
+                required
+                disabled={loading}
+                placeholder="••••••••"
+                spellCheck="false"
+                className="password-input-field"
+              />
+              <button
+                className="password-input-button"
+                type="button"
+                onClick={() => setShowConfirmPassword((current) => !current)}
+                aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
+                disabled={loading}
+                tabIndex={-1}
+              >
+                {showConfirmPassword ? (
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                    <circle cx="12" cy="12" r="3" />
+                  </svg>
+                ) : (
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                    <line x1="1" y1="1" x2="23" y2="23" />
+                  </svg>
+                )}
+              </button>
+            </div>
+
+            <ul className="password-policy-list">
+              <li style={{ color: newPassword.length >= 12 ? '#16a34a' : '#667085' }}>At least 12 characters</li>
+              <li style={{ color: /[a-z]/.test(newPassword) ? '#16a34a' : '#667085' }}>One lowercase letter</li>
+              <li style={{ color: /[A-Z]/.test(newPassword) ? '#16a34a' : '#667085' }}>One uppercase letter</li>
+              <li style={{ color: /\d/.test(newPassword) ? '#16a34a' : '#667085' }}>One number</li>
+              <li style={{ color: /[^A-Za-z0-9]/.test(newPassword) ? '#16a34a' : '#667085' }}>One special character</li>
+            </ul>
+
+            {error && <div className="login-error" role="alert">{error}</div>}
+
+            <button className="primary-button login-button" type="submit" disabled={loading || newPassword !== confirmPassword || newPassword.length < 12}>
+              {loading ? 'Resetting...' : 'Reset password'}
+            </button>
+          </form>
+
+          <button
+            className="secondary-button reset-button"
+            type="button"
+            onClick={() => {
+              setStep('credentials');
+              setForgotEmail('');
+              setResetCode('');
+              setNewPassword('');
+              setConfirmPassword('');
+              setResetStep('request');
+              setError('');
+            }}
+            disabled={loading}
+          >
+            Back to sign in
+          </button>
+        </>
+      ));
+    }
+  }
+
+  return null;
 }
 
 const adminFetch = (input: RequestInfo | URL, init: RequestInit = {}) =>
@@ -298,6 +649,14 @@ const adminFetch = (input: RequestInfo | URL, init: RequestInit = {}) =>
 
 function App() {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
+  const [currentUser, setCurrentUser] = useState<CurrentUser>({
+    name: 'Admin',
+    email: '',
+  });
+  const normalizeCurrentUser = (user?: Partial<CurrentUser> | null): CurrentUser => ({
+    name: typeof user?.name === 'string' && user.name.trim() ? user.name.trim() : 'Admin',
+    email: typeof user?.email === 'string' ? user.email : '',
+  });
   const [activePage, setActivePage] =
     useState<Page>('dashboard');
 
@@ -414,10 +773,15 @@ function App() {
 
   useEffect(() => {
     void adminFetch(apiUrl('/api/auth/me'))
-      .then((response) => readApiResponse<{ authenticated?: boolean }>(response))
-      .then((result) => setAuthenticated(Boolean(result.data?.authenticated)))
+      .then((response) => readApiResponse<{ authenticated?: boolean; user?: Partial<CurrentUser> | null }>(response))
+      .then((result) => {
+        const nextUser = normalizeCurrentUser(result.data?.user ?? null);
+        setCurrentUser(nextUser);
+        setAuthenticated(Boolean(result.data?.authenticated));
+      })
       .catch((error) => {
         console.error('[Admin Auth] Session check failed:', error);
+        setCurrentUser({ name: 'Admin', email: '' });
         setAuthenticated(false);
       });
   }, []);
@@ -426,6 +790,7 @@ function App() {
     try {
       await adminFetch(apiUrl('/api/auth/logout'), { method: 'POST' });
     } finally {
+      setCurrentUser({ name: 'Admin', email: '' });
       setAuthenticated(false);
       setShowPasswordChange(false);
     }
@@ -477,6 +842,7 @@ function App() {
       setShowCurrentPassword(false);
       setShowNewPassword(false);
       setShowConfirmPassword(false);
+      setCurrentUser({ name: 'Admin', email: '' });
       setAuthenticated(false);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Password change failed.';
@@ -1341,6 +1707,10 @@ function App() {
           <span className="eyebrow">
             MALAY MM ADMIN
           </span>
+
+          <p className="welcome-message">
+            Welcome, {currentUser.name || 'Admin'}
+          </p>
 
           <h1>Dashboard</h1>
 
@@ -2870,7 +3240,10 @@ function App() {
   }
 
   if (!authenticated) {
-    return <LoginScreen onAuthenticated={() => setAuthenticated(true)} />;
+    return <LoginScreen onAuthenticated={(user) => {
+      setCurrentUser(normalizeCurrentUser(user));
+      setAuthenticated(true);
+    }} />;
   }
 
   return (

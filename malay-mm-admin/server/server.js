@@ -9,14 +9,22 @@ const bcrypt = require('bcryptjs');
 const fs = require('fs');
 const path = require('path');
 const {
+  ADMIN_EMAIL,
+  ADMIN_NAME,
   ADMIN_ORIGIN,
+  VERIFICATION_CODE_COOKIE_NAME,
   beginAuthentication,
   beginRegistration,
   clearSessionCookie,
   createSession,
+  createVerificationState,
+  validateVerificationCode,
+  createPasswordResetState,
+  validateResetCode,
   destroySession,
   finishAuthentication,
   finishRegistration,
+  getAuthenticatedUser,
   isAdminAuthenticated,
   login,
   requireAdmin,
@@ -25,6 +33,7 @@ const {
   validatePasswordPolicy,
   verifyPassword,
 } = require('./auth');
+const { sendVerificationCode, sendPasswordResetCode } = require('./email');
 
 const app = express();
 
@@ -65,21 +74,9 @@ const apiLimiter = rateLimit({
   },
 });
 
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 8,
-  standardHeaders: 'draft-8',
-  legacyHeaders: false,
-  message: {
-    success: false,
-    message: 'Too many authentication attempts. Try again later.',
-  },
-});
-
 app.use(cors(corsOptions));
-app.options('*', cors(corsOptions));
+app.options('/{*splat}', cors(corsOptions));
 app.use('/api', apiLimiter);
-app.use('/api/auth', authLimiter);
 app.use((req, res, next) => {
   console.log(`[API] ${req.method} ${req.originalUrl}`);
   next();
@@ -92,32 +89,113 @@ app.use(
   }),
 );
 
-app.post('/api/auth/login', authLimiter, async (req, res) => {
+app.post('/api/auth/login', (req, res) => {
   const email = String(req.body?.email || '').trim();
   const password = req.body?.password;
-  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-  if (!email || !emailPattern.test(email) || typeof password !== 'string' || password.length < 1) {
-    return res.status(400).json({ success: false, message: 'Email and password are required.' });
+  if (!email || typeof password !== 'string' || !password) {
+    return res.status(400).json({
+      success: false,
+      message: 'Email and password are required.',
+    });
   }
 
   try {
-    if (!(await login(email, password))) {
-      console.error('[Auth] Password login rejected for configured admin account.');
-      return res.status(401).json({ success: false, message: 'Invalid email or password.' });
+    if (!login(email, password)) {
+      console.error('[Auth] Login rejected.');
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid email or password.',
+      });
     }
 
+    const user = {
+      name: ADMIN_NAME || 'Admin',
+      email: ADMIN_EMAIL,
+    };
+
     setSessionCookie(res, createSession());
-    console.log('[Auth] Password login succeeded.');
-    return res.json({ success: true, data: { authenticated: true } });
+
+    console.log('[Auth] Admin login succeeded.');
+
+    return res.json({
+      success: true,
+      data: {
+        authenticated: true,
+        user,
+      },
+    });
   } catch (error) {
-    console.error('[Auth] Password login failed:', error.message);
-    return res.status(500).json({ success: false, message: 'Authentication service unavailable.' });
+    console.error('[Auth] Login failed:', error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Authentication service unavailable.',
+    });
+  }
+});
+
+app.post('/api/auth/resend-code', async (req, res) => {
+  // Get the verification state ID from the cookie
+  const cookies = {};
+  for (const cookie of String(req.headers.cookie || '').split(';')) {
+    const trimmed = cookie.trim();
+    if (!trimmed) continue;
+    const index = trimmed.indexOf('=');
+    if (index === -1) continue;
+    const name = trimmed.slice(0, index).trim();
+    const encodedValue = trimmed.slice(index + 1).trim();
+    if (!name || !encodedValue) continue;
+    try {
+      cookies[name] = decodeURIComponent(encodedValue);
+    } catch {
+      continue;
+    }
+  }
+
+  const stateId = cookies[VERIFICATION_CODE_COOKIE_NAME];
+  if (!stateId) {
+    console.error('[Auth] Resend code failed: no verification state found.');
+    return res.status(401).json({ success: false, message: 'Invalid verification state. Please sign in again.' });
+  }
+
+  try {
+    // Generate a new verification state (invalidates the old one)
+    const { stateId: newStateId, code } = createVerificationState();
+
+    try {
+      const email = process.env.ADMIN_EMAIL;
+      await sendVerificationCode(email, code);
+      console.log('[Auth] Verification code resent to configured admin email.');
+
+      // Set the new verification state ID in a cookie
+      const secureFlag = ADMIN_ORIGIN.startsWith('https://') || process.env.NODE_ENV === 'production' ? '; Secure' : '';
+      res.setHeader(
+        'Set-Cookie',
+        `${VERIFICATION_CODE_COOKIE_NAME}=${encodeURIComponent(newStateId)}; Max-Age=600; Path=/; HttpOnly; SameSite=Lax${secureFlag}`,
+      );
+
+      return res.json({ success: true, data: { codeSent: true } });
+    } catch (emailError) {
+      console.error('[Auth] Failed to resend verification code:', emailError.message);
+      return res.status(500).json({ success: false, message: 'Unable to resend verification code. Please try again.' });
+    }
+  } catch (error) {
+    console.error('[Auth] Resend code failed:', error.message);
+    return res.status(500).json({ success: false, message: 'Failed to resend code. Please try again.' });
   }
 });
 
 app.get('/api/auth/me', (req, res) => {
-  res.json({ success: true, data: { authenticated: isAdminAuthenticated(req) } });
+  const user = getAuthenticatedUser(req);
+  const authenticated = isAdminAuthenticated(req);
+  return res.json({
+    success: true,
+    data: {
+      authenticated,
+      user: authenticated ? user : null,
+    },
+  });
 });
 
 app.post('/api/auth/change-password', requireAdmin, async (req, res) => {
@@ -161,7 +239,122 @@ app.post('/api/auth/logout', (req, res) => {
   res.json({ success: true });
 });
 
-app.post('/api/auth/passkey/authentication-options', authLimiter, (req, res) => {
+app.post('/api/auth/forgot-password', async (req, res) => {
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  if (!email || !emailPattern.test(email)) {
+    return res.status(400).json({ success: false, message: 'Please enter a valid email address.' });
+  }
+
+  try {
+    // Only the configured admin email can reset the password
+    // For security, always return success to prevent account enumeration
+    if (email === process.env.ADMIN_EMAIL?.trim().toLowerCase()) {
+      const { stateId, code } = createPasswordResetState();
+
+      try {
+        await sendPasswordResetCode(email, code);
+        console.log('[Auth] Password reset code sent to configured admin email.');
+
+        // Set the reset state ID in a cookie
+        const secureFlag = ADMIN_ORIGIN.startsWith('https://') || process.env.NODE_ENV === 'production' ? '; Secure' : '';
+        res.setHeader(
+          'Set-Cookie',
+          `${VERIFICATION_CODE_COOKIE_NAME}=${encodeURIComponent(stateId)}; Max-Age=600; Path=/; HttpOnly; SameSite=Lax${secureFlag}`,
+        );
+
+        return res.json({ success: true, data: { resetCodeSent: true } });
+      } catch (emailError) {
+        console.error('[Auth] Failed to send password reset code:', emailError.message);
+        // Even if email fails, return generic success to prevent enumeration
+        return res.json({ success: true, data: { resetCodeSent: true } });
+      }
+    } else {
+      // Always return success for non-admin emails to prevent account enumeration
+      console.log('[Auth] Password reset requested for non-admin email:', email);
+      return res.json({ success: true, data: { resetCodeSent: true } });
+    }
+  } catch (error) {
+    console.error('[Auth] Forgot password failed:', error.message);
+    return res.json({ success: true, data: { resetCodeSent: true } });
+  }
+});
+
+app.post('/api/auth/reset-password', async (req, res) => {
+  const resetCode = String(req.body?.code || '').trim();
+  const newPassword = typeof req.body?.newPassword === 'string' ? req.body.newPassword : '';
+  const confirmPassword = typeof req.body?.confirmPassword === 'string' ? req.body.confirmPassword : '';
+
+  if (!resetCode || !newPassword || !confirmPassword) {
+    return res.status(400).json({ success: false, message: 'Reset code and new password are required.' });
+  }
+
+  if (newPassword !== confirmPassword) {
+    return res.status(400).json({ success: false, message: 'New passwords do not match.' });
+  }
+
+  const policyError = validatePasswordPolicy(newPassword);
+  if (policyError) {
+    return res.status(400).json({ success: false, message: policyError });
+  }
+
+  // Get the reset state ID from the cookie
+  const cookies = {};
+  for (const cookie of String(req.headers.cookie || '').split(';')) {
+    const trimmed = cookie.trim();
+    if (!trimmed) continue;
+    const index = trimmed.indexOf('=');
+    if (index === -1) continue;
+    const name = trimmed.slice(0, index).trim();
+    const encodedValue = trimmed.slice(index + 1).trim();
+    if (!name || !encodedValue) continue;
+    try {
+      cookies[name] = decodeURIComponent(encodedValue);
+    } catch {
+      continue;
+    }
+  }
+
+  const stateId = cookies[VERIFICATION_CODE_COOKIE_NAME];
+  if (!stateId) {
+    console.error('[Auth] Reset password failed: no reset state found.');
+    return res.status(401).json({ success: false, message: 'Invalid reset state. Please request a new password reset.' });
+  }
+
+  try {
+    const validation = validateResetCode(stateId, resetCode);
+    if (!validation.valid) {
+      console.error('[Auth] Reset password validation failed:', validation.reason);
+      return res.status(401).json({ success: false, message: 'Invalid or expired reset code.' });
+    }
+
+    // Reset code is valid. Update the password.
+    const nextHash = await bcrypt.hash(newPassword, 12);
+    replaceAdminPasswordHash(nextHash);
+
+    // Invalidate all existing sessions
+    if (global.sessions) {
+      global.sessions.clear();
+    }
+
+    // Clear cookies
+    clearSessionCookie(res);
+    const secureFlag = ADMIN_ORIGIN.startsWith('https://') || process.env.NODE_ENV === 'production' ? '; Secure' : '';
+    res.setHeader(
+      'Set-Cookie',
+      `${VERIFICATION_CODE_COOKIE_NAME}=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax${secureFlag}`,
+    );
+
+    console.log('[Auth] Password reset successfully. Admin must sign in again.');
+    return res.json({ success: true, data: { passwordReset: true }, message: 'Password reset successfully. Please sign in with your new password.' });
+  } catch (error) {
+    console.error('[Auth] Reset password failed:', error.message);
+    return res.status(500).json({ success: false, message: 'Password reset failed. Please try again.' });
+  }
+});
+
+app.post('/api/auth/passkey/authentication-options', (req, res) => {
   try {
     return res.json({ success: true, data: beginAuthentication() });
   } catch (error) {
@@ -170,13 +363,22 @@ app.post('/api/auth/passkey/authentication-options', authLimiter, (req, res) => 
   }
 });
 
-app.post('/api/auth/passkey/authentication', authLimiter, async (req, res) => {
+app.post('/api/auth/passkey/authentication', async (req, res) => {
   try {
     await finishAuthentication(req.body);
     setSessionCookie(res, createSession());
     console.log('[Auth] Passkey login succeeded.');
-    return res.json({ success: true, data: { authenticated: true } });
-  } catch (error) {
+  return res.json({
+    success: true,
+    data: {
+      authenticated: true,
+      user: {
+        name: ADMIN_NAME || 'Admin',
+        email: ADMIN_EMAIL,
+      },
+    },
+  });
+} catch (error) {
     console.error('[Auth] Passkey login failed:', error.message);
     return res.status(401).json({ success: false, message: 'Passkey authentication failed.' });
   }
