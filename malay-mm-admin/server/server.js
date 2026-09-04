@@ -8,6 +8,7 @@ const rateLimit = require('express-rate-limit');
 const bcrypt = require('bcryptjs');
 const fs = require('fs');
 const path = require('path');
+const db = require('./db');
 const {
   ADMIN_EMAIL,
   ADMIN_NAME,
@@ -89,7 +90,7 @@ app.use(
   }),
 );
 
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
   const email = String(req.body?.email || '').trim();
   const password = req.body?.password;
 
@@ -101,7 +102,7 @@ app.post('/api/auth/login', (req, res) => {
   }
 
   try {
-    if (!login(email, password)) {
+    if (!(await login(email, password))) {
       console.error('[Auth] Login rejected.');
       return res.status(401).json({
         success: false,
@@ -418,16 +419,6 @@ const newsFile = path.join(
   'news.json',
 );
 
-const servicesFile = path.join(
-  dataDir,
-  'services.json',
-);
-
-const exchangeFile = path.join(
-  dataDir,
-  'exchange.json',
-);
-
 const profileFile = path.join(
   dataDir,
   'profile.json',
@@ -502,20 +493,6 @@ createFileIfMissing(
 );
 
 createFileIfMissing(
-  servicesFile,
-  [],
-);
-
-createFileIfMissing(
-  exchangeFile,
-  {
-    rate: '1053',
-    updatedAt:
-      new Date().toISOString(),
-  },
-);
-
-createFileIfMissing(
   profileFile,
   {
     name: 'Your Profile',
@@ -536,121 +513,6 @@ createFileIfMissing(
   notificationTokensFile,
   [],
 );
-
-function normalizeExchange() {
-  const current = readJson(
-    exchangeFile,
-    null,
-  );
-
-  if (
-    !current ||
-    typeof current !== 'object'
-  ) {
-    const freshExchange = {
-      rate: '1053',
-      updatedAt:
-        new Date().toISOString(),
-    };
-
-    writeJson(
-      exchangeFile,
-      freshExchange,
-    );
-
-    return freshExchange;
-  }
-
-  if (
-    current.rate !== undefined &&
-    current.rate !== null &&
-    String(current.rate).trim() !== ''
-  ) {
-    const rate = String(
-      current.rate,
-    )
-      .replace(/,/g, '')
-      .trim();
-
-    const numericRate = Number(rate);
-
-    if (
-      Number.isFinite(numericRate) &&
-      numericRate > 0
-    ) {
-      const normalized = {
-        rate,
-        updatedAt:
-          current.updatedAt ||
-          new Date().toISOString(),
-      };
-
-      writeJson(
-        exchangeFile,
-        normalized,
-      );
-
-      return normalized;
-    }
-  }
-
-  if (Array.isArray(current.rates)) {
-    const myrRate =
-      current.rates.find(
-        (item) =>
-          String(
-            item?.currency || '',
-          )
-            .toUpperCase()
-            .includes('MYR'),
-      );
-
-    const oldRate =
-      myrRate?.buy ||
-      myrRate?.rate ||
-      '1053';
-
-    const rate = String(
-      oldRate,
-    )
-      .replace(/,/g, '')
-      .trim();
-
-    const numericRate = Number(rate);
-
-    if (
-      Number.isFinite(numericRate) &&
-      numericRate > 0
-    ) {
-      const normalized = {
-        rate,
-        updatedAt:
-          current.updatedAt ||
-          new Date().toISOString(),
-      };
-
-      writeJson(
-        exchangeFile,
-        normalized,
-      );
-
-      return normalized;
-    }
-  }
-
-  const fallback = {
-    rate: '1053',
-    updatedAt:
-      new Date().toISOString(),
-  };
-
-  writeJson(
-    exchangeFile,
-    fallback,
-  );
-
-  return fallback;
-}
 
 function readProfile() {
   const profile = readJson(
@@ -703,8 +565,6 @@ function readProfile() {
   return fallback;
 }
 
-normalizeExchange();
-
 app.get('/', (req, res) => {
   res.json({
     success: true,
@@ -721,489 +581,492 @@ app.get('/', (req, res) => {
     },
   });
 });
+app.get('/api/news', async (req, res) => {
+  try {
+    const result = await db.query(`
+      SELECT
+        id,
+        title,
+        description,
+        image_name AS image,
+        video_url AS video,
+        published,
+        date
+      FROM news
+      ORDER BY created_at DESC
+    `);
 
-app.get('/api/news', (req, res) => {
-  const news = readJson(
-    newsFile,
-    [],
-  );
-
-  res.json({
-    success: true,
-    data: news,
-  });
-});
-
-app.post('/api/news', (req, res) => {
-  const news = readJson(
-    newsFile,
-    [],
-  );
-
-  const {
-    title,
-    description = '',
-    image = '',
-    video = '',
-    published = true,
-    ...extra
-  } = req.body || {};
-
-  if (
-    !title ||
-    !String(title).trim()
-  ) {
-    return res.status(400).json({
+    res.json({
+      success: true,
+      data: result.rows,
+    });
+  } catch (error) {
+    console.error('[News] GET failed:', error.message);
+    res.status(500).json({
       success: false,
-      message:
-        'Title is required.',
+      message: 'Failed to load news.',
     });
   }
+});
 
-  const newNews = {
-    id: Date.now(),
-    title: String(title).trim(),
-    description: String(
-      description || '',
-    ).trim(),
-    image: image || '',
-    video: video || '',
-    published: Boolean(
-      published,
-    ),
-    date:
-      new Date().toLocaleDateString(
-        'en-GB',
-        {
+app.post('/api/news', async (req, res) => {
+  try {
+    const {
+      title,
+      description = '',
+      image = '',
+      video = '',
+      published = true,
+    } = req.body || {};
+
+    if (!title || !String(title).trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Title is required.',
+      });
+    }
+
+    const id = Date.now().toString();
+
+    const result = await db.query(
+      `INSERT INTO news
+        (id, title, description, image_name, video_url, published, date)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING
+         id,
+         title,
+         description,
+         image_name AS image,
+         video_url AS video,
+         published,
+         date`,
+      [
+        id,
+        String(title).trim(),
+        String(description || '').trim(),
+        image || '',
+        video || '',
+        Boolean(published),
+        new Date().toLocaleDateString('en-GB', {
           day: '2-digit',
           month: 'short',
           year: 'numeric',
-        },
-      ),
-    ...extra,
-  };
+        }),
+      ]
+    );
 
-  news.unshift(newNews);
-
-  writeJson(
-    newsFile,
-    news,
-  );
-
-  res.status(201).json({
-    success: true,
-    data: newNews,
-  });
+    res.status(201).json({
+      success: true,
+      data: result.rows[0],
+    });
+  } catch (error) {
+    console.error('[News] POST failed:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to create news.',
+    });
+  }
 });
 
-app.put(
-  '/api/news/:id',
-  (req, res) => {
-    const news = readJson(
-      newsFile,
-      [],
+app.put('/api/news/:id', async (req, res) => {
+  try {
+    const id = String(req.params.id);
+    const body = req.body || {};
+
+    const existing = await db.query(
+      'SELECT * FROM news WHERE id = $1',
+      [id]
     );
 
-    const id = Number(
-      req.params.id,
-    );
-
-    const index =
-      news.findIndex(
-        (item) =>
-          Number(item.id) === id,
-      );
-
-    if (index === -1) {
-      return res
-        .status(404)
-        .json({
-          success: false,
-          message:
-            'News not found.',
-        });
+    if (existing.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'News not found.',
+      });
     }
 
-    news[index] = {
-      ...news[index],
-      ...req.body,
-      id: news[index].id,
-    };
+    const current = existing.rows[0];
 
-    writeJson(
-      newsFile,
-      news,
+    const result = await db.query(
+      `UPDATE news
+       SET title = $1,
+           description = $2,
+           image_name = $3,
+           video_url = $4,
+           published = $5,
+           date = $6,
+           updated_at = NOW()
+       WHERE id = $7
+       RETURNING
+         id,
+         title,
+         description,
+         image_name AS image,
+         video_url AS video,
+         published,
+         date`,
+      [
+        body.title ?? current.title,
+        body.description ?? current.description,
+        body.image ?? current.image_name,
+        body.video ?? current.video_url,
+        body.published ?? current.published,
+        body.date ?? current.date,
+        id,
+      ]
     );
 
     res.json({
       success: true,
-      data: news[index],
+      data: result.rows[0],
     });
-  },
-);
+  } catch (error) {
+    console.error('[News] PUT failed:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update news.',
+    });
+  }
+});
 
-app.delete(
-  '/api/news/:id',
-  (req, res) => {
-    const news = readJson(
-      newsFile,
-      [],
+app.delete('/api/news/:id', async (req, res) => {
+  try {
+    const result = await db.query(
+      'DELETE FROM news WHERE id = $1 RETURNING id',
+      [String(req.params.id)]
     );
 
-    const id = Number(
-      req.params.id,
-    );
-
-    const filtered =
-      news.filter(
-        (item) =>
-          Number(item.id) !== id,
-      );
-
-    if (
-      filtered.length ===
-      news.length
-    ) {
-      return res
-        .status(404)
-        .json({
-          success: false,
-          message:
-            'News not found.',
-        });
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'News not found.',
+      });
     }
-
-    writeJson(
-      newsFile,
-      filtered,
-    );
 
     res.json({
       success: true,
-      message:
-        'News deleted successfully.',
+      message: 'News deleted successfully.',
     });
-  },
-);
+  } catch (error) {
+    console.error('[News] DELETE failed:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete news.',
+    });
+  }
+});
 
 app.get(
   '/api/services',
-  (req, res) => {
-    const services = readJson(
-      servicesFile,
-      [],
-    );
+  async (req, res) => {
+    try {
+      const result = await db.query(`
+        SELECT
+          id,
+          title,
+          description,
+          icon,
+          details,
+          contact,
+          location,
+          opening_hours AS "openingHours",
+          website,
+          published,
+          date,
+          image_name AS "imageName",
+          phone,
+          created_at AS "createdAt",
+          updated_at AS "updatedAt"
+        FROM services
+        ORDER BY created_at DESC
+      `);
 
-    res.json({
-      success: true,
-      data: services,
-    });
+      res.json({
+        success: true,
+        data: result.rows,
+      });
+    } catch (error) {
+      console.error('[Services] GET failed:', error.message);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to load services.',
+      });
+    }
   },
 );
 
 app.post(
   '/api/services',
-  (req, res) => {
-    const services = readJson(
-      servicesFile,
-      [],
-    );
+  async (req, res) => {
+    try {
+      const body = req.body || {};
 
-    const body =
-      req.body || {};
-
-    if (
-      !body.title ||
-      !String(body.title).trim()
-    ) {
-      return res
-        .status(400)
-        .json({
+      if (!body.title || !String(body.title).trim()) {
+        return res.status(400).json({
           success: false,
-          message:
-            'Service title is required.',
+          message: 'Service title is required.',
         });
-    }
+      }
 
-    const service = {
-      id:
-        body.id ||
-        Date.now().toString(),
+      const id = String(body.id || Date.now());
 
-      title:
-        String(
-          body.title,
-        ).trim(),
-
-      description:
-        body.description !==
-        undefined
-          ? String(
-              body.description,
-            )
-          : '',
-
-      image:
-        body.image || '',
-
-      icon:
-        body.icon ||
-        'grid-outline',
-
-      details:
-        body.details || '',
-
-      contact:
-        body.contact || '',
-
-      location:
-        body.location || '',
-
-      openingHours:
-        body.openingHours || '',
-
-      website:
-        body.website || '',
-
-      published:
-        body.published !==
-        undefined
-          ? Boolean(
-              body.published,
-            )
-          : true,
-
-      date:
-        body.date ||
-        new Date().toLocaleDateString(
-          'en-GB',
-          {
+      const result = await db.query(
+        `INSERT INTO services
+          (id, title, description, icon, details, contact, location,
+           opening_hours, website, published, date, image_name, phone)
+         VALUES
+          ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+         RETURNING
+          id, title, description, icon, details, contact, location,
+          opening_hours AS "openingHours",
+          website, published, date,
+          image_name AS "imageName",
+          phone,
+          created_at AS "createdAt",
+          updated_at AS "updatedAt"`,
+        [
+          id,
+          String(body.title).trim(),
+          body.description || '',
+          body.icon || 'grid-outline',
+          body.details || '',
+          body.contact || '',
+          body.location || '',
+          body.openingHours || '',
+          body.website || '',
+          body.published !== undefined ? Boolean(body.published) : true,
+          body.date || new Date().toLocaleDateString('en-GB', {
             day: '2-digit',
             month: 'short',
             year: 'numeric',
-          },
-        ),
+          }),
+          body.imageName || body.image || '',
+          body.phone || '',
+        ],
+      );
 
-      ...body,
-    };
-
-    services.unshift(service);
-
-    writeJson(
-      servicesFile,
-      services,
-    );
-
-    res.status(201).json({
-      success: true,
-      data: service,
-    });
+      res.status(201).json({
+        success: true,
+        data: result.rows[0],
+      });
+    } catch (error) {
+      console.error('[Services] POST failed:', error.message);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to create service.',
+      });
+    }
   },
 );
 
 app.put(
   '/api/services/:id',
-  (req, res) => {
-    const services =
-      readJson(
-        servicesFile,
-        [],
-      );
+  async (req, res) => {
+    try {
+      const id = String(req.params.id);
+      const body = req.body || {};
 
-    const id = String(
-      req.params.id,
-    );
-
-    const index =
-      services.findIndex(
-        (item) =>
-          String(item.id) ===
+      const result = await db.query(
+        `UPDATE services
+         SET title = COALESCE($1, title),
+             description = COALESCE($2, description),
+             icon = COALESCE($3, icon),
+             details = COALESCE($4, details),
+             contact = COALESCE($5, contact),
+             location = COALESCE($6, location),
+             opening_hours = COALESCE($7, opening_hours),
+             website = COALESCE($8, website),
+             published = COALESCE($9, published),
+             date = COALESCE($10, date),
+             image_name = COALESCE($11, image_name),
+             phone = COALESCE($12, phone),
+             updated_at = NOW()
+         WHERE id = $13
+         RETURNING
+           id, title, description, icon, details, contact, location,
+           opening_hours AS "openingHours",
+           website, published, date,
+           image_name AS "imageName",
+           phone,
+           created_at AS "createdAt",
+           updated_at AS "updatedAt"`,
+        [
+          body.title !== undefined ? String(body.title).trim() : null,
+          body.description !== undefined ? String(body.description) : null,
+          body.icon !== undefined ? String(body.icon) : null,
+          body.details !== undefined ? String(body.details) : null,
+          body.contact !== undefined ? String(body.contact) : null,
+          body.location !== undefined ? String(body.location) : null,
+          body.openingHours !== undefined ? String(body.openingHours) : null,
+          body.website !== undefined ? String(body.website) : null,
+          body.published !== undefined ? Boolean(body.published) : null,
+          body.date !== undefined ? String(body.date) : null,
+          body.imageName !== undefined ? String(body.imageName) : (
+            body.image !== undefined ? String(body.image) : null
+          ),
+          body.phone !== undefined ? String(body.phone) : null,
           id,
+        ],
       );
 
-    if (index === -1) {
-      return res
-        .status(404)
-        .json({
+      if (result.rows.length === 0) {
+        return res.status(404).json({
           success: false,
-          message:
-            'Service not found.',
+          message: 'Service not found.',
         });
+      }
+
+      res.json({
+        success: true,
+        data: result.rows[0],
+      });
+    } catch (error) {
+      console.error('[Services] PUT failed:', error.message);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to update service.',
+      });
     }
-
-    services[index] = {
-      ...services[index],
-      ...req.body,
-      id: services[index].id,
-    };
-
-    writeJson(
-      servicesFile,
-      services,
-    );
-
-    res.json({
-      success: true,
-      data: services[index],
-    });
   },
 );
 
 app.delete(
   '/api/services/:id',
-  (req, res) => {
-    const services =
-      readJson(
-        servicesFile,
-        [],
+  async (req, res) => {
+    try {
+      const result = await db.query(
+        `DELETE FROM services
+         WHERE id = $1
+         RETURNING id`,
+        [String(req.params.id)],
       );
 
-    const id = String(
-      req.params.id,
-    );
-
-    const filtered =
-      services.filter(
-        (item) =>
-          String(item.id) !==
-          id,
-      );
-
-    if (
-      filtered.length ===
-      services.length
-    ) {
-      return res
-        .status(404)
-        .json({
+      if (result.rows.length === 0) {
+        return res.status(404).json({
           success: false,
-          message:
-            'Service not found.',
+          message: 'Service not found.',
         });
+      }
+
+      res.json({
+        success: true,
+        message: 'Service deleted successfully.',
+      });
+    } catch (error) {
+      console.error('[Services] DELETE failed:', error.message);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to delete service.',
+      });
     }
-
-    writeJson(
-      servicesFile,
-      filtered,
-    );
-
-    res.json({
-      success: true,
-      message:
-        'Service deleted successfully.',
-    });
   },
 );
 
-app.get(
-  '/api/exchange',
-  (req, res) => {
-    const exchange =
-      normalizeExchange();
+async function getExchangeRate() {
+  const result = await db.query(`
+    SELECT
+      id,
+      rate,
+      updated_at AS "updatedAt"
+    FROM exchange_rates
+    ORDER BY updated_at DESC, id DESC
+    LIMIT 1
+  `);
+
+  return result.rows[0] || null;
+}
+
+async function saveExchangeRate(req, res) {
+  try {
+    const body = req.body || {};
+    const rate = String(body.rate ?? '').trim();
+    const cleanRate = rate.replace(/,/g, '');
+
+    if (!rate) {
+      return res.status(400).json({
+        success: false,
+        message: 'Exchange rate is required.',
+      });
+    }
+
+    if (!/^\d+(?:\.\d+)?$/.test(cleanRate)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Exchange rate must be a valid number.',
+      });
+    }
+
+    const numericRate = Number(cleanRate);
+
+    if (!Number.isFinite(numericRate) || numericRate <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Exchange rate must be greater than zero.',
+      });
+    }
+
+    const result = await db.query(
+      `INSERT INTO exchange_rates (rate, updated_at)
+       VALUES ($1, NOW())
+       RETURNING
+         id,
+         rate,
+         updated_at AS "updatedAt"`,
+      [numericRate],
+    );
 
     res.json({
       success: true,
-      data: exchange,
+      data: result.rows[0],
     });
+  } catch (error) {
+    console.error('[Exchange] Save failed:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to save exchange rate.',
+    });
+  }
+}
+
+app.get(
+  '/api/exchange',
+  async (req, res) => {
+    try {
+      const exchange = await getExchangeRate();
+
+      res.json({
+        success: true,
+        data: exchange,
+      });
+    } catch (error) {
+      console.error('[Exchange] GET failed:', error.message);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to load exchange rate.',
+      });
+    }
   },
 );
 
 app.get(
   '/api/exchange-rate',
-  (req, res) => {
-    const exchange =
-      normalizeExchange();
+  async (req, res) => {
+    try {
+      const exchange = await getExchangeRate();
 
-    res.json({
-      success: true,
-      data: exchange,
-    });
+      res.json({
+        success: true,
+        data: exchange,
+      });
+    } catch (error) {
+      console.error('[Exchange] GET failed:', error.message);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to load exchange rate.',
+      });
+    }
   },
 );
-
-function saveExchangeRate(
-  req,
-  res,
-) {
-  const body =
-    req.body || {};
-
-  const rate = String(
-    body.rate ?? '',
-  ).trim();
-
-  console.log('[Exchange] Save requested:', {
-    method: req.method,
-    path: req.originalUrl,
-    rate,
-  });
-
-  if (!rate) {
-    return res
-      .status(400)
-      .json({
-        success: false,
-        message:
-          'Exchange rate is required.',
-      });
-  }
-
-  const cleanRate =
-    rate.replace(
-      /,/g,
-      '',
-    );
-
-  if (
-    !/^\d+(?:\.\d+)?$/.test(
-      cleanRate,
-    )
-  ) {
-    return res
-      .status(400)
-      .json({
-        success: false,
-        message:
-          'Exchange rate must be a valid number.',
-      });
-  }
-
-  const numericRate =
-    Number(cleanRate);
-
-  if (
-    !Number.isFinite(
-      numericRate,
-    ) ||
-    numericRate <= 0
-  ) {
-    return res
-      .status(400)
-      .json({
-        success: false,
-        message:
-          'Exchange rate must be greater than zero.',
-      });
-  }
-
-  const exchange = {
-    rate: cleanRate,
-    updatedAt:
-      new Date().toISOString(),
-  };
-
-  writeJson(
-    exchangeFile,
-    exchange,
-  );
-
-  console.log('[Exchange] Saved:', exchange);
-
-  res.json({
-    success: true,
-    data: exchange,
-  });
-}
 
 app.post(
   '/api/exchange',

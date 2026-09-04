@@ -341,10 +341,10 @@ async function login(email, password) {
   const normalizedEmail = String(email || '').trim().toLowerCase();
   const submittedPassword = typeof password === 'string' ? password : '';
 
-  const emailMatches = normalizedEmail === ADMIN_EMAIL;
-  const passwordMatches = submittedPassword === ADMIN_PASSWORD;
-
-  return emailMatches && passwordMatches;
+  return (
+    normalizedEmail === ADMIN_EMAIL &&
+    submittedPassword === ADMIN_PASSWORD
+  );
 }
 
 function saveCredentials(nextCredentials) {
