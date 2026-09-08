@@ -1,30 +1,30 @@
 import React, { useCallback, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  Animated,
-  Image,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
+    ActivityIndicator,
+    Alert,
+    Animated,
+    Image,
+    Platform,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    View,
 } from 'react-native';
 
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { StatusBar } from 'expo-status-bar';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useFocusEffect, useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { useAppTheme } from '@/theme/provider';
-import { useSettingsStore } from '@/store/settings-store';
 import { apiRequest } from '@/services/api/client';
 import { ApiError } from '@/services/api/errors';
-import { getMediaUrl } from '@/utils/media';
 import { registerPushToken } from '@/services/notifications/push-token';
+import { useSettingsStore } from '@/store/settings-store';
+import { useAppTheme } from '@/theme/provider';
 import { ApiResponse, Profile } from '@/types/profile';
+import { getMediaUrl } from '@/utils/media';
 
 type MenuItem = {
   id: string;
@@ -81,15 +81,8 @@ function AppearanceSwitch({
   value: boolean;
   onValueChange: (value: boolean) => void;
 }) {
-  const [slide] = useState(
-    () => new Animated.Value(value ? 1 : 0),
-  );
-  const [colorProgress] = useState(
-    () =>
-      new Animated.Value(
-        value ? 1 : 0,
-      ),
-  );
+  const [slide] = useState(() => new Animated.Value(value ? 1 : 0));
+  const [colorProgress] = useState(() => new Animated.Value(value ? 1 : 0));
 
   React.useEffect(() => {
     Animated.timing(slide, {
@@ -148,6 +141,7 @@ export default function ProfileScreen() {
   const [profile, setProfile] = useState<Profile>(EMPTY_PROFILE);
   const [loading, setLoading] = useState(true);
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [profileImageFailed, setProfileImageFailed] = useState(false);
 
   const toggleTheme = () => {
     useSettingsStore.setState({
@@ -162,6 +156,7 @@ export default function ProfileScreen() {
       const response = await apiRequest<ApiResponse<Profile>>('/api/profile');
 
       setProfile(response.data);
+      setProfileImageFailed(false);
     } catch (error) {
       if (error instanceof ApiError && error.status === 404) {
         setProfile(EMPTY_PROFILE);
@@ -185,8 +180,12 @@ export default function ProfileScreen() {
     try {
       setUploadingImage(true);
 
-      const fileName = asset.fileName ?? `profile-${Date.now()}.jpg`;
-      const fileType = asset.mimeType ?? 'image/jpeg';
+      const fileType = asset.mimeType?.toLowerCase().startsWith('image/')
+        ? asset.mimeType.toLowerCase()
+        : 'image/jpeg';
+      const extension =
+        fileType === 'image/png' ? 'png' : fileType === 'image/webp' ? 'webp' : 'jpg';
+      const fileName = asset.fileName?.trim() || `profile-${Date.now()}.${extension}`;
 
       const formData = new FormData();
       formData.append('image', {
@@ -201,9 +200,15 @@ export default function ProfileScreen() {
       });
 
       setProfile(response.data);
+      setProfileImageFailed(false);
     } catch (error) {
       console.error('Profile image upload error:', error);
-      Alert.alert('Upload Failed', 'Unable to upload your profile image. Please try again.');
+      Alert.alert(
+        'Upload Failed',
+        error instanceof ApiError
+          ? error.message
+          : 'Unable to upload your profile image. Please try again.',
+      );
     } finally {
       setUploadingImage(false);
     }
@@ -245,7 +250,10 @@ export default function ProfileScreen() {
       const result = await registerPushToken();
 
       if (result.status === 'registered') {
-        Alert.alert('Notifications Enabled', 'You will now receive push notifications from Sagawa.');
+        Alert.alert(
+          'Notifications Enabled',
+          'You will now receive push notifications from Sagawa.',
+        );
         return;
       }
 
@@ -315,11 +323,7 @@ export default function ProfileScreen() {
             ]}
           >
             <View style={styles.iconColumn}>
-              <Ionicons
-                name={item.icon}
-                size={21}
-                color={isDark ? '#FFFFFF' : '#111111'}
-              />
+              <Ionicons name={item.icon} size={21} color={isDark ? '#FFFFFF' : '#111111'} />
             </View>
 
             <View style={styles.menuText}>
@@ -331,11 +335,7 @@ export default function ProfileScreen() {
               </Text>
             </View>
 
-            <Ionicons
-              name="chevron-forward"
-              size={17}
-              color={isDark ? '#636366' : '#A7A7AD'}
-            />
+            <Ionicons name="chevron-forward" size={17} color={isDark ? '#636366' : '#A7A7AD'} />
           </Pressable>
 
           {index < items.length - 1 && <View style={styles.divider} />}
@@ -382,8 +382,12 @@ export default function ProfileScreen() {
             disabled={uploadingImage}
           >
             <View style={styles.avatar}>
-              {avatarUri ? (
-                <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
+              {avatarUri && !profileImageFailed ? (
+                <Image
+                  source={{ uri: avatarUri }}
+                  style={styles.avatarImage}
+                  onError={() => setProfileImageFailed(true)}
+                />
               ) : (
                 <Ionicons name="person" size={39} color="#FFFFFF" />
               )}
