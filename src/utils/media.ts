@@ -11,7 +11,7 @@ export function getMediaUrl(path?: string | null): string | undefined {
     return undefined;
   }
 
-  if (/^https?:\/\//i.test(path)) {
+  if (/^(?:https?:|data:|blob:|file:)/i.test(path)) {
     return path;
   }
 
