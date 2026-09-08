@@ -5,6 +5,7 @@ require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') }
 const express = require('express');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
+const multer = require('multer');
 const bcrypt = require('bcryptjs');
 const fs = require('fs');
 const path = require('path');
@@ -38,6 +39,47 @@ const { sendVerificationCode, sendPasswordResetCode } = require('./email');
 
 const app = express();
 
+const profileUploadDir = path.join(__dirname, 'uploads', 'profile');
+fs.mkdirSync(profileUploadDir, { recursive: true });
+
+const profileStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => {
+    cb(null, profileUploadDir);
+  },
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname || '').toLowerCase() || '.jpg';
+    cb(null, `profile-${Date.now()}${ext}`);
+  },
+});
+
+const profileUpload = multer({
+  storage: profileStorage,
+  limits: {
+    fileSize: 5 * 1024 * 1024,
+  },
+  fileFilter: (_req, file, cb) => {
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype)) {
+      return cb(new Error('Only JPEG, PNG, and WebP images are allowed.'));
+    }
+    cb(null, true);
+  },
+});
+
+const profileUploadMiddleware = (req, res, next) => {
+  profileUpload.single('image')(req, res, (error) => {
+    if (!error) return next();
+
+    const status = error.code === 'LIMIT_FILE_SIZE' ? 413 : 422;
+    return res.status(status).json({
+      success: false,
+      message:
+        error.code === 'LIMIT_FILE_SIZE'
+          ? 'Profile image must be 5 MB or smaller.'
+          : error.message || 'Invalid profile image.',
+    });
+  });
+};
+
 const PORT = Number(process.env.API_PORT || process.env.PORT || 3000);
 const HOST = process.env.HOST || '0.0.0.0';
 const configuredCorsOrigins = (process.env.CORS_ORIGIN || '')
@@ -47,7 +89,9 @@ const configuredCorsOrigins = (process.env.CORS_ORIGIN || '')
 const allowedCorsOrigins = configuredCorsOrigins.length ? configuredCorsOrigins : [ADMIN_ORIGIN];
 
 if (!allowedCorsOrigins.length || !allowedCorsOrigins.every(Boolean)) {
-  throw new Error('CORS_ORIGIN or ADMIN_ORIGIN must be set to a trusted browser origin before starting the server.');
+  throw new Error(
+    'CORS_ORIGIN or ADMIN_ORIGIN must be set to a trusted browser origin before starting the server.',
+  );
 }
 
 const corsOptions = {
@@ -83,6 +127,7 @@ app.use((req, res, next) => {
   next();
 });
 app.use(express.json({ limit: '20mb' }));
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use(
   express.urlencoded({
     extended: true,
@@ -115,7 +160,8 @@ app.post('/api/auth/login', async (req, res) => {
       email: ADMIN_EMAIL,
     };
 
-    setSessionCookie(res, createSession());
+    const accessToken = createSession();
+    setSessionCookie(res, accessToken);
 
     console.log('[Auth] Admin login succeeded.');
 
@@ -124,6 +170,7 @@ app.post('/api/auth/login', async (req, res) => {
       data: {
         authenticated: true,
         user,
+        accessToken,
       },
     });
   } catch (error) {
@@ -157,7 +204,9 @@ app.post('/api/auth/resend-code', async (req, res) => {
   const stateId = cookies[VERIFICATION_CODE_COOKIE_NAME];
   if (!stateId) {
     console.error('[Auth] Resend code failed: no verification state found.');
-    return res.status(401).json({ success: false, message: 'Invalid verification state. Please sign in again.' });
+    return res
+      .status(401)
+      .json({ success: false, message: 'Invalid verification state. Please sign in again.' });
   }
 
   try {
@@ -170,7 +219,10 @@ app.post('/api/auth/resend-code', async (req, res) => {
       console.log('[Auth] Verification code resent to configured admin email.');
 
       // Set the new verification state ID in a cookie
-      const secureFlag = ADMIN_ORIGIN.startsWith('https://') || process.env.NODE_ENV === 'production' ? '; Secure' : '';
+      const secureFlag =
+        ADMIN_ORIGIN.startsWith('https://') || process.env.NODE_ENV === 'production'
+          ? '; Secure'
+          : '';
       res.setHeader(
         'Set-Cookie',
         `${VERIFICATION_CODE_COOKIE_NAME}=${encodeURIComponent(newStateId)}; Max-Age=600; Path=/; HttpOnly; SameSite=Lax${secureFlag}`,
@@ -179,11 +231,15 @@ app.post('/api/auth/resend-code', async (req, res) => {
       return res.json({ success: true, data: { codeSent: true } });
     } catch (emailError) {
       console.error('[Auth] Failed to resend verification code:', emailError.message);
-      return res.status(500).json({ success: false, message: 'Unable to resend verification code. Please try again.' });
+      return res
+        .status(500)
+        .json({ success: false, message: 'Unable to resend verification code. Please try again.' });
     }
   } catch (error) {
     console.error('[Auth] Resend code failed:', error.message);
-    return res.status(500).json({ success: false, message: 'Failed to resend code. Please try again.' });
+    return res
+      .status(500)
+      .json({ success: false, message: 'Failed to resend code. Please try again.' });
   }
 });
 
@@ -200,12 +256,19 @@ app.get('/api/auth/me', (req, res) => {
 });
 
 app.post('/api/auth/change-password', requireAdmin, async (req, res) => {
-  const currentPassword = typeof req.body?.currentPassword === 'string' ? req.body.currentPassword : '';
+  const currentPassword =
+    typeof req.body?.currentPassword === 'string' ? req.body.currentPassword : '';
   const newPassword = typeof req.body?.newPassword === 'string' ? req.body.newPassword : '';
-  const confirmPassword = typeof req.body?.confirmPassword === 'string' ? req.body.confirmPassword : '';
+  const confirmPassword =
+    typeof req.body?.confirmPassword === 'string' ? req.body.confirmPassword : '';
 
   if (!currentPassword || !newPassword || !confirmPassword) {
-    return res.status(400).json({ success: false, message: 'Current password, new password, and confirmation are required.' });
+    return res
+      .status(400)
+      .json({
+        success: false,
+        message: 'Current password, new password, and confirmation are required.',
+      });
   }
 
   const policyError = validatePasswordPolicy(newPassword);
@@ -227,7 +290,10 @@ app.post('/api/auth/change-password', requireAdmin, async (req, res) => {
     sessions.clear();
     clearSessionCookie(res);
 
-    return res.json({ success: true, message: 'Password updated successfully. Please sign in again.' });
+    return res.json({
+      success: true,
+      message: 'Password updated successfully. Please sign in again.',
+    });
   } catch (error) {
     console.error('[Auth] Change password failed:', error.message);
     return res.status(500).json({ success: false, message: 'Password change failed.' });
@@ -241,7 +307,9 @@ app.post('/api/auth/logout', (req, res) => {
 });
 
 app.post('/api/auth/forgot-password', async (req, res) => {
-  const email = String(req.body?.email || '').trim().toLowerCase();
+  const email = String(req.body?.email || '')
+    .trim()
+    .toLowerCase();
   const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
   if (!email || !emailPattern.test(email)) {
@@ -259,7 +327,10 @@ app.post('/api/auth/forgot-password', async (req, res) => {
         console.log('[Auth] Password reset code sent to configured admin email.');
 
         // Set the reset state ID in a cookie
-        const secureFlag = ADMIN_ORIGIN.startsWith('https://') || process.env.NODE_ENV === 'production' ? '; Secure' : '';
+        const secureFlag =
+          ADMIN_ORIGIN.startsWith('https://') || process.env.NODE_ENV === 'production'
+            ? '; Secure'
+            : '';
         res.setHeader(
           'Set-Cookie',
           `${VERIFICATION_CODE_COOKIE_NAME}=${encodeURIComponent(stateId)}; Max-Age=600; Path=/; HttpOnly; SameSite=Lax${secureFlag}`,
@@ -285,10 +356,13 @@ app.post('/api/auth/forgot-password', async (req, res) => {
 app.post('/api/auth/reset-password', async (req, res) => {
   const resetCode = String(req.body?.code || '').trim();
   const newPassword = typeof req.body?.newPassword === 'string' ? req.body.newPassword : '';
-  const confirmPassword = typeof req.body?.confirmPassword === 'string' ? req.body.confirmPassword : '';
+  const confirmPassword =
+    typeof req.body?.confirmPassword === 'string' ? req.body.confirmPassword : '';
 
   if (!resetCode || !newPassword || !confirmPassword) {
-    return res.status(400).json({ success: false, message: 'Reset code and new password are required.' });
+    return res
+      .status(400)
+      .json({ success: false, message: 'Reset code and new password are required.' });
   }
 
   if (newPassword !== confirmPassword) {
@@ -320,7 +394,12 @@ app.post('/api/auth/reset-password', async (req, res) => {
   const stateId = cookies[VERIFICATION_CODE_COOKIE_NAME];
   if (!stateId) {
     console.error('[Auth] Reset password failed: no reset state found.');
-    return res.status(401).json({ success: false, message: 'Invalid reset state. Please request a new password reset.' });
+    return res
+      .status(401)
+      .json({
+        success: false,
+        message: 'Invalid reset state. Please request a new password reset.',
+      });
   }
 
   try {
@@ -341,17 +420,26 @@ app.post('/api/auth/reset-password', async (req, res) => {
 
     // Clear cookies
     clearSessionCookie(res);
-    const secureFlag = ADMIN_ORIGIN.startsWith('https://') || process.env.NODE_ENV === 'production' ? '; Secure' : '';
+    const secureFlag =
+      ADMIN_ORIGIN.startsWith('https://') || process.env.NODE_ENV === 'production'
+        ? '; Secure'
+        : '';
     res.setHeader(
       'Set-Cookie',
       `${VERIFICATION_CODE_COOKIE_NAME}=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax${secureFlag}`,
     );
 
     console.log('[Auth] Password reset successfully. Admin must sign in again.');
-    return res.json({ success: true, data: { passwordReset: true }, message: 'Password reset successfully. Please sign in with your new password.' });
+    return res.json({
+      success: true,
+      data: { passwordReset: true },
+      message: 'Password reset successfully. Please sign in with your new password.',
+    });
   } catch (error) {
     console.error('[Auth] Reset password failed:', error.message);
-    return res.status(500).json({ success: false, message: 'Password reset failed. Please try again.' });
+    return res
+      .status(500)
+      .json({ success: false, message: 'Password reset failed. Please try again.' });
   }
 });
 
@@ -360,7 +448,9 @@ app.post('/api/auth/passkey/authentication-options', (req, res) => {
     return res.json({ success: true, data: beginAuthentication() });
   } catch (error) {
     console.error('[Auth] Passkey options failed:', error.message);
-    return res.status(400).json({ success: false, message: 'Passkey authentication is unavailable.' });
+    return res
+      .status(400)
+      .json({ success: false, message: 'Passkey authentication is unavailable.' });
   }
 });
 
@@ -369,17 +459,17 @@ app.post('/api/auth/passkey/authentication', async (req, res) => {
     await finishAuthentication(req.body);
     setSessionCookie(res, createSession());
     console.log('[Auth] Passkey login succeeded.');
-  return res.json({
-    success: true,
-    data: {
-      authenticated: true,
-      user: {
-        name: ADMIN_NAME || 'Admin',
-        email: ADMIN_EMAIL,
+    return res.json({
+      success: true,
+      data: {
+        authenticated: true,
+        user: {
+          name: ADMIN_NAME || 'Admin',
+          email: ADMIN_EMAIL,
+        },
       },
-    },
-  });
-} catch (error) {
+    });
+  } catch (error) {
     console.error('[Auth] Passkey login failed:', error.message);
     return res.status(401).json({ success: false, message: 'Passkey authentication failed.' });
   }
@@ -390,7 +480,9 @@ app.post('/api/auth/passkey/registration-options', requireAdmin, (req, res) => {
     return res.json({ success: true, data: beginRegistration(req) });
   } catch (error) {
     console.error('[Auth] Passkey registration options failed:', error.message);
-    return res.status(400).json({ success: false, message: 'Passkey registration is unavailable.' });
+    return res
+      .status(400)
+      .json({ success: false, message: 'Passkey registration is unavailable.' });
   }
 });
 
@@ -414,25 +506,13 @@ app.use('/api', (req, res, next) => {
 
 const dataDir = path.join(__dirname, 'data');
 
-const newsFile = path.join(
-  dataDir,
-  'news.json',
-);
+const newsFile = path.join(dataDir, 'news.json');
 
-const profileFile = path.join(
-  dataDir,
-  'profile.json',
-);
+const profileFile = path.join(dataDir, 'profile.json');
 
-const supportFile = path.join(
-  dataDir,
-  'support.json',
-);
+const supportFile = path.join(dataDir, 'support.json');
 
-const notificationTokensFile = path.join(
-  dataDir,
-  'notification-tokens.json',
-);
+const notificationTokensFile = path.join(dataDir, 'notification-tokens.json');
 
 if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, {
@@ -440,29 +520,15 @@ if (!fs.existsSync(dataDir)) {
   });
 }
 
-function createFileIfMissing(
-  file,
-  defaultValue,
-) {
+function createFileIfMissing(file, defaultValue) {
   if (!fs.existsSync(file)) {
-    fs.writeFileSync(
-      file,
-      JSON.stringify(
-        defaultValue,
-        null,
-        2,
-      ),
-      'utf8',
-    );
+    fs.writeFileSync(file, JSON.stringify(defaultValue, null, 2), 'utf8');
   }
 }
 
 function readJson(file, fallback) {
   try {
-    const content = fs.readFileSync(
-      file,
-      'utf8',
-    );
+    const content = fs.readFileSync(file, 'utf8');
 
     if (!content.trim()) {
       return fallback;
@@ -470,81 +536,40 @@ function readJson(file, fallback) {
 
     return JSON.parse(content);
   } catch (error) {
-    console.error(
-      `Failed to read ${file}:`,
-      error.message,
-    );
+    console.error(`Failed to read ${file}:`, error.message);
 
     return fallback;
   }
 }
 
 function writeJson(file, data) {
-  fs.writeFileSync(
-    file,
-    JSON.stringify(data, null, 2),
-    'utf8',
-  );
+  fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf8');
 }
 
-createFileIfMissing(
-  newsFile,
-  [],
-);
+createFileIfMissing(newsFile, []);
 
-createFileIfMissing(
-  profileFile,
-  {
-    name: 'Your Profile',
-    phoneNumber: '',
-    address: '',
-    profileImage: '',
-    updatedAt:
-      new Date().toISOString(),
-  },
-);
+createFileIfMissing(profileFile, {
+  name: 'Your Profile',
+  phoneNumber: '',
+  address: '',
+  profileImage: '',
+  updatedAt: new Date().toISOString(),
+});
 
-createFileIfMissing(
-  supportFile,
-  [],
-);
+createFileIfMissing(supportFile, []);
 
-createFileIfMissing(
-  notificationTokensFile,
-  [],
-);
+createFileIfMissing(notificationTokensFile, []);
 
 function readProfile() {
-  const profile = readJson(
-    profileFile,
-    null,
-  );
+  const profile = readJson(profileFile, null);
 
-  if (
-    profile &&
-    typeof profile === 'object'
-  ) {
+  if (profile && typeof profile === 'object') {
     return {
-      name:
-        String(
-          profile.name ||
-            'Your Profile',
-        ).trim(),
-      phoneNumber:
-        String(
-          profile.phoneNumber || '',
-        ).trim(),
-      address:
-        String(
-          profile.address || '',
-        ).trim(),
-      profileImage:
-        String(
-          profile.profileImage || '',
-        ).trim(),
-      updatedAt:
-        profile.updatedAt ||
-        new Date().toISOString(),
+      name: String(profile.name || 'Your Profile').trim(),
+      phoneNumber: String(profile.phoneNumber || '').trim(),
+      address: String(profile.address || '').trim(),
+      profileImage: String(profile.profileImage || '').trim(),
+      updatedAt: profile.updatedAt || new Date().toISOString(),
     };
   }
 
@@ -553,14 +578,10 @@ function readProfile() {
     phoneNumber: '',
     address: '',
     profileImage: '',
-    updatedAt:
-      new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   };
 
-  writeJson(
-    profileFile,
-    fallback,
-  );
+  writeJson(profileFile, fallback);
 
   return fallback;
 }
@@ -568,14 +589,12 @@ function readProfile() {
 app.get('/', (req, res) => {
   res.json({
     success: true,
-    message:
-      'Sagawa Local API is running',
+    message: 'Sagawa Local API is running',
     endpoints: {
       news: '/api/news',
       services: '/api/services',
       exchange: '/api/exchange',
-      exchangeRate:
-        '/api/exchange-rate',
+      exchangeRate: '/api/exchange-rate',
       profile: '/api/profile',
       support: '/api/support',
     },
@@ -609,15 +628,45 @@ app.get('/api/news', async (req, res) => {
   }
 });
 
+app.get('/api/news/:id', async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT
+        id,
+        title,
+        description,
+        image_name AS image,
+        video_url AS video,
+        published,
+        date
+       FROM news
+       WHERE id = $1`,
+      [String(req.params.id)],
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'News not found.',
+      });
+    }
+
+    res.json({
+      success: true,
+      data: result.rows[0],
+    });
+  } catch (error) {
+    console.error('[News] GET by id failed:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to load news.',
+    });
+  }
+});
+
 app.post('/api/news', async (req, res) => {
   try {
-    const {
-      title,
-      description = '',
-      image = '',
-      video = '',
-      published = true,
-    } = req.body || {};
+    const { title, description = '', image = '', video = '', published = true } = req.body || {};
 
     if (!title || !String(title).trim()) {
       return res.status(400).json({
@@ -652,7 +701,7 @@ app.post('/api/news', async (req, res) => {
           month: 'short',
           year: 'numeric',
         }),
-      ]
+      ],
     );
 
     res.status(201).json({
@@ -673,10 +722,7 @@ app.put('/api/news/:id', async (req, res) => {
     const id = String(req.params.id);
     const body = req.body || {};
 
-    const existing = await db.query(
-      'SELECT * FROM news WHERE id = $1',
-      [id]
-    );
+    const existing = await db.query('SELECT * FROM news WHERE id = $1', [id]);
 
     if (existing.rows.length === 0) {
       return res.status(404).json({
@@ -713,7 +759,7 @@ app.put('/api/news/:id', async (req, res) => {
         body.published ?? current.published,
         body.date ?? current.date,
         id,
-      ]
+      ],
     );
 
     res.json({
@@ -731,10 +777,9 @@ app.put('/api/news/:id', async (req, res) => {
 
 app.delete('/api/news/:id', async (req, res) => {
   try {
-    const result = await db.query(
-      'DELETE FROM news WHERE id = $1 RETURNING id',
-      [String(req.params.id)]
-    );
+    const result = await db.query('DELETE FROM news WHERE id = $1 RETURNING id', [
+      String(req.params.id),
+    ]);
 
     if (result.rows.length === 0) {
       return res.status(404).json({
@@ -756,11 +801,9 @@ app.delete('/api/news/:id', async (req, res) => {
   }
 });
 
-app.get(
-  '/api/services',
-  async (req, res) => {
-    try {
-      const result = await db.query(`
+app.get('/api/services', async (req, res) => {
+  try {
+    const result = await db.query(`
         SELECT
           id,
           title,
@@ -774,6 +817,7 @@ app.get(
           published,
           date,
           image_name AS "imageName",
+          image_name AS image,
           phone,
           created_at AS "createdAt",
           updated_at AS "updatedAt"
@@ -781,37 +825,34 @@ app.get(
         ORDER BY created_at DESC
       `);
 
-      res.json({
-        success: true,
-        data: result.rows,
-      });
-    } catch (error) {
-      console.error('[Services] GET failed:', error.message);
-      res.status(500).json({
+    res.json({
+      success: true,
+      data: result.rows,
+    });
+  } catch (error) {
+    console.error('[Services] GET failed:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to load services.',
+    });
+  }
+});
+
+app.post('/api/services', async (req, res) => {
+  try {
+    const body = req.body || {};
+
+    if (!body.title || !String(body.title).trim()) {
+      return res.status(400).json({
         success: false,
-        message: 'Failed to load services.',
+        message: 'Service title is required.',
       });
     }
-  },
-);
 
-app.post(
-  '/api/services',
-  async (req, res) => {
-    try {
-      const body = req.body || {};
+    const id = String(body.id || Date.now());
 
-      if (!body.title || !String(body.title).trim()) {
-        return res.status(400).json({
-          success: false,
-          message: 'Service title is required.',
-        });
-      }
-
-      const id = String(body.id || Date.now());
-
-      const result = await db.query(
-        `INSERT INTO services
+    const result = await db.query(
+      `INSERT INTO services
           (id, title, description, icon, details, contact, location,
            opening_hours, website, published, date, image_name, phone)
          VALUES
@@ -824,50 +865,48 @@ app.post(
           phone,
           created_at AS "createdAt",
           updated_at AS "updatedAt"`,
-        [
-          id,
-          String(body.title).trim(),
-          body.description || '',
-          body.icon || 'grid-outline',
-          body.details || '',
-          body.contact || '',
-          body.location || '',
-          body.openingHours || '',
-          body.website || '',
-          body.published !== undefined ? Boolean(body.published) : true,
-          body.date || new Date().toLocaleDateString('en-GB', {
+      [
+        id,
+        String(body.title).trim(),
+        body.description || '',
+        body.icon || 'grid-outline',
+        body.details || '',
+        body.contact || '',
+        body.location || '',
+        body.openingHours || '',
+        body.website || '',
+        body.published !== undefined ? Boolean(body.published) : true,
+        body.date ||
+          new Date().toLocaleDateString('en-GB', {
             day: '2-digit',
             month: 'short',
             year: 'numeric',
           }),
-          body.imageName || body.image || '',
-          body.phone || '',
-        ],
-      );
+        body.image || body.imageName || '',
+        body.phone || '',
+      ],
+    );
 
-      res.status(201).json({
-        success: true,
-        data: result.rows[0],
-      });
-    } catch (error) {
-      console.error('[Services] POST failed:', error.message);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to create service.',
-      });
-    }
-  },
-);
+    res.status(201).json({
+      success: true,
+      data: result.rows[0],
+    });
+  } catch (error) {
+    console.error('[Services] POST failed:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to create service.',
+    });
+  }
+});
 
-app.put(
-  '/api/services/:id',
-  async (req, res) => {
-    try {
-      const id = String(req.params.id);
-      const body = req.body || {};
+app.put('/api/services/:id', async (req, res) => {
+  try {
+    const id = String(req.params.id);
+    const body = req.body || {};
 
-      const result = await db.query(
-        `UPDATE services
+    const result = await db.query(
+      `UPDATE services
          SET title = COALESCE($1, title),
              description = COALESCE($2, description),
              icon = COALESCE($3, icon),
@@ -887,80 +926,79 @@ app.put(
            opening_hours AS "openingHours",
            website, published, date,
            image_name AS "imageName",
+           image_name AS image,
            phone,
            created_at AS "createdAt",
            updated_at AS "updatedAt"`,
-        [
-          body.title !== undefined ? String(body.title).trim() : null,
-          body.description !== undefined ? String(body.description) : null,
-          body.icon !== undefined ? String(body.icon) : null,
-          body.details !== undefined ? String(body.details) : null,
-          body.contact !== undefined ? String(body.contact) : null,
-          body.location !== undefined ? String(body.location) : null,
-          body.openingHours !== undefined ? String(body.openingHours) : null,
-          body.website !== undefined ? String(body.website) : null,
-          body.published !== undefined ? Boolean(body.published) : null,
-          body.date !== undefined ? String(body.date) : null,
-          body.imageName !== undefined ? String(body.imageName) : (
-            body.image !== undefined ? String(body.image) : null
-          ),
-          body.phone !== undefined ? String(body.phone) : null,
-          id,
-        ],
-      );
+      [
+        body.title !== undefined ? String(body.title).trim() : null,
+        body.description !== undefined ? String(body.description) : null,
+        body.icon !== undefined ? String(body.icon) : null,
+        body.details !== undefined ? String(body.details) : null,
+        body.contact !== undefined ? String(body.contact) : null,
+        body.location !== undefined ? String(body.location) : null,
+        body.openingHours !== undefined ? String(body.openingHours) : null,
+        body.website !== undefined ? String(body.website) : null,
+        body.published !== undefined ? Boolean(body.published) : null,
+        body.date !== undefined ? String(body.date) : null,
+        body.image !== undefined
+          ? String(body.image)
+          : body.imageName !== undefined
+            ? String(body.imageName)
+            : null,
+        body.phone !== undefined ? String(body.phone) : null,
+        id,
+      ],
+    );
 
-      if (result.rows.length === 0) {
-        return res.status(404).json({
-          success: false,
-          message: 'Service not found.',
-        });
-      }
-
-      res.json({
-        success: true,
-        data: result.rows[0],
-      });
-    } catch (error) {
-      console.error('[Services] PUT failed:', error.message);
-      res.status(500).json({
+    if (result.rows.length === 0) {
+      return res.status(404).json({
         success: false,
-        message: 'Failed to update service.',
+        message: 'Service not found.',
       });
     }
-  },
-);
 
-app.delete(
-  '/api/services/:id',
-  async (req, res) => {
-    try {
-      const result = await db.query(
-        `DELETE FROM services
+    res.json({
+      success: true,
+      data: result.rows[0],
+    });
+  } catch (error) {
+    console.error('[Services] PUT failed:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update service.',
+    });
+  }
+});
+
+app.delete('/api/services/:id', async (req, res) => {
+  try {
+    const result = await db.query(
+      `DELETE FROM services
          WHERE id = $1
          RETURNING id`,
-        [String(req.params.id)],
-      );
+      [String(req.params.id)],
+    );
 
-      if (result.rows.length === 0) {
-        return res.status(404).json({
-          success: false,
-          message: 'Service not found.',
-        });
-      }
-
-      res.json({
-        success: true,
-        message: 'Service deleted successfully.',
-      });
-    } catch (error) {
-      console.error('[Services] DELETE failed:', error.message);
-      res.status(500).json({
+    if (result.rows.length === 0) {
+      return res.status(404).json({
         success: false,
-        message: 'Failed to delete service.',
+        message: 'Service not found.',
       });
     }
-  },
-);
+
+    res.json({
+      success: true,
+      message: 'Service deleted successfully.',
+    });
+  } catch (error) {
+    console.error('[Services] DELETE failed:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete service.',
+    });
+  }
+});
 
 async function getExchangeRate() {
   const result = await db.query(`
@@ -1028,311 +1066,219 @@ async function saveExchangeRate(req, res) {
   }
 }
 
-app.get(
-  '/api/exchange',
-  async (req, res) => {
-    try {
-      const exchange = await getExchangeRate();
+app.get('/api/exchange', async (req, res) => {
+  try {
+    const exchange = await getExchangeRate();
 
-      res.json({
-        success: true,
-        data: exchange,
-      });
-    } catch (error) {
-      console.error('[Exchange] GET failed:', error.message);
-      res.status(500).json({
+    res.json({
+      success: true,
+      data: exchange,
+    });
+  } catch (error) {
+    console.error('[Exchange] GET failed:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to load exchange rate.',
+    });
+  }
+});
+
+app.get('/api/exchange-rate', async (req, res) => {
+  try {
+    const exchange = await getExchangeRate();
+
+    res.json({
+      success: true,
+      data: exchange,
+    });
+  } catch (error) {
+    console.error('[Exchange] GET failed:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to load exchange rate.',
+    });
+  }
+});
+
+app.post('/api/exchange', saveExchangeRate);
+
+app.put('/api/exchange', saveExchangeRate);
+
+app.post('/api/exchange-rate', saveExchangeRate);
+
+app.put('/api/exchange-rate', saveExchangeRate);
+
+app.get('/api/profile', (req, res) => {
+  const profile = readProfile();
+
+  res.json({
+    success: true,
+    data: profile,
+  });
+});
+
+app.put('/api/profile', (req, res) => {
+  const current = readProfile();
+
+  const body = req.body || {};
+
+  const nextProfile = {
+    ...current,
+    name: String(body.name ?? current.name).trim() || current.name,
+    phoneNumber: String(body.phoneNumber ?? current.phoneNumber).trim(),
+    address: String(body.address ?? current.address).trim(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  writeJson(profileFile, nextProfile);
+
+  res.json({
+    success: true,
+    data: nextProfile,
+  });
+});
+
+app.post('/api/profile/image', profileUploadMiddleware, async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
         success: false,
-        message: 'Failed to load exchange rate.',
+        message: 'No profile image was uploaded.',
       });
     }
-  },
-);
 
-app.get(
-  '/api/exchange-rate',
-  async (req, res) => {
-    try {
-      const exchange = await getExchangeRate();
+    const profileImage = `/uploads/profile/${req.file.filename}`;
 
-      res.json({
-        success: true,
-        data: exchange,
-      });
-    } catch (error) {
-      console.error('[Exchange] GET failed:', error.message);
-      res.status(500).json({
+    const currentProfile = readProfile();
+    writeJson(profileFile, {
+      ...currentProfile,
+      profileImage,
+      updatedAt: new Date().toISOString(),
+    });
+
+    const result = await db.query(
+      `UPDATE profiles
+         SET profile_image = $1,
+             updated_at = NOW()
+         WHERE id = 1
+         RETURNING
+           id,
+           name,
+           phone_number AS "phoneNumber",
+           address,
+           profile_image AS "profileImage",
+           updated_at AS "updatedAt"`,
+      [profileImage],
+    );
+
+    if (!result.rows[0]) {
+      return res.status(404).json({
         success: false,
-        message: 'Failed to load exchange rate.',
+        message: 'Profile not found.',
       });
     }
-  },
-);
 
-app.post(
-  '/api/exchange',
-  saveExchangeRate,
-);
-
-app.put(
-  '/api/exchange',
-  saveExchangeRate,
-);
-
-app.post(
-  '/api/exchange-rate',
-  saveExchangeRate,
-);
-
-app.put(
-  '/api/exchange-rate',
-  saveExchangeRate,
-);
-
-app.get(
-  '/api/profile',
-  (req, res) => {
-    const profile =
-      readProfile();
-
-    res.json({
+    return res.json({
       success: true,
-      data: profile,
+      data: { ...result.rows[0], profileImage },
+      message: 'Profile image uploaded successfully.',
     });
-  },
-);
-
-app.put(
-  '/api/profile',
-  (req, res) => {
-    const current =
-      readProfile();
-
-    const body =
-      req.body || {};
-
-    const nextProfile = {
-      ...current,
-      name:
-        String(
-          body.name ??
-            current.name,
-        ).trim() ||
-        current.name,
-      phoneNumber:
-        String(
-          body.phoneNumber ??
-            current.phoneNumber,
-        ).trim(),
-      address:
-        String(
-          body.address ??
-            current.address,
-        ).trim(),
-      updatedAt:
-        new Date().toISOString(),
-    };
-
-    writeJson(
-      profileFile,
-      nextProfile,
-    );
-
-    res.json({
-      success: true,
-      data: nextProfile,
+  } catch (error) {
+    console.error('Profile image upload error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Unable to upload profile image.',
     });
-  },
-);
+  }
+});
 
-app.post(
-  '/api/profile/image',
-  (req, res) => {
-    const current =
-      readProfile();
+app.post('/api/support', (req, res) => {
+  const body = req.body || {};
 
-    const nextProfile = {
-      ...current,
-      updatedAt:
-        new Date().toISOString(),
-    };
+  const message = {
+    id: Date.now(),
+    name: String(body.name || '').trim(),
+    contact: String(body.contact || '').trim(),
+    message: String(body.message || '').trim(),
+    createdAt: new Date().toISOString(),
+  };
 
-    writeJson(
-      profileFile,
-      nextProfile,
-    );
-
-    res.json({
-      success: true,
-      data: nextProfile,
-      message:
-        'Profile image upload acknowledged.',
+  if (!message.message) {
+    return res.status(400).json({
+      success: false,
+      message: 'Support message is required.',
     });
-  },
-);
+  }
 
-app.post(
-  '/api/support',
-  (req, res) => {
-    const body =
-      req.body || {};
+  const messages = readJson(supportFile, []);
 
-    const message = {
-      id: Date.now(),
-      name:
-        String(
-          body.name || '',
-        ).trim(),
-      contact:
-        String(
-          body.contact || '',
-        ).trim(),
-      message:
-        String(
-          body.message || '',
-        ).trim(),
-      createdAt:
-        new Date().toISOString(),
-    };
+  messages.unshift(message);
 
-    if (!message.message) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message:
-            'Support message is required.',
-        });
-    }
+  writeJson(supportFile, messages);
 
-    const messages = readJson(
-      supportFile,
-      [],
-    );
+  res.status(201).json({
+    success: true,
+    data: message,
+  });
+});
 
-    messages.unshift(message);
+app.post('/api/notifications/register-token', (req, res) => {
+  const body = req.body || {};
 
-    writeJson(
-      supportFile,
-      messages,
-    );
+  const token = String(body.token || '').trim();
 
-    res.status(201).json({
-      success: true,
-      data: message,
+  if (!token) {
+    return res.status(400).json({
+      success: false,
+      message: 'Notification token is required.',
     });
-  },
-);
+  }
 
-app.post(
-  '/api/notifications/register-token',
-  (req, res) => {
-    const body =
-      req.body || {};
+  const tokens = readJson(notificationTokensFile, []);
 
-    const token = String(
-      body.token || '',
-    ).trim();
+  const record = {
+    token,
+    platform: String(body.platform || 'unknown').trim(),
+    updatedAt: new Date().toISOString(),
+  };
 
-    if (!token) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message:
-            'Notification token is required.',
-        });
-    }
+  const nextTokens = Array.isArray(tokens) ? tokens.filter((item) => item?.token !== token) : [];
 
-    const tokens = readJson(
-      notificationTokensFile,
-      [],
-    );
+  nextTokens.unshift(record);
 
-    const record = {
-      token,
-      platform:
-        String(
-          body.platform ||
-            'unknown',
-        ).trim(),
-      updatedAt:
-        new Date().toISOString(),
-    };
+  writeJson(notificationTokensFile, nextTokens);
 
-    const nextTokens =
-      Array.isArray(tokens)
-        ? tokens.filter(
-            (item) =>
-              item?.token !==
-              token,
-          )
-        : [];
-
-    nextTokens.unshift(record);
-
-    writeJson(
-      notificationTokensFile,
-      nextTokens,
-    );
-
-    res.status(201).json({
-      success: true,
-      data: record,
-    });
-  },
-);
+  res.status(201).json({
+    success: true,
+    data: record,
+  });
+});
 
 app.use((req, res) => {
   res.status(404).json({
     success: false,
-    message:
-      `Route not found: ${req.method} ${req.originalUrl}`,
+    message: `Route not found: ${req.method} ${req.originalUrl}`,
   });
 });
 
-app.use(
-  (error, req, res, _next) => {
-    console.error(
-      'API Error:',
-      error,
-    );
+app.use((error, req, res, _next) => {
+  console.error('API Error:', error);
 
-    res.status(500).json({
-      success: false,
-      message:
-        'Internal server error.',
-    });
-  },
-);
+  res.status(500).json({
+    success: false,
+    message: 'Internal server error.',
+  });
+});
 
-const server = app.listen(
-  PORT,
-  HOST,
-  () => {
-    console.log(
-      '==========================================',
-    );
-    console.log(
-      '       MALAY MM LOCAL API SERVER',
-    );
-    console.log(
-      '==========================================',
-    );
-    console.log(
-      `Listening on ${HOST}:${PORT}`,
-    );
-    console.log(
-      `CORS origins: ${allowedCorsOrigins.join(', ')}`,
-    );
-    console.log(
-      '==========================================',
-    );
-  },
-);
+const server = app.listen(PORT, HOST, () => {
+  console.log('==========================================');
+  console.log('       MALAY MM LOCAL API SERVER');
+  console.log('==========================================');
+  console.log(`Listening on ${HOST}:${PORT}`);
+  console.log(`CORS origins: ${allowedCorsOrigins.join(', ')}`);
+  console.log('==========================================');
+});
 
 server.on('error', (error) => {
-  console.error(
-    'Server failed to start:',
-    error,
-  );
+  console.error('Server failed to start:', error);
 });
