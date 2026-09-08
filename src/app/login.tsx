@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import {
+  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -14,6 +15,8 @@ import { BlurView } from "expo-blur";
 import { router, type Href } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
+import { apiRequest } from '@/services/api/client';
+import { useAuthStore } from '@/store/auth-store';
 
 const LOGIN_BACKGROUND = require("../../assets/images/login-bg.jpg");
 const ANDROID_EXTRA_BOLD = Platform.OS === "android" ? "700" : "800";
@@ -29,11 +32,49 @@ export default function LoginScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [loggingIn, setLoggingIn] = useState(false);
 
-  const handleLogin = () => {
-    // Temporary login for UI testing.
-    // Real authentication will be connected later.
-    router.replace("/(tabs)");
+  const handleLogin = async () => {
+    if (!email.trim() || !password) {
+      return;
+    }
+
+    try {
+      setLoggingIn(true);
+      const response = await apiRequest<{
+        success: boolean;
+        data?: {
+          accessToken?: string;
+          user?: { id?: string };
+        };
+        message?: string;
+      }>('/api/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ email: email.trim(), password }),
+      });
+
+      if (!response.success || !response.data?.accessToken) {
+        throw new Error(response.message || 'Unable to sign in.');
+      }
+
+      await useAuthStore.getState().setSession(
+        {
+          expiresAt: null,
+          user: { id: response.data.user?.id || email.trim() },
+        },
+        {
+          accessToken: response.data.accessToken,
+          refreshToken: response.data.accessToken,
+        },
+      );
+
+      router.replace("/(tabs)");
+    } catch (error) {
+      console.error('Login error:', error);
+      Alert.alert('Sign In Failed', error instanceof Error ? error.message : 'Unable to sign in.');
+    } finally {
+      setLoggingIn(false);
+    }
   };
 
   return (
@@ -189,7 +230,8 @@ export default function LoginScreen() {
 
                 {/* Login */}
                 <Pressable
-                  onPress={handleLogin}
+                  onPress={() => void handleLogin()}
+                  disabled={loggingIn}
                   style={({ pressed }) => [
                     styles.loginButton,
                     pressed && styles.buttonPressed,
@@ -199,7 +241,7 @@ export default function LoginScreen() {
                     style={styles.loginButtonText}
                     allowFontScaling={false}
                   >
-                    Log in
+                    {loggingIn ? "Signing in..." : "Log in"}
                   </Text>
                 </Pressable>
               </View>
