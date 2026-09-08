@@ -1,26 +1,27 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  ActivityIndicator,
-  FlatList,
-  Image,
-  Keyboard,
-  Modal,
-  Pressable,
-  RefreshControl,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-  useWindowDimensions,
-} from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { StatusBar } from 'expo-status-bar';
 import { useRouter } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+    ActivityIndicator,
+    FlatList,
+    Image,
+    Keyboard,
+    Modal,
+    Pressable,
+    RefreshControl,
+    StyleSheet,
+    Text,
+    TextInput,
+    View,
+    useWindowDimensions,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { apiRequest } from '@/services/api/client';
 import { useAppTheme } from '@/theme/provider';
 import type { ThemeColors } from '@/theme/types';
-import { apiRequest } from '@/services/api/client';
+import { getMediaUrl } from '@/utils/media';
 
 type ServiceItem = {
   id: string;
@@ -80,7 +81,7 @@ function normalizeService(value: unknown, index: number): ServiceItem | null {
     id: String(v.id ?? v._id ?? `service-${index + 1}`),
     title,
     description: textValue(v.description, v.summary, v.excerpt),
-    image: imageValue(v.image ?? v.imageUrl ?? v.image_url ?? v.photo ?? v.media),
+    image: imageValue(v.image ?? v.imageUrl ?? v.image_url ?? v.imageName ?? v.photo ?? v.media),
     icon: iconValue(v.icon),
     details: textValue(v.details, v.detail, v.content),
     contact: textValue(v.contact, v.phone, v.email),
@@ -172,8 +173,21 @@ export default function ServicesScreen() {
       onPress={() => router.push({ pathname: '/services/[id]', params: { id: item.id } })}
     >
       <View style={[styles.imageContainer, { height: imageHeight }]}>
-        {item.image ? (
-          <Image source={{ uri: item.image }} style={styles.serviceImage} resizeMode="cover" />
+        {getMediaUrl(item.image) ? (
+          <View style={StyleSheet.absoluteFill}>
+            <Image
+              source={{ uri: getMediaUrl(item.image) }}
+              style={styles.serviceImage}
+              resizeMode="cover"
+              onError={() =>
+                setServices((current) =>
+                  current.map((service) =>
+                    service.id === item.id ? { ...service, image: '' } : service,
+                  ),
+                )
+              }
+            />
+          </View>
         ) : (
           <View style={styles.imagePlaceholder}>
             <Ionicons name={item.icon} size={38} color={theme.colors.primary} />
@@ -280,11 +294,7 @@ export default function ServicesScreen() {
                   hitSlop={6}
                   onPress={() => setNotificationVisible(true)}
                 >
-                  <Ionicons
-                    name="notifications-outline"
-                    size={21}
-                    color={theme.colors.text}
-                  />
+                  <Ionicons name="notifications-outline" size={21} color={theme.colors.text} />
                   {services.length > 0 && <View style={styles.notificationDot} />}
                 </Pressable>
               </View>
@@ -304,11 +314,7 @@ export default function ServicesScreen() {
         {!!error && (
           <View style={styles.errorBox}>
             <View style={styles.errorIcon}>
-              <Ionicons
-                name="cloud-offline-outline"
-                size={20}
-                color={theme.colors.primary}
-              />
+              <Ionicons name="cloud-offline-outline" size={20} color={theme.colors.primary} />
             </View>
 
             <View style={styles.errorContent}>
@@ -403,18 +409,11 @@ export default function ServicesScreen() {
           onRequestClose={() => setSelectedService(null)}
         >
           <View style={styles.modalContainer}>
-            <Pressable
-              style={styles.modalBackdrop}
-              onPress={() => setSelectedService(null)}
-            />
+            <Pressable style={styles.modalBackdrop} onPress={() => setSelectedService(null)} />
 
             <View style={styles.modalCard}>
               <View style={styles.modalHeader}>
-                <Text
-                  style={styles.modalTitle}
-                  numberOfLines={4}
-                  allowFontScaling={false}
-                >
+                <Text style={styles.modalTitle} numberOfLines={4} allowFontScaling={false}>
                   {selectedService?.title}
                 </Text>
 
@@ -506,11 +505,7 @@ export default function ServicesScreen() {
 
             <View style={styles.notificationCard}>
               <View style={styles.notificationIconLarge}>
-                <Ionicons
-                  name="notifications-outline"
-                  size={25}
-                  color={theme.colors.primary}
-                />
+                <Ionicons name="notifications-outline" size={25} color={theme.colors.primary} />
               </View>
 
               <Text style={styles.notificationTitle} allowFontScaling={false}>
@@ -642,7 +637,7 @@ const createStyles = (colors: ThemeColors) =>
 
       backgroundColor: colors.primary,
     },
-        imagePlaceholder: {
+    imagePlaceholder: {
       flex: 1,
       alignItems: 'center',
       justifyContent: 'center',
