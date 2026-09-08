@@ -22,10 +22,7 @@ function buildApiUrl(path: string) {
   return `${baseUrl}${normalizedPath}`;
 }
 
-export async function apiRequest<T>(
-  path: string,
-  options: ApiRequestOptions = {},
-): Promise<T> {
+export async function apiRequest<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
   if (!env.EXPO_PUBLIC_API_URL) {
     throw new ApiError('Missing public API base URL configuration.', {
       code: 'missing_api_url',
@@ -44,8 +41,7 @@ export async function apiRequest<T>(
   // image uploads). fetch/React Native must set its own
   // "multipart/form-data; boundary=..." header — overriding it here would
   // break the upload.
-  const isFormData =
-    typeof FormData !== 'undefined' && options.body instanceof FormData;
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
 
   if (!headers.has('Content-Type') && options.body && !isFormData) {
     headers.set('Content-Type', 'application/json');
@@ -71,7 +67,15 @@ export async function apiRequest<T>(
         details = await response.text();
       }
 
-      throw new ApiError('API request failed.', {
+      const serverMessage =
+        details &&
+        typeof details === 'object' &&
+        'message' in details &&
+        typeof details.message === 'string'
+          ? details.message
+          : `Request failed (${response.status}).`;
+
+      throw new ApiError(serverMessage, {
         code: 'api_request_failed',
         details,
         status: response.status,
@@ -85,6 +89,10 @@ export async function apiRequest<T>(
     return (await response.json()) as T;
   } catch (error) {
     if (error instanceof ApiError) {
+      throw error;
+    }
+
+    if (options.signal?.aborted) {
       throw error;
     }
 
