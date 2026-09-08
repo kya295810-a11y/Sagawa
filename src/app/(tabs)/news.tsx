@@ -1,27 +1,27 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  FlatList,
-  Image,
-  Keyboard,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-  useWindowDimensions,
-} from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { StatusBar } from 'expo-status-bar';
 import { useRouter } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+    ActivityIndicator,
+    Alert,
+    FlatList,
+    Image,
+    Keyboard,
+    Pressable,
+    StyleSheet,
+    Text,
+    TextInput,
+    View,
+    useWindowDimensions,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-
+import { apiRequest } from '@/services/api/client';
 import { registerPushToken } from '@/services/notifications/push-token';
 import { useAppTheme } from '@/theme/provider';
 import type { ThemeColors } from '@/theme/types';
-import { apiRequest } from '@/services/api/client';
+import { getMediaUrl } from '@/utils/media';
 
 /* ============================================================
    TYPES
@@ -104,13 +104,8 @@ export default function NewsScreen() {
       }
 
       const latestNews = result.data
-        .filter(
-          (item: ApiNewsItem) => item.published
-        )
-        .sort(
-          (a: ApiNewsItem, b: ApiNewsItem) =>
-            b.id - a.id
-        )
+        .filter((item: ApiNewsItem) => item.published)
+        .sort((a: ApiNewsItem, b: ApiNewsItem) => b.id - a.id)
         .slice(0, 10)
         .map(mapApiNews);
 
@@ -118,24 +113,22 @@ export default function NewsScreen() {
     } catch (err) {
       console.error('News API error:', err);
 
-      setError(
-        'Unable to load news. Make sure the Local API is running.'
-      );
+      setError('Unable to load news. Make sure the Local API is running.');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   }, []);
 
- useEffect(() => {
-  const timer = setTimeout(() => {
-    void loadNews();
-  }, 0);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      void loadNews();
+    }, 0);
 
-  return () => {
-    clearTimeout(timer);
-  };
-}, [loadNews]);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [loadNews]);
 
   const handleRefresh = useCallback(() => {
     setRefreshing(true);
@@ -143,148 +136,124 @@ export default function NewsScreen() {
   }, [loadNews]);
 
   const filteredNews = useMemo(() => {
-   const query = searchText.trim().toLowerCase();
+    const query = searchText.trim().toLowerCase();
 
-   if (!query) {
-     return news;
-   }
+    if (!query) {
+      return news;
+    }
 
-   return news.filter((item) =>
-     `${item.title} ${item.description} ${item.category} ${item.time}`
-       .toLowerCase()
-       .includes(query),
-   );
+    return news.filter((item) =>
+      `${item.title} ${item.description} ${item.category} ${item.time}`
+        .toLowerCase()
+        .includes(query),
+    );
   }, [news, searchText]);
 
   const closeSearch = useCallback(() => {
-   Keyboard.dismiss();
-   setSearchText('');
-   setSearchVisible(false);
+    Keyboard.dismiss();
+    setSearchText('');
+    setSearchVisible(false);
   }, []);
 
   const openNewsDetail = useCallback(
-   (id: string | number | undefined) => {
-     if (id === undefined || id === null || id === '') {
-       return;
-     }
+    (id: string | number | undefined) => {
+      if (id === undefined || id === null || id === '') {
+        return;
+      }
 
-     router.push({
-       pathname: '/news/[id]',
-       params: { id: String(id) },
-     });
-   },
-   [router],
+      router.push({
+        pathname: '/news/[id]',
+        params: { id: String(id) },
+      });
+    },
+    [router],
   );
 
   const handleBellPress = useCallback(async () => {
-   try {
-     const result = await registerPushToken();
+    try {
+      const result = await registerPushToken();
 
-     if (result.status === 'registered') {
-       return;
-     }
+      if (result.status === 'registered') {
+        return;
+      }
 
-     if (result.status === 'denied') {
-       Alert.alert(
-         'Notifications Disabled',
-         'Notification permission was not granted. You can enable it later from your device settings.',
-       );
-       return;
-     }
+      if (result.status === 'denied') {
+        Alert.alert(
+          'Notifications Disabled',
+          'Notification permission was not granted. You can enable it later from your device settings.',
+        );
+        return;
+      }
 
-     Alert.alert(
-       'Notifications Unavailable',
-       'Push notifications require a physical device.',
-     );
-   } catch (requestError) {
-     console.error('News push registration error:', requestError);
-     Alert.alert(
-       'Notifications Error',
-       'Unable to register for push notifications right now.',
-     );
-   }
+      Alert.alert('Notifications Unavailable', 'Push notifications require a physical device.');
+    } catch (requestError) {
+      console.error('News push registration error:', requestError);
+      Alert.alert('Notifications Error', 'Unable to register for push notifications right now.');
+    }
   }, []);
 
   useEffect(() => {
-  // Expo Go does not support remote push notifications.
-  // Only enable notification listeners in a development/production build.
-  
+    // Expo Go does not support remote push notifications.
+    // Only enable notification listeners in a development/production build.
 
-  let isMounted = true;
-  let subscription: { remove: () => void } | undefined;
+    let isMounted = true;
+    let subscription: { remove: () => void } | undefined;
 
-  const setupNotifications = async () => {
-    try {
-      const Notifications = await import('expo-notifications');
+    const setupNotifications = async () => {
+      try {
+        const Notifications = await import('expo-notifications');
 
-      const handleNotificationResponse = (
-        response: import('expo-notifications').NotificationResponse,
-      ) => {
-        try {
-          const data = response.notification.request.content.data as
-            | Record<string, unknown>
-            | undefined;
+        const handleNotificationResponse = (
+          response: import('expo-notifications').NotificationResponse,
+        ) => {
+          try {
+            const data = response.notification.request.content.data as
+              Record<string, unknown> | undefined;
 
-          const candidateId =
-            data?.newsId ??
-            data?.news_id ??
-            data?.id ??
-            data?.articleId ??
-            data?.article_id ??
-            data?.postId ??
-            data?.post_id;
+            const candidateId =
+              data?.newsId ??
+              data?.news_id ??
+              data?.id ??
+              data?.articleId ??
+              data?.article_id ??
+              data?.postId ??
+              data?.post_id;
 
-          if (
-            typeof candidateId === 'string' ||
-            typeof candidateId === 'number'
-          ) {
-            openNewsDetail(candidateId);
+            if (typeof candidateId === 'string' || typeof candidateId === 'number') {
+              openNewsDetail(candidateId);
+            }
+          } catch (notificationError) {
+            console.error('Notification tap handling error:', notificationError);
           }
-        } catch (notificationError) {
-          console.error(
-            'Notification tap handling error:',
-            notificationError,
-          );
-        }
-      };
+        };
 
-      subscription =
-        Notifications.addNotificationResponseReceivedListener(
+        subscription = Notifications.addNotificationResponseReceivedListener(
           handleNotificationResponse,
         );
 
-      const response =
-        await Notifications.getLastNotificationResponseAsync();
+        const response = await Notifications.getLastNotificationResponseAsync();
 
-      if (isMounted && response) {
-        handleNotificationResponse(response);
+        if (isMounted && response) {
+          handleNotificationResponse(response);
+        }
+      } catch (error) {
+        console.log('Notification listeners unavailable in this environment:', error);
       }
-    } catch (error) {
-      console.log(
-        'Notification listeners unavailable in this environment:',
-        error,
-      );
-    }
-  };
+    };
 
-  void setupNotifications();
+    void setupNotifications();
 
-  return () => {
-    isMounted = false;
-    subscription?.remove();
-  };
-}, [openNewsDetail]);
+    return () => {
+      isMounted = false;
+      subscription?.remove();
+    };
+  }, [openNewsDetail]);
 
   /* ==========================================================
      RESPONSIVE IMAGE HEIGHT
   ========================================================== */
 
-  const imageHeight =
-    height <= 700
-      ? 112
-      : height <= 780
-        ? 128
-        : 142;
+  const imageHeight = height <= 700 ? 112 : height <= 780 ? 128 : 142;
 
   const horizontalPadding = 18;
 
@@ -294,17 +263,11 @@ export default function NewsScreen() {
      NEWS CARD
   ========================================================== */
 
-  const renderNewsCard = ({
-    item,
-  }: {
-    item: NewsItem;
-  }) => {
+  const renderNewsCard = ({ item }: { item: NewsItem }) => {
+    const imageUrl = getMediaUrl(item.image);
     return (
       <Pressable
-        style={({ pressed }) => [
-          styles.newsCard,
-          pressed && styles.cardPressed,
-        ]}
+        style={({ pressed }) => [styles.newsCard, pressed && styles.cardPressed]}
         onPress={() => openNewsDetail(item.id)}
       >
         {/* ====================================================
@@ -319,22 +282,35 @@ export default function NewsScreen() {
             },
           ]}
         >
-          <Image
-            source={{ uri: item.image }}
-            style={styles.newsImage}
-            resizeMode="cover"
-          />
+          {imageUrl ? (
+            <Image
+              source={{ uri: imageUrl }}
+              style={styles.newsImage}
+              resizeMode="cover"
+              onError={() =>
+                setNews((current) =>
+                  current.map((newsItem) =>
+                    newsItem.id === item.id ? { ...newsItem, image: '' } : newsItem,
+                  ),
+                )
+              }
+            />
+          ) : (
+            <View style={styles.imagePlaceholder}>
+              <Ionicons
+                name={item.type === 'video' ? 'videocam-outline' : 'image-outline'}
+                size={34}
+                color={theme.colors.primary}
+              />
+            </View>
+          )}
 
           <View style={styles.imageOverlay} />
 
           {/* CATEGORY */}
 
           <View style={styles.imageCategory}>
-            <Text
-              style={styles.imageCategoryText}
-              allowFontScaling={false}
-              numberOfLines={1}
-            >
+            <Text style={styles.imageCategoryText} allowFontScaling={false} numberOfLines={1}>
               {item.category}
             </Text>
           </View>
@@ -343,26 +319,14 @@ export default function NewsScreen() {
 
           {item.type === 'video' && (
             <View style={styles.videoButton}>
-              <Ionicons
-                name="play"
-                size={16}
-                color="#FFFFFF"
-              />
+              <Ionicons name="play" size={16} color="#FFFFFF" />
             </View>
           )}
 
           {/* BOOKMARK */}
 
-          <Pressable
-            style={styles.imageBookmark}
-            hitSlop={8}
-            onPress={() => {}}
-          >
-            <Ionicons
-              name="bookmark-outline"
-              size={18}
-              color="#FFFFFF"
-            />
+          <Pressable style={styles.imageBookmark} hitSlop={8} onPress={() => {}}>
+            <Ionicons name="bookmark-outline" size={18} color="#FFFFFF" />
           </Pressable>
         </View>
 
@@ -384,33 +348,18 @@ export default function NewsScreen() {
 
           <View style={styles.metaRow}>
             <View style={styles.timeContainer}>
-              <Ionicons
-                name="time-outline"
-                size={12}
-                color={theme.colors.textMuted}
-              />
+              <Ionicons name="time-outline" size={12} color={theme.colors.textMuted} />
 
-              <Text
-                style={styles.time}
-                numberOfLines={1}
-                allowFontScaling={false}
-              >
+              <Text style={styles.time} numberOfLines={1} allowFontScaling={false}>
                 {item.time}
               </Text>
             </View>
 
             {item.type === 'video' && (
               <View style={styles.videoLabel}>
-                <Ionicons
-                  name="videocam-outline"
-                  size={12}
-                  color={theme.colors.primary}
-                />
+                <Ionicons name="videocam-outline" size={12} color={theme.colors.primary} />
 
-                <Text
-                  style={styles.videoLabelText}
-                  allowFontScaling={false}
-                >
+                <Text style={styles.videoLabelText} allowFontScaling={false}>
                   Video
                 </Text>
               </View>
@@ -426,10 +375,7 @@ export default function NewsScreen() {
   ========================================================== */
 
   return (
-    <SafeAreaView
-      style={styles.safeArea}
-      edges={['top']}
-    >
+    <SafeAreaView style={styles.safeArea} edges={['top']}>
       {/* GLOBAL STATUS BAR */}
 
       <StatusBar style={theme.statusBarStyle} />
@@ -442,11 +388,7 @@ export default function NewsScreen() {
         <View style={styles.header}>
           {searchVisible ? (
             <View style={styles.searchBar}>
-              <Ionicons
-                name="search-outline"
-                size={18}
-                color={theme.colors.textMuted}
-              />
+              <Ionicons name="search-outline" size={18} color={theme.colors.textMuted} />
 
               <TextInput
                 autoFocus
@@ -461,23 +403,13 @@ export default function NewsScreen() {
                 onSubmitEditing={() => Keyboard.dismiss()}
               />
 
-              <Pressable
-                onPress={closeSearch}
-                hitSlop={8}
-              >
-                <Ionicons
-                  name="close-circle"
-                  size={20}
-                  color={theme.colors.textMuted}
-                />
+              <Pressable onPress={closeSearch} hitSlop={8}>
+                <Ionicons name="close-circle" size={20} color={theme.colors.textMuted} />
               </Pressable>
             </View>
           ) : (
             <>
-              <Text
-                style={styles.title}
-                allowFontScaling={false}
-              >
+              <Text style={styles.title} allowFontScaling={false}>
                 News
               </Text>
 
@@ -485,35 +417,21 @@ export default function NewsScreen() {
                 {/* SEARCH */}
 
                 <Pressable
-                  style={({ pressed }) => [
-                    styles.headerButton,
-                    pressed && styles.buttonPressed,
-                  ]}
+                  style={({ pressed }) => [styles.headerButton, pressed && styles.buttonPressed]}
                   hitSlop={6}
                   onPress={() => setSearchVisible(true)}
                 >
-                  <Ionicons
-                    name="search-outline"
-                    size={21}
-                    color={theme.colors.text}
-                  />
+                  <Ionicons name="search-outline" size={21} color={theme.colors.text} />
                 </Pressable>
 
                 {/* NOTIFICATION */}
 
                 <Pressable
-                  style={({ pressed }) => [
-                    styles.headerButton,
-                    pressed && styles.buttonPressed,
-                  ]}
+                  style={({ pressed }) => [styles.headerButton, pressed && styles.buttonPressed]}
                   hitSlop={6}
                   onPress={handleBellPress}
                 >
-                  <Ionicons
-                    name="notifications-outline"
-                    size={21}
-                    color={theme.colors.text}
-                  />
+                  <Ionicons name="notifications-outline" size={21} color={theme.colors.text} />
 
                   <View style={styles.notificationDot} />
                 </Pressable>
@@ -527,17 +445,11 @@ export default function NewsScreen() {
         ==================================================== */}
 
         <View style={styles.sectionHeader}>
-          <Text
-            style={styles.sectionTitle}
-            allowFontScaling={false}
-          >
+          <Text style={styles.sectionTitle} allowFontScaling={false}>
             All News
           </Text>
 
-          <Text
-            style={styles.latestText}
-            allowFontScaling={false}
-          >
+          <Text style={styles.latestText} allowFontScaling={false}>
             Latest
           </Text>
         </View>
@@ -548,40 +460,22 @@ export default function NewsScreen() {
 
         {loading ? (
           <View style={styles.stateContainer}>
-            <ActivityIndicator
-              size="small"
-              color={theme.colors.primary}
-            />
-            <Text style={styles.stateText}>
-              Loading latest news...
-            </Text>
+            <ActivityIndicator size="small" color={theme.colors.primary} />
+            <Text style={styles.stateText}>Loading latest news...</Text>
           </View>
         ) : error ? (
           <View style={styles.stateContainer}>
-            <Text style={styles.stateTitle}>
-              News unavailable
-            </Text>
-            <Text style={styles.stateText}>
-              {error}
-            </Text>
+            <Text style={styles.stateTitle}>News unavailable</Text>
+            <Text style={styles.stateText}>{error}</Text>
 
-            <Pressable
-              onPress={loadNews}
-              style={styles.retryButton}
-            >
-              <Text style={styles.retryText}>
-                Try Again
-              </Text>
+            <Pressable onPress={loadNews} style={styles.retryButton}>
+              <Text style={styles.retryText}>Try Again</Text>
             </Pressable>
           </View>
         ) : news.length === 0 ? (
           <View style={styles.stateContainer}>
-            <Text style={styles.stateTitle}>
-              No published news
-            </Text>
-            <Text style={styles.stateText}>
-              Publish a news item from the Admin dashboard.
-            </Text>
+            <Text style={styles.stateTitle}>No published news</Text>
+            <Text style={styles.stateText}>Publish a news item from the Admin dashboard.</Text>
           </View>
         ) : null}
 
@@ -605,17 +499,12 @@ export default function NewsScreen() {
             ]}
             ListEmptyComponent={
               <View style={styles.stateContainer}>
-                <Text style={styles.stateTitle}>
-                  No matching news
-                </Text>
-                <Text style={styles.stateText}>
-                  Try a different search term.
-                </Text>
+                <Text style={styles.stateTitle}>No matching news</Text>
+                <Text style={styles.stateText}>Try a different search term.</Text>
               </View>
             }
           />
         )}
-
       </View>
     </SafeAreaView>
   );
@@ -815,6 +704,12 @@ const createStyles = (colors: ThemeColors) =>
     newsImage: {
       width: '100%',
       height: '100%',
+    },
+
+    imagePlaceholder: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
 
     imageOverlay: {
