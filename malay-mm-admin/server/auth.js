@@ -269,7 +269,10 @@ function sessionKey(token) {
 }
 
 function getSession(req) {
-  const token = parseCookies(req.headers.cookie || '')[COOKIE_NAME];
+  const cookieToken = parseCookies(req.headers.cookie || '')[COOKIE_NAME];
+  const authorization = String(req.headers.authorization || '');
+  const bearerToken = authorization.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
+  const token = cookieToken || bearerToken;
   const session = token ? sessions.get(sessionKey(token)) : null;
 
   if (!session || session.expiresAt <= Date.now()) {
