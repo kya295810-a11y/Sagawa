@@ -47,8 +47,6 @@ function isValidBcryptHash(value) {
   }
 
   try {
-    // Let bcryptjs validate its own supported hash format rather than maintaining
-    // a separate, potentially incompatible format parser.
     const rounds = bcrypt.getRounds(value);
     bcrypt.getSalt(value);
     const supportedPrefix = ['$2a$', '$2b$', '$2y$'].some((prefix) => value.startsWith(prefix));
@@ -366,18 +364,22 @@ function destroyAllSessions() {
   sessions.clear();
 }
 
+function getSessionCookieAttributes() {
+  const productionHttps = process.env.NODE_ENV === 'production' && ADMIN_ORIGIN.startsWith('https://');
+  return productionHttps ? 'SameSite=None; Secure' : 'SameSite=Lax';
+}
+
 function setSessionCookie(res, token) {
-  const secureFlag = ADMIN_ORIGIN.startsWith('https://') || process.env.NODE_ENV === 'production' ? '; Secure' : '';
   res.setHeader(
     'Set-Cookie',
-    `${COOKIE_NAME}=${encodeURIComponent(token)}; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}; Path=/; HttpOnly; SameSite=Lax${secureFlag}`,
+    `${COOKIE_NAME}=${encodeURIComponent(token)}; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}; Path=/; HttpOnly; ${getSessionCookieAttributes()}`,
   );
 }
 
 function clearSessionCookie(res) {
   res.setHeader(
     'Set-Cookie',
-    `${COOKIE_NAME}=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax${ADMIN_ORIGIN.startsWith('https://') || process.env.NODE_ENV === 'production' ? '; Secure' : ''}`,
+    `${COOKIE_NAME}=; Max-Age=0; Path=/; HttpOnly; ${getSessionCookieAttributes()}`,
   );
 }
 
@@ -478,28 +480,24 @@ async function finishRegistration(req, response) {
   });
 
   if (!verification.verified || !verification.registrationInfo) {
-    throw new Error('Passkey registration was not verified.');
+    throw new Error('Passkey registration verification failed.');
   }
 
-  const { credential } = verification.registrationInfo;
-  saveCredentials([
-    ...credentials.filter((item) => item.id !== credential.id),
-    {
-      id: credential.id,
-      publicKey: credential.publicKey,
-      counter: credential.counter,
-      transports: response.response.transports || [],
-    },
-  ]);
+  const credential = verification.registrationInfo.credential;
+  const nextCredentials = credentials.filter((entry) => entry.id !== credential.id);
+  nextCredentials.push({
+    id: credential.id,
+    publicKey: credential.publicKey,
+    counter: credential.counter,
+    transports: response.response?.transports || [],
+  });
+  saveCredentials(nextCredentials);
+  return true;
 }
 
 function beginAuthentication() {
-  if (!credentials.length) {
-    throw new Error('No passkey has been enrolled yet.');
-  }
-
   const challenge = createChallenge('webauthn.get');
-  const options = generateAuthenticationOptions({
+  return generateAuthenticationOptions({
     rpID: RP_ID,
     challenge,
     allowCredentials: credentials.map((credential) => ({
@@ -508,18 +506,16 @@ function beginAuthentication() {
     })),
     userVerification: 'required',
   });
-
-  return options;
 }
 
 async function finishAuthentication(response) {
+  const credential = credentials.find((entry) => entry.id === response?.id);
+  if (!credential) {
+    throw new Error('Passkey not found.');
+  }
+
   const challengeValue = extractChallengeFromClientData(response, 'webauthn.get');
   const expectedChallenge = consumeChallenge(challengeValue, 'webauthn.get');
-
-  const credentialRecord = credentials.find((item) => item.id === response.id);
-  if (!credentialRecord) {
-    throw new Error('Unknown passkey.');
-  }
 
   const verification = await verifyAuthenticationResponse({
     response,
@@ -527,118 +523,43 @@ async function finishAuthentication(response) {
     expectedOrigin: ADMIN_ORIGIN,
     expectedRPID: RP_ID,
     credential: {
-      id: credentialRecord.id,
-      publicKey: Buffer.from(credentialRecord.publicKey, 'base64url'),
-      counter: credentialRecord.counter,
-      transports: credentialRecord.transports,
+      id: credential.id,
+      publicKey: Buffer.from(credential.publicKey, 'base64url'),
+      counter: credential.counter,
+      transports: credential.transports,
     },
-    requireUserVerification: true,
   });
 
   if (!verification.verified) {
-    throw new Error('Passkey authentication failed.');
+    throw new Error('Passkey authentication verification failed.');
   }
 
-  credentialRecord.counter = verification.authenticationInfo.newCounter;
+  credential.counter = verification.authenticationInfo.newCounter;
   saveCredentials(credentials);
   return true;
-}
-
-function generateVerificationCode() {
-  return crypto.randomInt(100000, 1000000).toString();
-}
-
-function hashVerificationCode(code) {
-  return crypto.createHmac('sha256', SESSION_SECRET).update(code).digest('hex');
-}
-
-const verificationStates = new Map();
-const resetPasswordStates = new Map();
-
-function createCodeState(store) {
-  const now = Date.now();
-  for (const [key, state] of store) {
-    if (state.expiresAt <= now) store.delete(key);
-  }
-
-  const code = generateVerificationCode();
-  const stateId = crypto.randomBytes(32).toString('hex');
-  store.set(stateId, {
-    codeHash: hashVerificationCode(code),
-    attempts: 0,
-    expiresAt: Date.now() + VERIFICATION_CODE_TTL_MS,
-  });
-  return { stateId, code };
-}
-
-function validateCodeState(store, stateId, code) {
-  const state = store.get(stateId);
-  if (!state || state.expiresAt <= Date.now() || state.attempts >= VERIFICATION_CODE_MAX_ATTEMPTS) {
-    store.delete(stateId);
-    return { valid: false, reason: 'Verification code is invalid or expired.' };
-  }
-
-  state.attempts += 1;
-  const providedHash = hashVerificationCode(String(code || ''));
-  const valid = crypto.timingSafeEqual(Buffer.from(providedHash), Buffer.from(state.codeHash));
-  if (!valid) {
-    return { valid: false, reason: 'Verification code is invalid or expired.' };
-  }
-
-  store.delete(stateId);
-  return { valid: true };
-}
-
-function createVerificationState() {
-  return createCodeState(verificationStates);
-}
-
-function validateVerificationCode(stateId, code) {
-  return validateCodeState(verificationStates, stateId, code);
-}
-
-function hasVerificationState(stateId) {
-  const state = verificationStates.get(String(stateId || ''));
-  if (!state || state.expiresAt <= Date.now() || state.attempts >= VERIFICATION_CODE_MAX_ATTEMPTS) {
-    if (state) verificationStates.delete(String(stateId));
-    return false;
-  }
-  return true;
-}
-
-function createPasswordResetState() {
-  return createCodeState(resetPasswordStates);
-}
-
-function validateResetCode(stateId, code) {
-  return validateCodeState(resetPasswordStates, stateId, code);
 }
 
 module.exports = {
   ADMIN_EMAIL,
   ADMIN_NAME,
-  ADMIN_ORIGIN,
   COOKIE_NAME,
-  SESSION_TTL_MS,
   VERIFICATION_CODE_COOKIE_NAME,
+  SESSION_TTL_MS,
+  VERIFICATION_CODE_TTL_MS,
+  VERIFICATION_CODE_MAX_ATTEMPTS,
   beginAuthentication,
   beginRegistration,
   clearSessionCookie,
   createSession,
-  createVerificationState,
-  hasVerificationState,
-  validateVerificationCode,
-  createPasswordResetState,
-  validateResetCode,
-  destroySession,
   destroyAllSessions,
+  destroySession,
   finishAuthentication,
   finishRegistration,
   getAuthenticatedUser,
   isAdminAuthenticated,
   login,
-  requireAdmin,
   replaceAdminPasswordHash,
+  requireAdmin,
   setSessionCookie,
   validatePasswordPolicy,
   verifyPassword,
