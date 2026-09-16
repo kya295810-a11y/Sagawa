@@ -7,6 +7,7 @@ const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 const multer = require('multer');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const db = require('./db');
@@ -20,9 +21,10 @@ const {
   clearSessionCookie,
   createSession,
   createVerificationState,
-  validateVerificationCode,
+  hasVerificationState,
   createPasswordResetState,
   validateResetCode,
+  destroyAllSessions,
   destroySession,
   finishAuthentication,
   finishRegistration,
@@ -35,20 +37,50 @@ const {
   validatePasswordPolicy,
   verifyPassword,
 } = require('./auth');
+const {
+  getMobileSession,
+  loginUser,
+  logoutMobileSession,
+  normalizeEmail,
+  refreshMobileSession,
+  registerUser,
+  requireMobileUser,
+} = require('./user-auth');
 const { sendVerificationCode, sendPasswordResetCode } = require('./email');
 
 const app = express();
 
+const trustProxyHops = Number(process.env.TRUST_PROXY_HOPS || 0);
+if (Number.isInteger(trustProxyHops) && trustProxyHops > 0) {
+  app.set('trust proxy', trustProxyHops);
+}
+
+function boundedText(value, maxLength, fieldName) {
+  const text = String(value ?? '').trim();
+  if (text.length > maxLength) {
+    const error = new Error(`${fieldName} must be ${maxLength} characters or fewer.`);
+    error.statusCode = 400;
+    throw error;
+  }
+  return text;
+}
+
 const profileUploadDir = path.join(__dirname, 'uploads', 'profile');
 fs.mkdirSync(profileUploadDir, { recursive: true });
+
+const profileExtensionByMime = {
+  'image/jpeg': '.jpg',
+  'image/png': '.png',
+  'image/webp': '.webp',
+};
 
 const profileStorage = multer.diskStorage({
   destination: (_req, _file, cb) => {
     cb(null, profileUploadDir);
   },
   filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname || '').toLowerCase() || '.jpg';
-    cb(null, `profile-${Date.now()}${ext}`);
+    const ext = profileExtensionByMime[file.mimetype];
+    cb(null, `profile-${crypto.randomUUID()}${ext}`);
   },
 });
 
@@ -58,7 +90,10 @@ const profileUpload = multer({
     fileSize: 5 * 1024 * 1024,
   },
   fileFilter: (_req, file, cb) => {
-    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype)) {
+    const extension = path.extname(path.basename(file.originalname || '')).toLowerCase();
+    const allowedExtensions =
+      file.mimetype === 'image/jpeg' ? ['.jpg', '.jpeg'] : [profileExtensionByMime[file.mimetype]];
+    if (!profileExtensionByMime[file.mimetype] || !allowedExtensions.includes(extension)) {
       return cb(new Error('Only JPEG, PNG, and WebP images are allowed.'));
     }
     cb(null, true);
@@ -67,7 +102,34 @@ const profileUpload = multer({
 
 const profileUploadMiddleware = (req, res, next) => {
   profileUpload.single('image')(req, res, (error) => {
-    if (!error) return next();
+    if (!error) {
+      if (!req.file) return next();
+
+      try {
+        const header = Buffer.alloc(12);
+        const descriptor = fs.openSync(req.file.path, 'r');
+        fs.readSync(descriptor, header, 0, header.length, 0);
+        fs.closeSync(descriptor);
+        const isJpeg = header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff;
+        const isPng = header.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+        const isWebp = header.subarray(0, 4).toString('ascii') === 'RIFF' && header.subarray(8, 12).toString('ascii') === 'WEBP';
+        const validForMime =
+          (req.file.mimetype === 'image/jpeg' && isJpeg) ||
+          (req.file.mimetype === 'image/png' && isPng) ||
+          (req.file.mimetype === 'image/webp' && isWebp);
+
+        if (validForMime) return next();
+        fs.unlinkSync(req.file.path);
+        return res.status(422).json({ success: false, message: 'Uploaded file is not a valid image.' });
+      } catch (validationError) {
+        try {
+          fs.unlinkSync(req.file.path);
+        } catch {
+          // Best-effort cleanup.
+        }
+        return next(validationError);
+      }
+    }
 
     const status = error.code === 'LIMIT_FILE_SIZE' ? 413 : 422;
     return res.status(status).json({
@@ -104,7 +166,7 @@ const corsOptions = {
     }
 
     console.error('[CORS] Rejected origin:', origin);
-    return callback(new Error('Origin is not allowed by CORS.'));
+    return callback(null, false);
   },
 };
 
@@ -119,21 +181,82 @@ const apiLimiter = rateLimit({
   },
 });
 
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: 'Too many authentication attempts. Try again later.',
+  },
+});
+
+const resendLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 3,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many code requests. Try again later.' },
+});
+
 app.use(cors(corsOptions));
 app.options('/{*splat}', cors(corsOptions));
+app.use('/api/auth', authLimiter);
 app.use('/api', apiLimiter);
+app.use('/api', (req, res, next) => {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
+  const origin = req.get('origin');
+  if (!origin || allowedCorsOrigins.includes(origin)) return next();
+  return res.status(403).json({ success: false, message: 'Origin is not allowed.' });
+});
 app.use((req, res, next) => {
   console.log(`[API] ${req.method} ${req.originalUrl}`);
   next();
 });
-app.use(express.json({ limit: '20mb' }));
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+app.get('/health', async (req, res) => {
+  try {
+    await db.query('SELECT 1');
+    return res.status(200).json({ status: 'ok' });
+  } catch (error) {
+    console.error('[Health] Database check failed:', error.message);
+    return res.status(503).json({ status: 'unavailable' });
+  }
+});
+
+app.use(['/api/news', '/api/services'], express.json({ limit: '32mb' }));
+app.use(express.json({ limit: '256kb' }));
+app.use('/uploads/content', express.static(path.join(__dirname, 'uploads', 'content'), {
+  index: false,
+  dotfiles: 'deny',
+  setHeaders(res) {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+  },
+}));
 app.use(
   express.urlencoded({
     extended: true,
-    limit: '20mb',
+    limit: '64kb',
   }),
 );
+
+app.post('/api/auth/register', async (req, res) => {
+  try {
+    const result = await registerUser(req.body?.email, req.body?.password);
+    return res.status(201).json({
+      success: true,
+      data: { ...result, profileCompleted: false },
+    });
+  } catch (error) {
+    const status = Number(error.statusCode) || 500;
+    if (status >= 500) console.error('[Auth] Mobile registration failed:', error.message);
+    return res.status(status).json({
+      success: false,
+      message: status >= 500 ? 'Unable to create account.' : error.message,
+    });
+  }
+});
 
 app.post('/api/auth/login', async (req, res) => {
   const email = String(req.body?.email || '').trim();
@@ -147,8 +270,26 @@ app.post('/api/auth/login', async (req, res) => {
   }
 
   try {
+    if (normalizeEmail(email) !== ADMIN_EMAIL) {
+      const mobileSession = await loginUser(email, password);
+      if (!mobileSession) {
+        return res.status(401).json({ success: false, message: 'Invalid email or password.' });
+      }
+      const profileResult = await db.query(
+        'SELECT profile_completed FROM profiles WHERE user_id = $1',
+        [mobileSession.user.id],
+      );
+      return res.json({
+        success: true,
+        data: {
+          ...mobileSession,
+          authenticated: true,
+          profileCompleted: Boolean(profileResult.rows[0]?.profile_completed),
+        },
+      });
+    }
+
     if (!(await login(email, password))) {
-      console.error('[Auth] Login rejected.');
       return res.status(401).json({
         success: false,
         message: 'Invalid email or password.',
@@ -160,8 +301,8 @@ app.post('/api/auth/login', async (req, res) => {
       email: ADMIN_EMAIL,
     };
 
-    const accessToken = createSession();
-    setSessionCookie(res, accessToken);
+    const sessionToken = createSession();
+    setSessionCookie(res, sessionToken);
 
     console.log('[Auth] Admin login succeeded.');
 
@@ -170,7 +311,6 @@ app.post('/api/auth/login', async (req, res) => {
       data: {
         authenticated: true,
         user,
-        accessToken,
       },
     });
   } catch (error) {
@@ -183,7 +323,27 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-app.post('/api/auth/resend-code', async (req, res) => {
+app.post('/api/auth/refresh', async (req, res) => {
+  try {
+    const session = await refreshMobileSession(req.body?.refreshToken);
+    if (!session) {
+      return res.status(401).json({ success: false, message: 'Session expired.' });
+    }
+    const profileResult = await db.query(
+      'SELECT profile_completed FROM profiles WHERE user_id = $1',
+      [session.user.id],
+    );
+    return res.json({
+      success: true,
+      data: { ...session, profileCompleted: Boolean(profileResult.rows[0]?.profile_completed) },
+    });
+  } catch (error) {
+    console.error('[Auth] Mobile session refresh failed:', error.message);
+    return res.status(500).json({ success: false, message: 'Authentication service unavailable.' });
+  }
+});
+
+app.post('/api/auth/resend-code', resendLimiter, async (req, res) => {
   // Get the verification state ID from the cookie
   const cookies = {};
   for (const cookie of String(req.headers.cookie || '').split(';')) {
@@ -207,6 +367,10 @@ app.post('/api/auth/resend-code', async (req, res) => {
     return res
       .status(401)
       .json({ success: false, message: 'Invalid verification state. Please sign in again.' });
+  }
+
+  if (!hasVerificationState(stateId)) {
+    return res.status(401).json({ success: false, message: 'Invalid verification state. Please sign in again.' });
   }
 
   try {
@@ -243,7 +407,27 @@ app.post('/api/auth/resend-code', async (req, res) => {
   }
 });
 
-app.get('/api/auth/me', (req, res) => {
+app.get('/api/auth/me', async (req, res) => {
+  try {
+    const mobileSession = await getMobileSession(req);
+    if (mobileSession) {
+      const profileResult = await db.query(
+        'SELECT profile_completed FROM profiles WHERE user_id = $1',
+        [mobileSession.user_id],
+      );
+      return res.json({
+        success: true,
+        data: {
+          authenticated: true,
+          profileCompleted: Boolean(profileResult.rows[0]?.profile_completed),
+          user: { id: mobileSession.user_id, email: mobileSession.email },
+        },
+      });
+    }
+  } catch (error) {
+    console.error('[Auth] Mobile session check failed:', error.message);
+    return res.status(500).json({ success: false, message: 'Authentication service unavailable.' });
+  }
   const user = getAuthenticatedUser(req);
   const authenticated = isAdminAuthenticated(req);
   return res.json({
@@ -287,7 +471,7 @@ app.post('/api/auth/change-password', requireAdmin, async (req, res) => {
 
     const nextHash = await bcrypt.hash(newPassword, 12);
     replaceAdminPasswordHash(nextHash);
-    sessions.clear();
+    destroyAllSessions();
     clearSessionCookie(res);
 
     return res.json({
@@ -300,10 +484,16 @@ app.post('/api/auth/change-password', requireAdmin, async (req, res) => {
   }
 });
 
-app.post('/api/auth/logout', (req, res) => {
-  destroySession(req);
-  clearSessionCookie(res);
-  res.json({ success: true });
+app.post('/api/auth/logout', async (req, res) => {
+  try {
+    await logoutMobileSession(req);
+    destroySession(req);
+    clearSessionCookie(res);
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('[Auth] Logout failed:', error.message);
+    return res.status(500).json({ success: false, message: 'Unable to sign out.' });
+  }
 });
 
 app.post('/api/auth/forgot-password', async (req, res) => {
@@ -414,9 +604,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
     replaceAdminPasswordHash(nextHash);
 
     // Invalidate all existing sessions
-    if (global.sessions) {
-      global.sessions.clear();
-    }
+    destroyAllSessions();
 
     // Clear cookies
     clearSessionCookie(res);
@@ -424,7 +612,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
       ADMIN_ORIGIN.startsWith('https://') || process.env.NODE_ENV === 'production'
         ? '; Secure'
         : '';
-    res.setHeader(
+    res.append(
       'Set-Cookie',
       `${VERIFICATION_CODE_COOKIE_NAME}=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax${secureFlag}`,
     );
@@ -500,6 +688,7 @@ app.post('/api/auth/passkey/registration', requireAdmin, async (req, res) => {
 // Public GETs are consumed by the mobile app. All admin mutations require a session.
 app.use('/api', (req, res, next) => {
   if (req.path.startsWith('/auth/') || req.path === '/auth/me') return next();
+  if (req.path === '/profile' || req.path.startsWith('/profile/')) return next();
   if (req.method === 'GET') return next();
   return requireAdmin(req, res, next);
 });
@@ -612,6 +801,7 @@ app.get('/api/news', async (req, res) => {
         published,
         date
       FROM news
+      ${isAdminAuthenticated(req) ? '' : 'WHERE published = TRUE'}
       ORDER BY created_at DESC
     `);
 
@@ -640,7 +830,8 @@ app.get('/api/news/:id', async (req, res) => {
         published,
         date
        FROM news
-       WHERE id = $1`,
+       WHERE id = $1
+         ${isAdminAuthenticated(req) ? '' : 'AND published = TRUE'}`,
       [String(req.params.id)],
     );
 
@@ -668,11 +859,21 @@ app.post('/api/news', async (req, res) => {
   try {
     const { title, description = '', image = '', video = '', published = true } = req.body || {};
 
-    if (!title || !String(title).trim()) {
+    const cleanTitle = boundedText(title, 160, 'Title');
+    const cleanDescription = boundedText(description, 10000, 'Description');
+    const cleanImage = boundedText(image, 8 * 1024 * 1024, 'Image');
+    const cleanVideo = boundedText(video, 17 * 1024 * 1024, 'Video');
+
+    if (!cleanTitle) {
       return res.status(400).json({
         success: false,
         message: 'Title is required.',
       });
+    }
+
+    const countResult = await db.query('SELECT COUNT(*)::int AS count FROM news');
+    if (countResult.rows[0].count >= 10) {
+      return res.status(409).json({ success: false, message: 'A maximum of 10 news items is allowed.' });
     }
 
     const id = Date.now().toString();
@@ -691,10 +892,10 @@ app.post('/api/news', async (req, res) => {
          date`,
       [
         id,
-        String(title).trim(),
-        String(description || '').trim(),
-        image || '',
-        video || '',
+        cleanTitle,
+        cleanDescription,
+        cleanImage,
+        cleanVideo,
         Boolean(published),
         new Date().toLocaleDateString('en-GB', {
           day: '2-digit',
@@ -710,9 +911,9 @@ app.post('/api/news', async (req, res) => {
     });
   } catch (error) {
     console.error('[News] POST failed:', error.message);
-    res.status(500).json({
+    res.status(error.statusCode || 500).json({
       success: false,
-      message: 'Failed to create news.',
+      message: error.statusCode ? error.message : 'Failed to create news.',
     });
   }
 });
@@ -721,6 +922,14 @@ app.put('/api/news/:id', async (req, res) => {
   try {
     const id = String(req.params.id);
     const body = req.body || {};
+
+    if (body.title !== undefined) {
+      body.title = boundedText(body.title, 160, 'Title');
+      if (!body.title) return res.status(400).json({ success: false, message: 'Title is required.' });
+    }
+    if (body.description !== undefined) body.description = boundedText(body.description, 10000, 'Description');
+    if (body.image !== undefined) body.image = boundedText(body.image, 8 * 1024 * 1024, 'Image');
+    if (body.video !== undefined) body.video = boundedText(body.video, 17 * 1024 * 1024, 'Video');
 
     const existing = await db.query('SELECT * FROM news WHERE id = $1', [id]);
 
@@ -768,9 +977,9 @@ app.put('/api/news/:id', async (req, res) => {
     });
   } catch (error) {
     console.error('[News] PUT failed:', error.message);
-    res.status(500).json({
+    res.status(error.statusCode || 500).json({
       success: false,
-      message: 'Failed to update news.',
+      message: error.statusCode ? error.message : 'Failed to update news.',
     });
   }
 });
@@ -822,6 +1031,7 @@ app.get('/api/services', async (req, res) => {
           created_at AS "createdAt",
           updated_at AS "updatedAt"
         FROM services
+        ${isAdminAuthenticated(req) ? '' : 'WHERE published = TRUE'}
         ORDER BY created_at DESC
       `);
 
@@ -842,11 +1052,18 @@ app.post('/api/services', async (req, res) => {
   try {
     const body = req.body || {};
 
-    if (!body.title || !String(body.title).trim()) {
+    const title = boundedText(body.title, 160, 'Service title');
+
+    if (!title) {
       return res.status(400).json({
         success: false,
         message: 'Service title is required.',
       });
+    }
+
+    const countResult = await db.query('SELECT COUNT(*)::int AS count FROM services');
+    if (countResult.rows[0].count >= 25) {
+      return res.status(409).json({ success: false, message: 'A maximum of 25 services is allowed.' });
     }
 
     const id = String(body.id || Date.now());
@@ -867,14 +1084,14 @@ app.post('/api/services', async (req, res) => {
           updated_at AS "updatedAt"`,
       [
         id,
-        String(body.title).trim(),
-        body.description || '',
-        body.icon || 'grid-outline',
-        body.details || '',
-        body.contact || '',
-        body.location || '',
-        body.openingHours || '',
-        body.website || '',
+        title,
+        boundedText(body.description, 10000, 'Description'),
+        boundedText(body.icon || 'grid-outline', 80, 'Icon'),
+        boundedText(body.details, 10000, 'Details'),
+        boundedText(body.contact, 200, 'Contact'),
+        boundedText(body.location, 500, 'Location'),
+        boundedText(body.openingHours, 500, 'Opening hours'),
+        boundedText(body.website, 2048, 'Website'),
         body.published !== undefined ? Boolean(body.published) : true,
         body.date ||
           new Date().toLocaleDateString('en-GB', {
@@ -882,8 +1099,8 @@ app.post('/api/services', async (req, res) => {
             month: 'short',
             year: 'numeric',
           }),
-        body.image || body.imageName || '',
-        body.phone || '',
+        boundedText(body.image || body.imageName, 8 * 1024 * 1024, 'Image'),
+        boundedText(body.phone, 80, 'Phone'),
       ],
     );
 
@@ -893,9 +1110,9 @@ app.post('/api/services', async (req, res) => {
     });
   } catch (error) {
     console.error('[Services] POST failed:', error.message);
-    res.status(500).json({
+    res.status(error.statusCode || 500).json({
       success: false,
-      message: 'Failed to create service.',
+      message: error.statusCode ? error.message : 'Failed to create service.',
     });
   }
 });
@@ -904,6 +1121,27 @@ app.put('/api/services/:id', async (req, res) => {
   try {
     const id = String(req.params.id);
     const body = req.body || {};
+
+    const serviceFieldLimits = {
+      title: 160,
+      description: 10000,
+      icon: 80,
+      details: 10000,
+      contact: 200,
+      location: 500,
+      openingHours: 500,
+      website: 2048,
+      image: 8 * 1024 * 1024,
+      imageName: 8 * 1024 * 1024,
+      phone: 80,
+      date: 80,
+    };
+    for (const [field, limit] of Object.entries(serviceFieldLimits)) {
+      if (body[field] !== undefined) body[field] = boundedText(body[field], limit, field);
+    }
+    if (body.title !== undefined && !body.title) {
+      return res.status(400).json({ success: false, message: 'Service title is required.' });
+    }
 
     const result = await db.query(
       `UPDATE services
@@ -964,9 +1202,9 @@ app.put('/api/services/:id', async (req, res) => {
     });
   } catch (error) {
     console.error('[Services] PUT failed:', error.message);
-    res.status(500).json({
+    res.status(error.statusCode || 500).json({
       success: false,
-      message: 'Failed to update service.',
+      message: error.statusCode ? error.message : 'Failed to update service.',
     });
   }
 });
@@ -1108,37 +1346,103 @@ app.post('/api/exchange-rate', saveExchangeRate);
 
 app.put('/api/exchange-rate', saveExchangeRate);
 
-app.get('/api/profile', (req, res) => {
-  const profile = readProfile();
-
-  res.json({
-    success: true,
-    data: profile,
-  });
-});
-
-app.put('/api/profile', (req, res) => {
-  const current = readProfile();
-
-  const body = req.body || {};
-
-  const nextProfile = {
-    ...current,
-    name: String(body.name ?? current.name).trim() || current.name,
-    phoneNumber: String(body.phoneNumber ?? current.phoneNumber).trim(),
-    address: String(body.address ?? current.address).trim(),
-    updatedAt: new Date().toISOString(),
+function profilePayload(row) {
+  return {
+    name: row.name || '',
+    age: row.age == null ? null : Number(row.age),
+    gender: row.gender || null,
+    location: row.location || '',
+    profileImage: row.profileImage ? '/api/profile/image' : '',
+    profileCompleted: Boolean(row.profileCompleted),
+    updatedAt: row.updatedAt,
   };
+}
 
-  writeJson(profileFile, nextProfile);
+function validateProfileInput(body) {
+  const name = String(body?.name ?? '').trim().replace(/\s+/g, ' ');
+  const ageText = String(body?.age ?? '').trim();
+  const age = Number(ageText);
+  const gender = String(body?.gender ?? '').trim().toLowerCase();
+  const location = String(body?.location ?? '').trim().replace(/\s+/g, ' ');
 
-  res.json({
-    success: true,
-    data: nextProfile,
-  });
+  if (!name || name.length > 100) return { error: 'Name is required and must be 100 characters or fewer.' };
+  if (!/^\d{1,3}$/.test(ageText) || !Number.isInteger(age) || age < 13 || age > 120) {
+    return { error: 'Age must be a whole number between 13 and 120.' };
+  }
+  if (!['male', 'female'].includes(gender)) return { error: 'Gender must be male or female.' };
+  if (location.length > 120) return { error: 'Location must be 120 characters or fewer.' };
+  return { value: { name, age, gender, location } };
+}
+
+const profileSelect = `
+  SELECT name, age, gender, location,
+         profile_image AS "profileImage",
+         profile_completed AS "profileCompleted",
+         updated_at AS "updatedAt"
+    FROM profiles
+   WHERE user_id = $1`;
+
+app.get('/api/profile', requireMobileUser, async (req, res) => {
+  try {
+    const result = await db.query(profileSelect, [req.mobileUser.id]);
+    if (!result.rows[0]) {
+      return res.status(404).json({ success: false, message: 'Profile not found.' });
+    }
+    return res.json({ success: true, data: profilePayload(result.rows[0]) });
+  } catch (error) {
+    console.error('[Profile] Load failed:', error.message);
+    return res.status(500).json({ success: false, message: 'Unable to load profile.' });
+  }
 });
 
-app.post('/api/profile/image', profileUploadMiddleware, async (req, res) => {
+app.get('/api/profile/image', requireMobileUser, async (req, res, next) => {
+  try {
+    const result = await db.query('SELECT profile_image FROM profiles WHERE user_id = $1', [req.mobileUser.id]);
+    const storedPath = String(result.rows[0]?.profile_image || '');
+    const filename = path.basename(storedPath);
+    if (!storedPath.startsWith('/uploads/profile/') || !/^profile-[a-f0-9-]+\.(?:jpg|png|webp)$/i.test(filename)) {
+      return res.status(404).end();
+    }
+    return res.sendFile(path.join(profileUploadDir, filename), {
+      dotfiles: 'deny',
+      headers: { 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'private, no-store' },
+    }, (error) => {
+      if (error && !res.headersSent) next(error);
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+app.put('/api/profile', requireMobileUser, async (req, res) => {
+  const validated = validateProfileInput(req.body);
+  if (validated.error) {
+    return res.status(400).json({ success: false, message: validated.error });
+  }
+  try {
+    const { name, age, gender, location } = validated.value;
+    const result = await db.query(
+      `UPDATE profiles
+          SET name = $1, age = $2, gender = $3, location = $4,
+              profile_completed = true, updated_at = NOW()
+        WHERE user_id = $5
+        RETURNING name, age, gender, location,
+                  profile_image AS "profileImage",
+                  profile_completed AS "profileCompleted",
+                  updated_at AS "updatedAt"`,
+      [name, age, gender, location, req.mobileUser.id],
+    );
+    if (!result.rows[0]) {
+      return res.status(404).json({ success: false, message: 'Profile not found.' });
+    }
+    return res.json({ success: true, data: profilePayload(result.rows[0]) });
+  } catch (error) {
+    console.error('[Profile] Save failed:', error.message);
+    return res.status(500).json({ success: false, message: 'Unable to save profile.' });
+  }
+});
+
+app.post('/api/profile/image', requireMobileUser, profileUploadMiddleware, async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({
@@ -1149,41 +1453,51 @@ app.post('/api/profile/image', profileUploadMiddleware, async (req, res) => {
 
     const profileImage = `/uploads/profile/${req.file.filename}`;
 
-    const currentProfile = readProfile();
-    writeJson(profileFile, {
-      ...currentProfile,
-      profileImage,
-      updatedAt: new Date().toISOString(),
-    });
-
+    const currentResult = await db.query(profileSelect, [req.mobileUser.id]);
+    const currentProfile = currentResult.rows[0];
     const result = await db.query(
       `UPDATE profiles
          SET profile_image = $1,
              updated_at = NOW()
-         WHERE id = 1
+         WHERE user_id = $2
          RETURNING
-           id,
            name,
-           phone_number AS "phoneNumber",
-           address,
+           age,
+           gender,
+           location,
            profile_image AS "profileImage",
+           profile_completed AS "profileCompleted",
            updated_at AS "updatedAt"`,
-      [profileImage],
+      [profileImage, req.mobileUser.id],
     );
 
     if (!result.rows[0]) {
+      fs.unlinkSync(req.file.path);
       return res.status(404).json({
         success: false,
         message: 'Profile not found.',
       });
     }
 
+    const previousImage = String(currentProfile?.profileImage || '');
+    if (previousImage.startsWith('/uploads/profile/')) {
+      const previousPath = path.join(profileUploadDir, path.basename(previousImage));
+      if (previousPath !== req.file.path && fs.existsSync(previousPath)) fs.unlinkSync(previousPath);
+    }
+
     return res.json({
       success: true,
-      data: { ...result.rows[0], profileImage },
+      data: profilePayload(result.rows[0]),
       message: 'Profile image uploaded successfully.',
     });
   } catch (error) {
+    if (req.file?.path && fs.existsSync(req.file.path)) {
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch {
+        // Best-effort cleanup.
+      }
+    }
     console.error('Profile image upload error:', error);
     return res.status(500).json({
       success: false,
@@ -1264,21 +1578,50 @@ app.use((req, res) => {
 app.use((error, req, res, _next) => {
   console.error('API Error:', error);
 
-  res.status(500).json({
+  const status = error.type === 'entity.too.large' || error.code === 'LIMIT_FILE_SIZE' ? 413 : 500;
+
+  res.status(status).json({
     success: false,
-    message: 'Internal server error.',
+    message: status === 413 ? 'Request body is too large.' : 'Internal server error.',
   });
 });
 
-const server = app.listen(PORT, HOST, () => {
-  console.log('==========================================');
-  console.log('       MALAY MM LOCAL API SERVER');
-  console.log('==========================================');
-  console.log(`Listening on ${HOST}:${PORT}`);
-  console.log(`CORS origins: ${allowedCorsOrigins.join(', ')}`);
-  console.log('==========================================');
-});
+if (require.main === module) {
+  const server = app.listen(PORT, HOST, () => {
+    console.log('==========================================');
+    console.log('       MALAY MM LOCAL API SERVER');
+    console.log('==========================================');
+    console.log(`Listening on ${HOST}:${PORT}`);
+    console.log(`CORS origins: ${allowedCorsOrigins.join(', ')}`);
+    console.log('==========================================');
+  });
 
-server.on('error', (error) => {
-  console.error('Server failed to start:', error);
-});
+  server.on('error', (error) => {
+    console.error('Server failed to start:', error);
+  });
+
+  let shuttingDown = false;
+  const shutdown = (signal) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`[Shutdown] Received ${signal}; draining server.`);
+    server.close(async (error) => {
+      if (error) {
+        console.error('[Shutdown] HTTP server close failed:', error.message);
+        process.exitCode = 1;
+      }
+      try {
+        await db.end();
+      } catch (poolError) {
+        console.error('[Shutdown] Database pool close failed:', poolError.message);
+        process.exitCode = 1;
+      }
+      process.exit();
+    });
+  };
+
+  process.once('SIGTERM', () => shutdown('SIGTERM'));
+  process.once('SIGINT', () => shutdown('SIGINT'));
+}
+
+module.exports = app;

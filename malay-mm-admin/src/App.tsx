@@ -45,61 +45,12 @@ type ServiceItem = {
 type ExchangeItem = {
   currency: 'MYR → MMK';
   rate: string;
+  updatedAt?: string;
 };
 
-const initialNews: NewsItem[] = [
-  {
-    id: 1,
-    title: 'Malaysia–Myanmar Community Update',
-    description:
-      'Latest useful information and updates for the Malaysia–Myanmar community.',
-    image:
-      'https://images.unsplash.com/photo-1500534623283-312aade485b7?auto=format&fit=crop&w=1200&q=85',
-    video: '',
-    published: true,
-    date: '24 Aug 2026',
-  },
-  {
-    id: 2,
-    title: 'Important Community Information',
-    description:
-      'Important information and useful updates for Myanmar people living in Malaysia.',
-    image:
-      'https://images.unsplash.com/photo-1521292270410-a8c4d716d518?auto=format&fit=crop&w=1200&q=85',
-    video: '',
-    published: true,
-    date: '23 Aug 2026',
-  },
-];
+const initialNews: NewsItem[] = [];
 
-const initialServices: ServiceItem[] = [
-  {
-    id: 1,
-    title: 'Healthcare Services',
-    description:
-      'Find useful healthcare information and services for the Malaysia–Myanmar community.',
-    image:
-      'https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?auto=format&fit=crop&w=1200&q=85',
-    imageName: 'healthcare.jpg',
-    phone: '+60 00-000 0000',
-    website: 'https://example.com',
-    location: 'Malaysia',
-    published: true,
-  },
-  {
-    id: 2,
-    title: 'Jobs & Employment',
-    description:
-      'Discover job opportunities and useful employment resources.',
-    image:
-      'https://images.unsplash.com/photo-1521737711867-e3b97375f902?auto=format&fit=crop&w=1200&q=85',
-    imageName: 'jobs.jpg',
-    phone: '',
-    website: '',
-    location: 'Malaysia',
-    published: true,
-  },
-];
+const initialServices: ServiceItem[] = [];
 
 
 
@@ -125,7 +76,7 @@ const fileToDataUrl = (file: File): Promise<string> =>
 
 const initialExchange: ExchangeItem = {
   currency: 'MYR → MMK',
-  rate: '1053',
+  rate: '',
 };
 
 type LoginScreenProps = {
@@ -978,6 +929,7 @@ function App() {
           const loadedExchange: ExchangeItem = {
             currency: 'MYR → MMK',
             rate: loadedRate,
+            updatedAt: typeof rawExchange?.updatedAt === 'string' ? rawExchange.updatedAt : undefined,
           };
 
           setExchangeRate(loadedExchange);
@@ -1137,6 +1089,12 @@ function App() {
       return;
     }
 
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Image must be 5 MB or smaller.');
+      event.target.value = '';
+      return;
+    }
+
     try {
       const dataUrl = await fileToDataUrl(file);
 
@@ -1159,6 +1117,12 @@ function App() {
 
     if (!file.type.startsWith('video/')) {
       alert('Please choose a video file.');
+      event.target.value = '';
+      return;
+    }
+
+    if (file.size > 12 * 1024 * 1024) {
+      alert('Video must be 12 MB or smaller.');
       event.target.value = '';
       return;
     }
@@ -1204,9 +1168,7 @@ function App() {
 
       description,
 
-      image:
-        newsImagePreview ||
-        'https://images.unsplash.com/photo-1504711434969-e33886168f5c?auto=format&fit=crop&w=1200&q=85',
+      image: newsImagePreview,
 
       video: newsVideoPreview,
 
@@ -1444,6 +1406,12 @@ function App() {
       return;
     }
 
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Image must be 5 MB or smaller.');
+      event.target.value = '';
+      return;
+    }
+
     try {
       const dataUrl = await fileToDataUrl(file);
       setServiceImagePreview(dataUrl);
@@ -1472,10 +1440,8 @@ function App() {
       id: editingServiceId ?? Date.now(),
       title,
       description,
-      image:
-        serviceImagePreview ||
-        'https://images.unsplash.com/photo-1521737711867-e3b97375f902?auto=format&fit=crop&w=1200&q=85',
-      imageName: serviceImageName || 'service-image',
+      image: serviceImagePreview,
+      imageName: serviceImageName,
       phone: servicePhone.trim(),
       website: serviceWebsite.trim(),
       location: serviceLocation.trim(),
@@ -1672,6 +1638,7 @@ function App() {
       const savedExchange: ExchangeItem = {
         currency: 'MYR → MMK',
         rate: returnedRate,
+        updatedAt: typeof result?.data?.updatedAt === 'string' ? result.data.updatedAt : new Date().toISOString(),
       };
 
       setExchangeRate(savedExchange);
@@ -1798,7 +1765,7 @@ function App() {
             Manage current rates
           </span>
 
-          <b>Live</b>
+          <b>{exchangeRate.rate ? 'Live' : 'Not set'}</b>
         </button>
       </div>
 
@@ -1848,10 +1815,41 @@ function App() {
             </span>
 
             <strong>
-              {exchangeRate.rate}
+              {exchangeRate.rate || 'Not set'}
             </strong>
           </div>
         </div>
+      </div>
+
+      <div className="dashboard-detail-grid">
+        <section className="overview-card dashboard-list-card">
+          <div>
+            <span className="eyebrow">RECENT CONTENT</span>
+            <h2>Latest updates</h2>
+          </div>
+          <div className="dashboard-recent-list">
+            {[...news.slice(0, 2), ...services.slice(0, 2)].slice(0, 4).map((item) => (
+              <div key={`${'date' in item ? 'news' : 'service'}-${item.id}`}>
+                <span>{'date' in item ? 'News' : 'Service'}</span>
+                <strong>{item.title}</strong>
+                <small>{item.published ? 'Published' : 'Draft'}</small>
+              </div>
+            ))}
+            {news.length === 0 && services.length === 0 && <p>No content has been added yet.</p>}
+          </div>
+        </section>
+
+        <section className="overview-card dashboard-actions-card">
+          <div>
+            <span className="eyebrow">QUICK ACTIONS</span>
+            <h2>Create or update</h2>
+          </div>
+          <div className="dashboard-actions">
+            <button type="button" onClick={openAddNews}>+ Add news</button>
+            <button type="button" onClick={openAddService}>+ Add service</button>
+            <button type="button" onClick={() => setActivePage('exchange')}>Update exchange rate</button>
+          </div>
+        </section>
       </div>
     </>
   );
@@ -1951,10 +1949,11 @@ function App() {
                 className="news-card"
                 key={item.id}
               >
-                <img
-                  src={item.image}
-                  alt=""
-                />
+                {item.image ? (
+                  <img src={item.image} alt="" />
+                ) : (
+                  <div className="media-placeholder" aria-label="No image">No image</div>
+                )}
 
                 <div className="news-card-main">
                   <div className="news-card-title-row">
@@ -2129,10 +2128,11 @@ function App() {
                 key={item.id}
               >
                 <div className="service-image-wrap">
-                  <img
-                    src={item.image}
-                    alt=""
-                  />
+                  {item.image ? (
+                    <img src={item.image} alt="" />
+                  ) : (
+                    <div className="media-placeholder" aria-label="No image">No image</div>
+                  )}
 
                   <span
                     className={
@@ -2324,7 +2324,9 @@ function App() {
 
           <button
             className="modal-close"
+            type="button"
             onClick={closeModal}
+            aria-label="Close news form"
           >
             ×
           </button>
@@ -2547,7 +2549,9 @@ function App() {
 
           <button
             className="modal-close"
+            type="button"
             onClick={closeModal}
+            aria-label="Close news preview"
           >
             ×
           </button>
@@ -2628,8 +2632,9 @@ function App() {
                 onClick={
                   confirmNews
                 }
+                disabled={apiLoading}
               >
-                ✓ Confirm & Save
+                {apiLoading ? 'Saving...' : '✓ Confirm & Save'}
               </button>
             </div>
           </>
@@ -2685,8 +2690,9 @@ function App() {
               onClick={
                 confirmDeleteNews
               }
+              disabled={apiLoading}
             >
-              Confirm Delete
+              {apiLoading ? 'Deleting...' : 'Confirm Delete'}
             </button>
           </div>
         </div>
@@ -2718,7 +2724,9 @@ function App() {
 
           <button
             className="modal-close"
+            type="button"
             onClick={closeModal}
+            aria-label="Close service form"
           >
             ×
           </button>
@@ -2937,7 +2945,9 @@ function App() {
 
           <button
             className="modal-close"
+            type="button"
             onClick={closeModal}
+            aria-label="Close service preview"
           >
             ×
           </button>
@@ -3046,8 +3056,9 @@ function App() {
                 onClick={
                   confirmService
                 }
+                disabled={apiLoading}
               >
-                ✓ Confirm & Save
+                {apiLoading ? 'Saving...' : '✓ Confirm & Save'}
               </button>
             </div>
           </>
@@ -3103,8 +3114,9 @@ function App() {
               onClick={
                 confirmDeleteService
               }
+              disabled={apiLoading}
             >
-              Confirm Delete
+              {apiLoading ? 'Deleting...' : 'Confirm Delete'}
             </button>
           </div>
         </div>
@@ -3132,7 +3144,9 @@ function App() {
 
           <button
             className="modal-close"
+            type="button"
             onClick={closeModal}
+            aria-label="Close exchange preview"
           >
             ×
           </button>

@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import Ionicons from "@expo/vector-icons/Ionicons";
+import React, { useRef, useState } from "react";
 import {
   Alert,
   KeyboardAvoidingView,
@@ -20,6 +21,7 @@ import { useAuthStore } from '@/store/auth-store';
 
 const LOGIN_BACKGROUND = require("../../assets/images/login-bg.jpg");
 const ANDROID_EXTRA_BOLD = Platform.OS === "android" ? "700" : "800";
+const INPUT_PLACEHOLDER_COLOR = Platform.OS === "android" ? "#C4CEDA" : "#AAB4C3";
 const ANDROID_INPUT_TEXT_FIX = Platform.select({
   android: {
     paddingVertical: 0,
@@ -33,6 +35,12 @@ export default function LoginScreen() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loggingIn, setLoggingIn] = useState(false);
+  const passwordInputRef = useRef<TextInput>(null);
+
+  const togglePasswordVisibility = () => {
+    setShowPassword((current) => !current);
+    requestAnimationFrame(() => passwordInputRef.current?.focus());
+  };
 
   const handleLogin = async () => {
     if (!email.trim() || !password) {
@@ -45,7 +53,10 @@ export default function LoginScreen() {
         success: boolean;
         data?: {
           accessToken?: string;
-          user?: { id?: string };
+          refreshToken?: string;
+          expiresAt?: string;
+          profileCompleted?: boolean;
+          user?: { id?: string; email?: string };
         };
         message?: string;
       }>('/api/auth/login', {
@@ -59,16 +70,17 @@ export default function LoginScreen() {
 
       await useAuthStore.getState().setSession(
         {
-          expiresAt: null,
+          expiresAt: response.data.expiresAt || null,
+          profileCompleted: Boolean(response.data.profileCompleted),
           user: { id: response.data.user?.id || email.trim() },
         },
         {
           accessToken: response.data.accessToken,
-          refreshToken: response.data.accessToken,
+          refreshToken: response.data.refreshToken || response.data.accessToken,
         },
       );
 
-      router.replace("/(tabs)");
+      router.replace((response.data.profileCompleted ? "/(tabs)" : "/complete-profile") as Href);
     } catch (error) {
       console.error('Login error:', error);
       Alert.alert('Sign In Failed', error instanceof Error ? error.message : 'Unable to sign in.');
@@ -82,21 +94,25 @@ export default function LoginScreen() {
       <StatusBar style="light" />
 
       {/* Background image */}
-      <ImageBackground
-        source={LOGIN_BACKGROUND}
-        resizeMode="cover"
-        style={styles.background}
-      >
-        {/* Blur */}
-        <BlurView
-          intensity={48}
-          tint="dark"
+      <View pointerEvents="none" style={styles.background}>
+        <ImageBackground
+          source={LOGIN_BACKGROUND}
+          resizeMode="cover"
           style={StyleSheet.absoluteFill}
-        />
+        >
+          {/* Blur */}
+          {Platform.OS === "ios" && (
+            <BlurView
+              intensity={48}
+              tint="dark"
+              style={StyleSheet.absoluteFill}
+            />
+          )}
 
-        {/* Blue / dark overlay */}
-        <View style={styles.overlay} />
-      </ImageBackground>
+          {/* Blue / dark overlay */}
+          <View style={styles.overlay} />
+        </ImageBackground>
+      </View>
 
       <SafeAreaView style={styles.safeArea}>
         <KeyboardAvoidingView
@@ -105,20 +121,11 @@ export default function LoginScreen() {
         >
           <ScrollView
             contentContainerStyle={styles.container}
-            keyboardShouldPersistTaps="handled"
+            keyboardShouldPersistTaps="always"
             showsVerticalScrollIndicator={false}
           >
             {/* Brand */}
             <View style={styles.brandSection}>
-              <View style={styles.logo}>
-                <Text
-                  style={styles.logoText}
-                  allowFontScaling={false}
-                >
-                  M
-                </Text>
-              </View>
-
               <Text
                 style={styles.brandName}
                 allowFontScaling={false}
@@ -128,12 +135,16 @@ export default function LoginScreen() {
             </View>
 
             {/* Login panel */}
-            <BlurView
-              intensity={25}
-              tint="light"
-              style={styles.loginPanel}
-            >
-              <View style={styles.panelOverlay} />
+            <View style={styles.loginPanel}>
+              {Platform.OS === "ios" && (
+                <BlurView
+                  intensity={25}
+                  tint="light"
+                  pointerEvents="none"
+                  style={StyleSheet.absoluteFill}
+                />
+              )}
+              <View pointerEvents="none" style={styles.panelOverlay} />
 
               {/* Header */}
               <View style={styles.header}>
@@ -167,7 +178,7 @@ export default function LoginScreen() {
                     value={email}
                     onChangeText={setEmail}
                     placeholder="you@example.com"
-                    placeholderTextColor="#AAB4C3"
+                    placeholderTextColor={INPUT_PLACEHOLDER_COLOR}
                     keyboardType="email-address"
                     autoCapitalize="none"
                     autoCorrect={false}
@@ -178,38 +189,36 @@ export default function LoginScreen() {
 
                 {/* Password */}
                 <View style={styles.inputGroup}>
-                  <View style={styles.passwordHeader}>
-                    <Text
-                      style={styles.label}
-                      allowFontScaling={false}
-                    >
-                      Password
-                    </Text>
+                  <Text style={styles.label} allowFontScaling={false}>
+                    Password
+                  </Text>
 
+                  <View style={styles.passwordInputContainer}>
+                    <TextInput
+                      ref={passwordInputRef}
+                      value={password}
+                      onChangeText={setPassword}
+                      placeholder="Enter your password"
+                      placeholderTextColor={INPUT_PLACEHOLDER_COLOR}
+                      secureTextEntry={!showPassword}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      style={[styles.input, styles.passwordInput]}
+                      allowFontScaling={false}
+                    />
                     <Pressable
-                      onPress={() => setShowPassword(!showPassword)}
-                      hitSlop={8}
+                      accessibilityRole="button"
+                      accessibilityLabel={showPassword ? "Hide password" : "Show password"}
+                      onPress={togglePasswordVisibility}
+                      style={styles.passwordVisibilityButton}
                     >
-                      <Text
-                        style={styles.showPassword}
-                        allowFontScaling={false}
-                      >
-                        {showPassword ? "Hide" : "Show"}
-                      </Text>
+                      <Ionicons
+                        name={showPassword ? "eye-off-outline" : "eye-outline"}
+                        size={22}
+                        color="#C9E6FF"
+                      />
                     </Pressable>
                   </View>
-
-                  <TextInput
-                    value={password}
-                    onChangeText={setPassword}
-                    placeholder="Enter your password"
-                    placeholderTextColor="#AAB4C3"
-                    secureTextEntry={!showPassword}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    style={styles.input}
-                    allowFontScaling={false}
-                  />
                 </View>
 
                 {/* Forgot password */}
@@ -326,7 +335,7 @@ export default function LoginScreen() {
                   </Text>
                 </Pressable>
               </View>
-            </BlurView>
+            </View>
 
             {/* Footer */}
             <Text
@@ -362,11 +371,15 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     left: 0,
-    backgroundColor: "rgba(3, 18, 40, 0.48)",
+    backgroundColor: Platform.OS === "android"
+      ? "rgba(3,18,40,0.68)"
+      : "rgba(3,18,40,0.48)",
   },
 
   safeArea: {
     flex: 1,
+    zIndex: 1,
+    elevation: 1,
   },
 
   keyboardView: {
@@ -387,26 +400,6 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
 
-  logo: {
-    width: 50,
-    height: 50,
-    borderRadius: 16,
-    backgroundColor: "#3195F5",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.25)",
-  },
-
-  logoText: {
-    color: "#FFFFFF",
-    fontSize: 25,
-    lineHeight: 30,
-    fontWeight: ANDROID_EXTRA_BOLD,
-    includeFontPadding: false,
-  },
-
   brandName: {
     color: "#FFFFFF",
     fontSize: 18,
@@ -425,8 +418,12 @@ const styles = StyleSheet.create({
     paddingTop: 25,
     paddingBottom: 24,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.25)",
-    backgroundColor: "rgba(255,255,255,0.14)",
+    borderColor: Platform.OS === "android"
+      ? "rgba(255,255,255,0.32)"
+      : "rgba(255,255,255,0.25)",
+    backgroundColor: Platform.OS === "android"
+      ? "rgba(7,26,49,0.98)"
+      : "rgba(255,255,255,0.14)",
   },
 
   panelOverlay: {
@@ -435,7 +432,9 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     left: 0,
-    backgroundColor: "rgba(255,255,255,0.08)",
+    backgroundColor: Platform.OS === "android"
+      ? "rgba(255,255,255,0.03)"
+      : "rgba(255,255,255,0.08)",
   },
 
   /* Header */
@@ -483,29 +482,38 @@ const styles = StyleSheet.create({
   input: {
     height: 54,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.28)",
+    borderColor: Platform.OS === "android"
+      ? "rgba(255,255,255,0.38)"
+      : "rgba(255,255,255,0.28)",
     borderRadius: 15,
-    backgroundColor: "rgba(255,255,255,0.14)",
+    backgroundColor: Platform.OS === "android"
+      ? "rgba(20,45,70,0.98)"
+      : "rgba(255,255,255,0.14)",
     paddingHorizontal: 16,
     fontSize: 16,
     lineHeight: 20,
     color: "#FFFFFF",
+    elevation: 1,
     includeFontPadding: false,
     ...ANDROID_INPUT_TEXT_FIX,
   },
 
-  passwordHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+  passwordInputContainer: {
+    position: "relative",
   },
 
-  showPassword: {
-    color: "#BFE0FF",
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: "600",
-    includeFontPadding: false,
+  passwordInput: {
+    paddingRight: 56,
+  },
+
+  passwordVisibilityButton: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    width: 54,
+    height: 54,
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   forgotButton: {

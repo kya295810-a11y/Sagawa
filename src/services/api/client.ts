@@ -8,11 +8,17 @@ type ApiRequestOptions = Omit<RequestInit, 'body' | 'headers' | 'signal'> & {
 };
 
 type TokenProvider = () => Promise<string | null>;
+type UnauthorizedHandler = () => Promise<void> | void;
 
 let getAccessToken: TokenProvider = async () => null;
+let handleUnauthorized: UnauthorizedHandler = () => undefined;
 
 export function registerAccessTokenProvider(provider: TokenProvider) {
   getAccessToken = provider;
+}
+
+export function registerUnauthorizedHandler(handler: UnauthorizedHandler) {
+  handleUnauthorized = handler;
 }
 
 function buildApiUrl(path: string) {
@@ -74,6 +80,10 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
         typeof details.message === 'string'
           ? details.message
           : `Request failed (${response.status}).`;
+
+      if (response.status === 401 && accessToken) {
+        await handleUnauthorized();
+      }
 
       throw new ApiError(serverMessage, {
         code: 'api_request_failed',

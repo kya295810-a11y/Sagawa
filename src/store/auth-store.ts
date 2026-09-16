@@ -2,6 +2,8 @@ import { useCallback } from 'react';
 import { create } from 'zustand';
 
 import { AuthSession, AuthStatus, AuthTokens } from '@/features/auth/types';
+import { queryClient } from '@/lib/query-client';
+import { apiRequest } from '@/services/api/client';
 import { clearTokens, getStoredTokens, saveTokens } from '@/services/auth/token-storage';
 
 type AuthState = {
@@ -10,12 +12,14 @@ type AuthState = {
   status: AuthStatus;
   clearSession: () => Promise<void>;
   hydrateSession: () => Promise<void>;
+  markProfileCompleted: () => void;
   setSession: (session: AuthSession, tokens: AuthTokens) => Promise<void>;
 };
 
 export const useAuthStore = create<AuthState>((set) => ({
   clearSession: async () => {
     await clearTokens();
+    queryClient.clear();
     set({
       session: null,
       status: 'anonymous',
@@ -23,21 +27,50 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
   hydrateSession: async () => {
     const tokens = await getStoredTokens();
+    if (!tokens) {
+      set({ hydrated: true, session: null, status: 'anonymous' });
+      return;
+    }
 
-    set({
-      hydrated: true,
-      session: tokens
-        ? {
-            expiresAt: null,
-            user: null,
-          }
-        : null,
-      status: tokens ? 'refreshing' : 'anonymous',
-    });
+    set({ status: 'refreshing' });
+    try {
+      const response = await apiRequest<{
+        success: boolean;
+        data: {
+          accessToken: string;
+          refreshToken: string;
+          expiresAt: string;
+          profileCompleted: boolean;
+          user: { id: string; email: string };
+        };
+      }>('/api/auth/refresh', {
+        method: 'POST',
+        body: JSON.stringify({ refreshToken: tokens.refreshToken }),
+      });
+      await saveTokens(response.data);
+      set({
+        hydrated: true,
+        session: {
+          expiresAt: response.data.expiresAt,
+          profileCompleted: response.data.profileCompleted,
+          user: response.data.user,
+        },
+        status: 'authenticated',
+      });
+    } catch {
+      await clearTokens();
+      queryClient.clear();
+      set({ hydrated: true, session: null, status: 'anonymous' });
+    }
   },
   hydrated: false,
+  markProfileCompleted: () =>
+    set((state) => ({
+      session: state.session ? { ...state.session, profileCompleted: true } : state.session,
+    })),
   session: null,
   setSession: async (session, tokens) => {
+    queryClient.clear();
     await saveTokens(tokens);
     set({
       session,

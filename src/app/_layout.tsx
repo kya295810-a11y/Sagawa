@@ -6,6 +6,7 @@ import { useEffect } from 'react';
 import { AppProviders } from '@/components/common/app-providers';
 import { useAppBootstrap } from '@/hooks/use-app-bootstrap';
 import { useAppTheme } from '@/theme/provider';
+import { useAuthStore } from '@/store/auth-store';
 
 SplashScreen.preventAutoHideAsync().catch(() => {
   // Ignore repeated calls during Fast Refresh.
@@ -13,6 +14,9 @@ SplashScreen.preventAutoHideAsync().catch(() => {
 
 function RootNavigator() {
   const { theme } = useAppTheme();
+  const status = useAuthStore((state) => state.status);
+  const profileCompleted = useAuthStore((state) => state.session?.profileCompleted ?? false);
+  const isAuthenticated = status === 'authenticated';
 
   return (
     <>
@@ -25,7 +29,25 @@ function RootNavigator() {
           },
           headerShown: false,
         }}
-      />
+      >
+        <Stack.Screen name="index" />
+        <Stack.Protected guard={!isAuthenticated}>
+          <Stack.Screen name="login" />
+          <Stack.Screen name="signup" />
+          <Stack.Screen name="forgot-password" />
+        </Stack.Protected>
+        <Stack.Protected guard={isAuthenticated && !profileCompleted}>
+          <Stack.Screen name="complete-profile" />
+        </Stack.Protected>
+        <Stack.Protected guard={isAuthenticated && profileCompleted}>
+          <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="perdonal-information" />
+          <Stack.Screen name="help-support" />
+          <Stack.Screen name="about" />
+          <Stack.Screen name="news/[id]" />
+          <Stack.Screen name="services/[id]" />
+        </Stack.Protected>
+      </Stack>
     </>
   );
 }

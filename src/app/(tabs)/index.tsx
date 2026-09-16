@@ -18,6 +18,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { useAppTheme } from '@/theme/provider';
 import { useSettingsStore } from '@/store/settings-store';
 import type { ThemeColors } from '@/theme/types';
+import { useProfile } from '@/features/profile/hooks';
 
 /* =============================================================
    KUALA LUMPUR IMAGES
@@ -66,7 +67,8 @@ export default function HomeScreen() {
     (state) => state.themePreference,
   );
 
-  const userName = 'Kyaw San Lin';
+  const profileQuery = useProfile();
+  const userName = profileQuery.data?.name || (profileQuery.isLoading ? '…' : 'there');
 
   const styles = createStyles(theme.colors);
 

@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
@@ -14,16 +14,19 @@ import {
 
 import Ionicons from '@expo/vector-icons/Ionicons';
 import * as ImagePicker from 'expo-image-picker';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { apiRequest } from '@/services/api/client';
 import { ApiError } from '@/services/api/errors';
+import { useProfile, useUploadProfileImage } from '@/features/profile/hooks';
 import { registerPushToken } from '@/services/notifications/push-token';
+import { getStoredTokens } from '@/services/auth/token-storage';
+import { useAuthStore } from '@/store/auth-store';
 import { useSettingsStore } from '@/store/settings-store';
 import { useAppTheme } from '@/theme/provider';
-import { ApiResponse, Profile } from '@/types/profile';
+import { Profile } from '@/types/profile';
 import { getMediaUrl } from '@/utils/media';
 
 type MenuItem = {
@@ -65,9 +68,11 @@ const SUPPORT_ITEMS: MenuItem[] = [
 
 const EMPTY_PROFILE: Profile = {
   name: 'Your Profile',
-  phoneNumber: '',
-  address: '',
+  age: null,
+  gender: null,
+  location: '',
   profileImage: '',
+  profileCompleted: false,
 };
 
 const TRACK_WIDTH = 56;
@@ -138,10 +143,25 @@ export default function ProfileScreen() {
   const isDark = theme.isDark;
   const styles = createStyles(theme.colors, isDark);
 
-  const [profile, setProfile] = useState<Profile>(EMPTY_PROFILE);
-  const [loading, setLoading] = useState(true);
-  const [uploadingImage, setUploadingImage] = useState(false);
+  const profileQuery = useProfile();
+  const imageUpload = useUploadProfileImage();
+  const profile = profileQuery.data ?? EMPTY_PROFILE;
+  const loading = profileQuery.isLoading;
+  const uploadingImage = imageUpload.isPending;
   const [profileImageFailed, setProfileImageFailed] = useState(false);
+  const [profileImageHeaders, setProfileImageHeaders] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    let active = true;
+    void getStoredTokens().then((tokens) => {
+      if (active && tokens?.accessToken) {
+        setProfileImageHeaders({ Authorization: `Bearer ${tokens.accessToken}` });
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [profile.profileImage]);
 
   const toggleTheme = () => {
     useSettingsStore.setState({
@@ -149,43 +169,20 @@ export default function ProfileScreen() {
     });
   };
 
-  const loadProfile = useCallback(async () => {
-    try {
-      setLoading(true);
-
-      const response = await apiRequest<ApiResponse<Profile>>('/api/profile');
-
-      setProfile(response.data);
-      setProfileImageFailed(false);
-    } catch (error) {
-      if (error instanceof ApiError && error.status === 404) {
-        setProfile(EMPTY_PROFILE);
-        return;
-      }
-
-      console.error('Profile load error:', error);
-      setProfile(EMPTY_PROFILE);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useFocusEffect(
-    useCallback(() => {
-      loadProfile();
-    }, [loadProfile]),
-  );
-
   const uploadProfileImage = async (asset: ImagePicker.ImagePickerAsset) => {
     try {
-      setUploadingImage(true);
-
       const fileType = asset.mimeType?.toLowerCase().startsWith('image/')
         ? asset.mimeType.toLowerCase()
         : 'image/jpeg';
+      if (!['image/jpeg', 'image/png', 'image/webp'].includes(fileType)) {
+        throw new ApiError('Choose a JPEG, PNG, or WebP image.', { status: 400 });
+      }
+      if (asset.fileSize && asset.fileSize > 5 * 1024 * 1024) {
+        throw new ApiError('Profile image must be 5 MB or smaller.', { status: 413 });
+      }
       const extension =
         fileType === 'image/png' ? 'png' : fileType === 'image/webp' ? 'webp' : 'jpg';
-      const fileName = asset.fileName?.trim() || `profile-${Date.now()}.${extension}`;
+      const fileName = `profile.${extension}`;
 
       const formData = new FormData();
       formData.append('image', {
@@ -194,12 +191,7 @@ export default function ProfileScreen() {
         type: fileType,
       } as unknown as Blob);
 
-      const response = await apiRequest<ApiResponse<Profile>>('/api/profile/image', {
-        method: 'POST',
-        body: formData,
-      });
-
-      setProfile(response.data);
+      await imageUpload.mutateAsync(formData);
       setProfileImageFailed(false);
     } catch (error) {
       console.error('Profile image upload error:', error);
@@ -209,8 +201,6 @@ export default function ProfileScreen() {
           ? error.message
           : 'Unable to upload your profile image. Please try again.',
       );
-    } finally {
-      setUploadingImage(false);
     }
   };
 
@@ -301,7 +291,17 @@ export default function ProfileScreen() {
         {
           text: 'Log Out',
           style: 'destructive',
-          onPress: () => router.replace('/login'),
+          onPress: () => {
+            void (async () => {
+              try {
+                await apiRequest('/api/auth/logout', { method: 'POST' });
+              } catch {
+                // Local logout must still complete if the network is unavailable.
+              }
+              await useAuthStore.getState().clearSession();
+              router.replace('/login');
+            })();
+          },
         },
       ],
       { cancelable: true },
@@ -355,6 +355,20 @@ export default function ProfileScreen() {
     );
   }
 
+  if (profileQuery.isError) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar style={theme.statusBarStyle} />
+        <View style={styles.loadingContainer}>
+          <Text style={styles.loadingText}>Unable to load your profile.</Text>
+          <Pressable accessibilityRole="button" onPress={() => void profileQuery.refetch()}>
+            <Text style={{ color: theme.colors.primary, fontWeight: '600' }}>Retry</Text>
+          </Pressable>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   const avatarUri = getMediaUrl(profile.profileImage);
 
   return (
@@ -384,7 +398,7 @@ export default function ProfileScreen() {
             <View style={styles.avatar}>
               {avatarUri && !profileImageFailed ? (
                 <Image
-                  source={{ uri: avatarUri }}
+                  source={{ uri: avatarUri, headers: profileImageHeaders }}
                   style={styles.avatarImage}
                   onError={() => setProfileImageFailed(true)}
                 />
@@ -409,7 +423,8 @@ export default function ProfileScreen() {
               {profile.name}
             </Text>
             <Text style={styles.profileSubtitle} allowFontScaling={false}>
-              Manage your account
+              {profile.age ?? 'Age not set'} · {profile.gender ? `${profile.gender[0].toUpperCase()}${profile.gender.slice(1)}` : 'Gender not set'}
+              {profile.location ? ` · ${profile.location}` : ''}
             </Text>
           </View>
         </View>

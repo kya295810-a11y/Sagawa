@@ -7,10 +7,12 @@ export interface AuthTokens {
 
 export interface SessionUser {
   id: string;
+  email?: string;
   preferredLanguage?: string | null;
 }
 
 export interface AuthSession {
   expiresAt: string | null;
+  profileCompleted: boolean;
   user: SessionUser | null;
 }

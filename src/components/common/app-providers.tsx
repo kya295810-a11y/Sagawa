@@ -6,6 +6,8 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { queryClient } from '@/lib/query-client';
 import { initializeI18n } from '@/locales';
 import { initializeTokenStorage } from '@/services/auth/token-storage';
+import { registerUnauthorizedHandler } from '@/services/api/client';
+import { useAuthStore } from '@/store/auth-store';
 import { useSettingsStore } from '@/store/settings-store';
 import { AppThemeProvider, useAppTheme } from '@/theme/provider';
 
@@ -16,6 +18,7 @@ function ProviderEffects({ children }: PropsWithChildren) {
 
   useEffect(() => {
     initializeTokenStorage();
+    registerUnauthorizedHandler(() => useAuthStore.getState().clearSession());
   }, []);
 
   useEffect(() => {

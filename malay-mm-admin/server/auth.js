@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-
+const bcrypt = require('bcryptjs');
 const {
   generateAuthenticationOptions,
   generateRegistrationOptions,
@@ -9,26 +9,53 @@ const {
   verifyRegistrationResponse,
 } = require('@simplewebauthn/server');
 
-const ADMIN_EMAIL = 'kya295810@gmail.com';
+const ADMIN_EMAIL = String(process.env.ADMIN_EMAIL || '').trim().toLowerCase();
 const ADMIN_NAME = String(process.env.ADMIN_NAME || '').trim() || 'Admin';
-const ADMIN_PASSWORD = 'Zin295810@';
-const SESSION_SECRET = 'sagawa-admin-local-session-key-change-before-production';
+const ADMIN_PASSWORD_HASH = String(process.env.ADMIN_PASSWORD_HASH || '').trim();
+const SESSION_SECRET = String(process.env.SESSION_SECRET || '').trim();
 const ADMIN_ORIGIN = String(process.env.ADMIN_ORIGIN || '').trim().replace(/\/$/, '');
-const RP_ID = String(process.env.WEBAUTHN_RP_ID || '').trim() || (ADMIN_ORIGIN ? new URL(ADMIN_ORIGIN).hostname : '');
+const RP_ID = String(process.env.WEBAUTHN_RP_ID || '').trim() || deriveOriginHost(ADMIN_ORIGIN);
 const RP_NAME = String(process.env.WEBAUTHN_RP_NAME || 'Sagawa Admin').trim();
 const MAX_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_CHALLENGE_TTL_MS = 10 * 60 * 1000;
+const MAX_VERIFICATION_CODE_TTL_MS = 10 * 60 * 1000;
 const SESSION_TTL_MS = readPositiveDuration('SESSION_TTL_MS', process.env.SESSION_TTL_MS, 8 * 60 * 60 * 1000, MAX_SESSION_TTL_MS);
 const CHALLENGE_TTL_MS = readPositiveDuration('WEBAUTHN_CHALLENGE_TTL_MS', process.env.WEBAUTHN_CHALLENGE_TTL_MS, 5 * 60 * 1000, MAX_CHALLENGE_TTL_MS);
+const VERIFICATION_CODE_TTL_MS = readPositiveDuration('VERIFICATION_CODE_TTL_MS', process.env.VERIFICATION_CODE_TTL_MS, 5 * 60 * 1000, MAX_VERIFICATION_CODE_TTL_MS);
+const VERIFICATION_CODE_MAX_ATTEMPTS = 5;
 const COOKIE_NAME = 'sagawa_admin_session';
+const VERIFICATION_CODE_COOKIE_NAME = 'sagawa_admin_verification';
 const USER_ID = crypto.createHash('sha256').update(ADMIN_EMAIL).digest('base64url');
-const ADMIN_AUTH_FILE = path.join(__dirname, 'data', 'admin-auth.json');
+const ENV_PATH = path.join(__dirname, '..', '.env');
+const MIN_BCRYPT_ROUNDS = 12;
 
+function deriveOriginHost(origin) {
+  if (!origin) return '';
+  try {
+    return new URL(origin).hostname;
+  } catch {
+    return '';
+  }
+}
 
-
+function isValidAdminEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
 function isValidBcryptHash(value) {
-  return typeof value === 'string'
-    && /^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/.test(value);
+  if (typeof value !== 'string' || !value.trim()) {
+    return false;
+  }
+
+  try {
+    // Let bcryptjs validate its own supported hash format rather than maintaining
+    // a separate, potentially incompatible format parser.
+    const rounds = bcrypt.getRounds(value);
+    bcrypt.getSalt(value);
+    const supportedPrefix = ['$2a$', '$2b$', '$2y$'].some((prefix) => value.startsWith(prefix));
+    return supportedPrefix && Number.isInteger(rounds) && rounds >= MIN_BCRYPT_ROUNDS && rounds <= 31;
+  } catch {
+    return false;
+  }
 }
 
 function readPositiveDuration(name, rawValue, defaultValue, maxAllowedMs) {
@@ -46,8 +73,16 @@ function validateConfiguration() {
     throw new Error('Missing ADMIN_EMAIL. Configure it in the local .env file before starting the server.');
   }
 
-  if (!ADMIN_PASSWORD || ADMIN_PASSWORD.length < 6) {
-    throw new Error('ADMIN_PASSWORD must be at least 6 characters and stored in the local .env file.');
+  if (!isValidAdminEmail(ADMIN_EMAIL)) {
+    throw new Error('ADMIN_EMAIL must be a valid email address stored in the local .env file.');
+  }
+
+  if (!ADMIN_PASSWORD_HASH || !isValidBcryptHash(ADMIN_PASSWORD_HASH)) {
+    throw new Error('ADMIN_PASSWORD_HASH must be a valid bcrypt hash stored in the local .env file.');
+  }
+
+  if (SESSION_SECRET.length < 32) {
+    throw new Error('SESSION_SECRET must be at least 32 characters and stored in the local .env file.');
   }
 
   if (!ADMIN_ORIGIN) {
@@ -69,6 +104,12 @@ function validateConfiguration() {
 }
 
 validateConfiguration();
+
+function loadAdminPasswordHash() {
+  return ADMIN_PASSWORD_HASH;
+}
+
+let adminPasswordHash = loadAdminPasswordHash();
 
 const sessions = new Map();
 const pendingChallenges = new Map();
@@ -122,8 +163,27 @@ function writeJsonAtomically(filePath, data) {
 }
 
 function persistAdminPasswordHash(nextHash) {
-  const payload = { passwordHash: nextHash, updatedAt: new Date().toISOString() };
-  writeJsonAtomically(ADMIN_AUTH_FILE, payload);
+  const stat = fs.lstatSync(ENV_PATH);
+  if (!stat.isFile() || stat.isSymbolicLink()) {
+    throw new Error('Local .env path must be a regular file.');
+  }
+
+  const current = fs.readFileSync(ENV_PATH, 'utf8');
+  const linePattern = /^(\s*(?:export\s+)?ADMIN_PASSWORD_HASH\s*=).*$/gm;
+  const matches = [...current.matchAll(linePattern)];
+  if (matches.length !== 1) {
+    throw new Error('Local .env must contain exactly one ADMIN_PASSWORD_HASH entry.');
+  }
+
+  const next = current.replace(linePattern, (_match, prefix) => `${prefix}${nextHash}`);
+  const tempPath = path.join(path.dirname(ENV_PATH), `.${path.basename(ENV_PATH)}.${process.pid}.tmp`);
+  try {
+    fs.writeFileSync(tempPath, next, { encoding: 'utf8', mode: 0o600 });
+    fs.chmodSync(tempPath, 0o600);
+    fs.renameSync(tempPath, ENV_PATH);
+  } finally {
+    if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+  }
 }
 
 function replaceAdminPasswordHash(nextHash) {
@@ -196,6 +256,16 @@ function parseCookies(header = '') {
 credentials = loadCredentials();
 
 function createChallenge(type) {
+  const now = Date.now();
+  for (const [key, entry] of pendingChallenges) {
+    if (entry.expiresAt <= now) pendingChallenges.delete(key);
+  }
+
+  if (pendingChallenges.size >= 100) {
+    const oldestKey = pendingChallenges.keys().next().value;
+    if (oldestKey) pendingChallenges.delete(oldestKey);
+  }
+
   const challenge = crypto.randomBytes(32);
   const challengeKey = challenge.toString('base64url');
   pendingChallenges.set(challengeKey, {
@@ -292,6 +362,10 @@ function destroySession(req) {
   }
 }
 
+function destroyAllSessions() {
+  sessions.clear();
+}
+
 function setSessionCookie(res, token) {
   const secureFlag = ADMIN_ORIGIN.startsWith('https://') || process.env.NODE_ENV === 'production' ? '; Secure' : '';
   res.setHeader(
@@ -309,7 +383,7 @@ function clearSessionCookie(res) {
 
 function requireAdmin(req, res, next) {
   if (!getSession(req)) {
-    console.error('[Auth] Unauthorized request:', req.method, req.originalUrl);
+    console.warn('[Auth] Unauthorized request.');
     return res.status(401).json({ success: false, message: 'Authentication required.' });
   }
 
@@ -343,11 +417,8 @@ async function verifyPassword(password) {
 async function login(email, password) {
   const normalizedEmail = String(email || '').trim().toLowerCase();
   const submittedPassword = typeof password === 'string' ? password : '';
-
-  return (
-    normalizedEmail === ADMIN_EMAIL &&
-    submittedPassword === ADMIN_PASSWORD
-  );
+  const passwordMatches = await bcrypt.compare(submittedPassword, adminPasswordHash);
+  return normalizedEmail === ADMIN_EMAIL && passwordMatches;
 }
 
 function saveCredentials(nextCredentials) {
@@ -473,17 +544,94 @@ async function finishAuthentication(response) {
   return true;
 }
 
+function generateVerificationCode() {
+  return crypto.randomInt(100000, 1000000).toString();
+}
+
+function hashVerificationCode(code) {
+  return crypto.createHmac('sha256', SESSION_SECRET).update(code).digest('hex');
+}
+
+const verificationStates = new Map();
+const resetPasswordStates = new Map();
+
+function createCodeState(store) {
+  const now = Date.now();
+  for (const [key, state] of store) {
+    if (state.expiresAt <= now) store.delete(key);
+  }
+
+  const code = generateVerificationCode();
+  const stateId = crypto.randomBytes(32).toString('hex');
+  store.set(stateId, {
+    codeHash: hashVerificationCode(code),
+    attempts: 0,
+    expiresAt: Date.now() + VERIFICATION_CODE_TTL_MS,
+  });
+  return { stateId, code };
+}
+
+function validateCodeState(store, stateId, code) {
+  const state = store.get(stateId);
+  if (!state || state.expiresAt <= Date.now() || state.attempts >= VERIFICATION_CODE_MAX_ATTEMPTS) {
+    store.delete(stateId);
+    return { valid: false, reason: 'Verification code is invalid or expired.' };
+  }
+
+  state.attempts += 1;
+  const providedHash = hashVerificationCode(String(code || ''));
+  const valid = crypto.timingSafeEqual(Buffer.from(providedHash), Buffer.from(state.codeHash));
+  if (!valid) {
+    return { valid: false, reason: 'Verification code is invalid or expired.' };
+  }
+
+  store.delete(stateId);
+  return { valid: true };
+}
+
+function createVerificationState() {
+  return createCodeState(verificationStates);
+}
+
+function validateVerificationCode(stateId, code) {
+  return validateCodeState(verificationStates, stateId, code);
+}
+
+function hasVerificationState(stateId) {
+  const state = verificationStates.get(String(stateId || ''));
+  if (!state || state.expiresAt <= Date.now() || state.attempts >= VERIFICATION_CODE_MAX_ATTEMPTS) {
+    if (state) verificationStates.delete(String(stateId));
+    return false;
+  }
+  return true;
+}
+
+function createPasswordResetState() {
+  return createCodeState(resetPasswordStates);
+}
+
+function validateResetCode(stateId, code) {
+  return validateCodeState(resetPasswordStates, stateId, code);
+}
+
 module.exports = {
   ADMIN_EMAIL,
   ADMIN_NAME,
   ADMIN_ORIGIN,
   COOKIE_NAME,
   SESSION_TTL_MS,
+  VERIFICATION_CODE_COOKIE_NAME,
   beginAuthentication,
   beginRegistration,
   clearSessionCookie,
   createSession,
+  createVerificationState,
+  hasVerificationState,
+  validateVerificationCode,
+  createPasswordResetState,
+  validateResetCode,
   destroySession,
+  destroyAllSessions,
   finishAuthentication,
   finishRegistration,
   getAuthenticatedUser,

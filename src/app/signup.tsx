@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import {
+  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -10,7 +11,9 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { router } from "expo-router";
+import { router, type Href } from "expo-router";
+import { apiRequest } from '@/services/api/client';
+import { useAuthStore } from '@/store/auth-store';
 
 const ANDROID_EXTRA_BOLD = Platform.OS === "android" ? "700" : "800";
 const ANDROID_INPUT_TEXT_FIX = Platform.select({
@@ -22,17 +25,72 @@ const ANDROID_INPUT_TEXT_FIX = Platform.select({
 });
 
 export default function SignupScreen() {
-  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [agree, setAgree] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
-  const handleSignup = () => {
-    // Temporary navigation for UI testing.
-    // Real account creation will be connected later.
-    router.replace("/(tabs)");
+  const handleSignup = async () => {
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      Alert.alert('Check your email', 'Enter a valid email address.');
+      return;
+    }
+    if (password.length < 8 || password.length > 128) {
+      Alert.alert('Check your password', 'Use between 8 and 128 characters.');
+      return;
+    }
+    if (password !== confirmPassword) {
+      Alert.alert('Passwords do not match', 'Enter the same password in both fields.');
+      return;
+    }
+    if (!agree) {
+      Alert.alert('Agreement required', 'Please accept the Terms and Privacy Policy.');
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      const response = await apiRequest<{
+        success: boolean;
+        data: {
+          accessToken: string;
+          refreshToken: string;
+          expiresAt: string;
+          user: { id: string; email: string };
+        };
+      }>('/api/auth/register', {
+        method: 'POST',
+        body: JSON.stringify({ email: normalizedEmail, password }),
+      });
+      await useAuthStore.getState().setSession(
+        {
+          expiresAt: response.data.expiresAt,
+          profileCompleted: false,
+          user: response.data.user,
+        },
+        {
+          accessToken: response.data.accessToken,
+          refreshToken: response.data.refreshToken,
+        },
+      );
+      router.replace('/complete-profile' as Href);
+    } catch (error) {
+      Alert.alert('Account creation failed', error instanceof Error ? error.message : 'Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+
+    router.replace("/login");
   };
 
   return (
@@ -48,7 +106,9 @@ export default function SignupScreen() {
         >
           {/* Back button */}
           <Pressable
-            onPress={() => router.back()}
+            accessibilityRole="button"
+            accessibilityLabel="Back to login"
+            onPress={handleBack}
             style={({ pressed }) => [
               styles.backButton,
               pressed && styles.backPressed,
@@ -79,21 +139,6 @@ export default function SignupScreen() {
 
           {/* Form */}
           <View style={styles.form}>
-            {/* Name */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Full name</Text>
-
-              <TextInput
-                value={name}
-                onChangeText={setName}
-                placeholder="Your name"
-                placeholderTextColor="#9CA3AF"
-                autoCapitalize="words"
-                autoCorrect={false}
-                style={styles.input}
-              />
-            </View>
-
             {/* Email */}
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Email</Text>
@@ -182,13 +227,14 @@ export default function SignupScreen() {
             {/* Create account */}
             <Pressable
               onPress={handleSignup}
+              disabled={submitting}
               style={({ pressed }) => [
                 styles.signupButton,
                 pressed && styles.buttonPressed,
               ]}
             >
               <Text style={styles.signupButtonText}>
-                Create account
+                {submitting ? 'Creating account...' : 'Create account'}
               </Text>
             </Pressable>
           </View>
@@ -272,8 +318,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     alignSelf: "flex-start",
+    minHeight: 44,
     marginBottom: 26,
     paddingVertical: 6,
+    paddingRight: 12,
   },
 
   backPressed: {

@@ -46,3 +46,20 @@ The backend is responsible for authentication, authorization, rate limiting, val
 - Table names and relationships are not final.
 - Indexing, partitioning, and retention strategies should be decided with real traffic expectations.
 - The backend should expose stable API contracts before frontend data screens are built.
+
+## User profile migration
+
+`malay-mm-admin/server/migrations/001_user_profiles.sql` is an additive migration. It creates
+`users` and `user_sessions`, then adds per-user ownership, age, gender, optional location,
+completion state, and creation time to the existing `profiles` table. The legacy profile row is
+preserved and remains unassigned (`user_id IS NULL`).
+
+After taking a database backup, apply it from `malay-mm-admin/server`:
+
+```sh
+npm run db:migrate-user-profiles
+```
+
+The API derives profile ownership from the hashed bearer-session record. It does not accept a
+client-supplied owner ID, and the partial unique index on `profiles.user_id` enforces one profile
+per registered user.

@@ -47,7 +47,6 @@ export default function HelpSupportScreen() {
           }
 
           setName((current) => current || response.data.name || '');
-          setContact((current) => current || response.data.phoneNumber || '');
           setPrefilled(true);
         })
         .catch((error) => {

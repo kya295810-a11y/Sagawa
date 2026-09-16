@@ -524,7 +524,7 @@ textarea:focus-visible {
 
   padding: 0 32px;
 
-  background: rgba(255, 255, 255, 0.92);
+  background: #ffffff;
 
   border-bottom: 1px solid #e7edf4;
 
@@ -532,7 +532,6 @@ textarea:focus-visible {
   align-items: center;
   justify-content: space-between;
 
-  backdrop-filter: blur(14px);
 }
 
 .topbar-label {
@@ -956,6 +955,63 @@ textarea:focus-visible {
   color: #273044;
 
   font-size: 11px;
+}
+
+.dashboard-detail-grid {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 20px;
+}
+
+.dashboard-list-card,
+.dashboard-actions-card {
+  display: block;
+}
+
+.dashboard-recent-list,
+.dashboard-actions {
+  margin-top: 18px;
+}
+
+.dashboard-recent-list > div {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: 11px 0;
+  border-bottom: 1px solid #edf0f4;
+  align-items: center;
+}
+
+.dashboard-recent-list span,
+.dashboard-recent-list small,
+.dashboard-recent-list p {
+  color: #7e899b;
+  font-size: 11px;
+}
+
+.dashboard-recent-list strong {
+  overflow: hidden;
+  color: #273044;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-actions {
+  display: grid;
+  gap: 10px;
+}
+
+.dashboard-actions button {
+  min-height: 42px;
+  padding: 0 14px;
+  border: 1px solid #dce6f0;
+  border-radius: 12px;
+  background: #f7faff;
+  color: #246aa8;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
 }
 
 /* =========================================================
@@ -1542,13 +1598,24 @@ textarea:focus-visible {
 
   padding: 24px;
 
-  background: rgba(15, 25, 40, 0.46);
+  background: rgba(15, 25, 40, 0.58);
 
   display: flex;
   align-items: center;
   justify-content: center;
 
-  backdrop-filter: blur(5px);
+}
+
+.media-placeholder {
+  display: grid;
+  place-items: center;
+  min-width: 92px;
+  min-height: 76px;
+  padding: 12px;
+  color: #7b8798;
+  background: #f2f5f8;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .modal-card {
@@ -2272,6 +2339,10 @@ textarea:focus-visible {
 
   .overview-list {
     width: 100%;
+  }
+
+  .dashboard-detail-grid {
+    grid-template-columns: 1fr;
   }
 }
 
