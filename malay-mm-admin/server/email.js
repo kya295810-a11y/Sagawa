@@ -1,73 +1,64 @@
-const nodemailer = require('nodemailer');
-const dns = require('node:dns').promises;
-const net = require('node:net');
-
-const EMAIL_HOST = String(process.env.EMAIL_HOST || '').trim();
-const EMAIL_PORT = Number(process.env.EMAIL_PORT || 587);
-const EMAIL_SECURE = (process.env.EMAIL_SECURE || '').toLowerCase() === 'true';
-const EMAIL_USER = String(process.env.EMAIL_USER || '').trim();
-const EMAIL_PASSWORD = String(process.env.EMAIL_PASSWORD || '').trim();
-const EMAIL_FROM = String(process.env.EMAIL_FROM || 'noreply@sagawa-admin.local').trim();
+const RESEND_API_URL = 'https://api.resend.com/emails';
+const RESEND_API_KEY = String(process.env.RESEND_API_KEY || '').trim();
+const EMAIL_FROM = String(process.env.EMAIL_FROM || '').trim();
 
 function isEmailConfigured() {
-  return Boolean(EMAIL_HOST && EMAIL_USER && EMAIL_PASSWORD);
+  return Boolean(RESEND_API_KEY && EMAIL_FROM);
 }
 
-let transporter = null;
-let transporterPromise = null;
-
-async function createTransporter() {
-  if (!isEmailConfigured()) {
-    return null;
-  }
-
-  if (transporter) {
-    return transporter;
-  }
-
-  if (!transporterPromise) {
-    transporterPromise = (async () => {
-      let connectionHost = EMAIL_HOST;
-
-      // Render does not provide outbound IPv6 connectivity, while SMTP hosts such
-      // as Gmail publish both A and AAAA records. Resolve an IPv4 address here so
-      // Nodemailer cannot randomly select an unreachable IPv6 address.
-      if (!net.isIP(EMAIL_HOST)) {
-        const ipv4Addresses = await dns.resolve4(EMAIL_HOST);
-        if (!ipv4Addresses.length) {
-          throw new Error(`No IPv4 address found for email host ${EMAIL_HOST}.`);
-        }
-        [connectionHost] = ipv4Addresses;
-      }
-
-      transporter = nodemailer.createTransport({
-        host: connectionHost,
-        port: EMAIL_PORT,
-        secure: EMAIL_SECURE,
-        auth: {
-          user: EMAIL_USER,
-          pass: EMAIL_PASSWORD,
-        },
-        tls: net.isIP(EMAIL_HOST) ? undefined : { servername: EMAIL_HOST },
-      });
-
-      return transporter;
-    })().catch((error) => {
-      transporterPromise = null;
-      throw error;
-    });
-  }
-
-  return transporterPromise;
-}
-async function sendVerificationCode(toEmail, code) {
+async function sendEmail({ to, subject, html, text }) {
   if (!isEmailConfigured()) {
     throw new Error('Email service is not configured.');
   }
 
-  const transport = await createTransporter();
-  if (!transport) {
-    throw new Error('Email service failed to initialize.');
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+
+  try {
+    const response = await fetch(RESEND_API_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${RESEND_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: EMAIL_FROM,
+        to: [to],
+        subject,
+        html,
+        text,
+      }),
+      signal: controller.signal,
+    });
+
+    const responseText = await response.text();
+
+    if (!response.ok) {
+      let detail = responseText;
+      try {
+        const parsed = JSON.parse(responseText);
+        detail = parsed?.message || parsed?.error || responseText;
+      } catch {
+        // Keep the raw response text when Resend does not return JSON.
+      }
+
+      throw new Error(`Resend API returned ${response.status}: ${detail || 'Unknown error'}`);
+    }
+
+    return true;
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      throw new Error('Resend API request timed out.');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function sendVerificationCode(toEmail, code) {
+  if (!isEmailConfigured()) {
+    throw new Error('Email service is not configured.');
   }
 
   const expirationMinutes = 5;
@@ -130,8 +121,7 @@ This code will expire in ${expirationMinutes} minutes. Do not share it with anyo
   `;
 
   try {
-    await transport.sendMail({
-      from: EMAIL_FROM,
+    await sendEmail({
       to: toEmail,
       subject: 'Sagawa Admin Verification Code',
       html: htmlContent,
@@ -148,11 +138,6 @@ This code will expire in ${expirationMinutes} minutes. Do not share it with anyo
 async function sendPasswordResetCode(toEmail, code, options = {}) {
   if (!isEmailConfigured()) {
     throw new Error('Email service is not configured.');
-  }
-
-  const transport = await createTransporter();
-  if (!transport) {
-    throw new Error('Email service failed to initialize.');
   }
 
   const expirationMinutes = options.admin ? 5 : 10;
@@ -217,8 +202,7 @@ This code will expire in ${expirationMinutes} minutes. Do not share it with anyo
   `;
 
   try {
-    await transport.sendMail({
-      from: EMAIL_FROM,
+    await sendEmail({
       to: toEmail,
       subject: `${productName} Password Reset Code`,
       html: htmlContent,
