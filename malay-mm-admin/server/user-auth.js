@@ -5,6 +5,8 @@ const db = require('./db');
 
 const ACCESS_TOKEN_TTL_MS = 15 * 60 * 1000;
 const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const PASSWORD_RESET_TTL_MS = 10 * 60 * 1000;
+const PASSWORD_RESET_MAX_ATTEMPTS = 5;
 const BCRYPT_ROUNDS = 12;
 const SESSION_MAX_PER_USER = Math.min(
   100,
@@ -33,6 +35,14 @@ function tokenHash(token) {
 
 function createOpaqueToken() {
   return crypto.randomBytes(32).toString('base64url');
+}
+
+function passwordResetHash(email, code) {
+  const secret = String(process.env.SESSION_SECRET || '');
+  if (secret.length < 32) {
+    throw new Error('SESSION_SECRET must be configured before password resets can be used.');
+  }
+  return crypto.createHmac('sha256', secret).update(`${email}:${code}`).digest('hex');
 }
 
 function publicUser(row) {
@@ -151,6 +161,113 @@ async function loginUser(emailValue, password) {
   }
 }
 
+async function requestMobilePasswordReset(emailValue) {
+  const email = normalizeEmail(emailValue);
+  if (!validateEmail(email)) return null;
+
+  const userResult = await db.query(
+    'SELECT id, email FROM users WHERE lower(email) = $1',
+    [email],
+  );
+  const user = userResult.rows[0];
+  if (!user) return null;
+
+  const code = crypto.randomInt(0, 1_000_000).toString().padStart(6, '0');
+  const codeHash = passwordResetHash(email, code);
+  const expiresAt = new Date(Date.now() + PASSWORD_RESET_TTL_MS);
+  const client = await db.connect();
+
+  try {
+    await client.query('BEGIN');
+    await client.query('DELETE FROM user_password_resets WHERE user_id = $1', [user.id]);
+    await client.query(
+      `INSERT INTO user_password_resets
+        (id, user_id, code_hash, expires_at, attempts)
+       VALUES ($1, $2, $3, $4, 0)`,
+      [crypto.randomUUID(), user.id, codeHash, expiresAt],
+    );
+    await client.query('COMMIT');
+    return { email: user.email, code };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function resetMobilePassword(emailValue, codeValue, password) {
+  const email = normalizeEmail(emailValue);
+  const code = String(codeValue || '').trim();
+  if (!validateEmail(email) || !/^\d{6}$/.test(code)) return false;
+
+  const passwordError = validatePassword(password);
+  if (passwordError) {
+    const error = new Error(passwordError);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const candidateHash = passwordResetHash(email, code);
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+    const userResult = await client.query(
+      'SELECT id FROM users WHERE lower(email) = $1 FOR UPDATE',
+      [email],
+    );
+    const user = userResult.rows[0];
+    if (!user) {
+      await client.query('ROLLBACK');
+      return false;
+    }
+
+    const resetResult = await client.query(
+      `SELECT id, code_hash, attempts
+         FROM user_password_resets
+        WHERE user_id = $1 AND expires_at > NOW()
+        ORDER BY created_at DESC
+        LIMIT 1
+        FOR UPDATE`,
+      [user.id],
+    );
+    const reset = resetResult.rows[0];
+    if (!reset || reset.attempts >= PASSWORD_RESET_MAX_ATTEMPTS) {
+      await client.query('DELETE FROM user_password_resets WHERE user_id = $1', [user.id]);
+      await client.query('COMMIT');
+      return false;
+    }
+
+    const matches = crypto.timingSafeEqual(
+      Buffer.from(reset.code_hash, 'hex'),
+      Buffer.from(candidateHash, 'hex'),
+    );
+    if (!matches) {
+      await client.query(
+        'UPDATE user_password_resets SET attempts = attempts + 1 WHERE id = $1',
+        [reset.id],
+      );
+      await client.query('COMMIT');
+      return false;
+    }
+
+    const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+    await client.query(
+      'UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2',
+      [passwordHash, user.id],
+    );
+    await client.query('DELETE FROM user_sessions WHERE user_id = $1', [user.id]);
+    await client.query('DELETE FROM user_password_resets WHERE user_id = $1', [user.id]);
+    await client.query('COMMIT');
+    return true;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 function readBearerToken(req) {
   const authorization = String(req.headers.authorization || '');
   return authorization.match(/^Bearer\s+([^\s]+)$/i)?.[1] || null;
@@ -228,5 +345,7 @@ module.exports = {
   normalizeEmail,
   refreshMobileSession,
   registerUser,
+  requestMobilePasswordReset,
+  resetMobilePassword,
   requireMobileUser,
 };

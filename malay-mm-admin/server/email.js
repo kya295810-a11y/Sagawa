@@ -118,7 +118,7 @@ This code will expire in ${expirationMinutes} minutes. Do not share it with anyo
   }
 }
 
-async function sendPasswordResetCode(toEmail, code) {
+async function sendPasswordResetCode(toEmail, code, options = {}) {
   if (!isEmailConfigured()) {
     throw new Error('Email service is not configured.');
   }
@@ -128,7 +128,9 @@ async function sendPasswordResetCode(toEmail, code) {
     throw new Error('Email service failed to initialize.');
   }
 
-  const expirationMinutes = 5;
+  const expirationMinutes = options.admin ? 5 : 10;
+  const productName = options.admin ? 'Sagawa Admin' : 'Sagawa';
+  const accountLabel = options.admin ? 'Sagawa Admin password' : 'Sagawa password';
   const htmlContent = `
     <!DOCTYPE html>
     <html>
@@ -148,12 +150,12 @@ async function sendPasswordResetCode(toEmail, code) {
       <body>
         <div class="container">
           <div class="header">
-            <h1>Sagawa Admin</h1>
+            <h1>${productName}</h1>
             <p>Password Reset Request</p>
           </div>
           <div class="content">
             <p>Hello,</p>
-            <p>We received a request to reset your Sagawa Admin password. Use the verification code below to proceed:</p>
+            <p>We received a request to reset your ${accountLabel}. Use the verification code below to proceed:</p>
             <div class="code-box">
               <div class="code">${code}</div>
               <p style="color: #666; font-size: 14px; margin: 10px 0 0 0;">Valid for ${expirationMinutes} minutes</p>
@@ -172,9 +174,9 @@ async function sendPasswordResetCode(toEmail, code) {
   `;
 
   const textContent = `
-Sagawa Admin Password Reset Request
+${productName} Password Reset Request
 
-We received a request to reset your Sagawa Admin password. Use the verification code below to proceed:
+We received a request to reset your ${accountLabel}. Use the verification code below to proceed:
 
 ${code}
 
@@ -191,7 +193,7 @@ This code will expire in ${expirationMinutes} minutes. Do not share it with anyo
     await transport.sendMail({
       from: EMAIL_FROM,
       to: toEmail,
-      subject: 'Sagawa Admin Password Reset Code',
+      subject: `${productName} Password Reset Code`,
       html: htmlContent,
       text: textContent,
     });

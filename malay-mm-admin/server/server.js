@@ -44,9 +44,11 @@ const {
   normalizeEmail,
   refreshMobileSession,
   registerUser,
+  requestMobilePasswordReset,
+  resetMobilePassword,
   requireMobileUser,
 } = require('./user-auth');
-const { sendVerificationCode, sendPasswordResetCode } = require('./email');
+const { isEmailConfigured, sendVerificationCode, sendPasswordResetCode } = require('./email');
 
 const app = express();
 
@@ -496,7 +498,7 @@ app.post('/api/auth/logout', async (req, res) => {
   }
 });
 
-app.post('/api/auth/forgot-password', async (req, res) => {
+app.post('/api/auth/forgot-password', resendLimiter, async (req, res) => {
   const email = String(req.body?.email || '')
     .trim()
     .toLowerCase();
@@ -507,13 +509,11 @@ app.post('/api/auth/forgot-password', async (req, res) => {
   }
 
   try {
-    // Only the configured admin email can reset the password
-    // For security, always return success to prevent account enumeration
     if (email === process.env.ADMIN_EMAIL?.trim().toLowerCase()) {
       const { stateId, code } = createPasswordResetState();
 
       try {
-        await sendPasswordResetCode(email, code);
+        await sendPasswordResetCode(email, code, { admin: true });
         console.log('[Auth] Password reset code sent to configured admin email.');
 
         // Set the reset state ID in a cookie
@@ -532,11 +532,20 @@ app.post('/api/auth/forgot-password', async (req, res) => {
         // Even if email fails, return generic success to prevent enumeration
         return res.json({ success: true, data: { resetCodeSent: true } });
       }
-    } else {
-      // Always return success for non-admin emails to prevent account enumeration
-      console.log('[Auth] Password reset requested for non-admin email:', email);
-      return res.json({ success: true, data: { resetCodeSent: true } });
     }
+
+    const reset = await requestMobilePasswordReset(email);
+    if (reset) {
+      try {
+        await sendPasswordResetCode(reset.email, reset.code);
+        console.log('[Auth] Mobile password reset code sent.');
+      } catch (emailError) {
+        console.error('[Auth] Failed to send mobile password reset code:', emailError.message);
+      }
+    }
+
+    // Always use the same response so callers cannot discover registered accounts.
+    return res.json({ success: true, data: { resetCodeSent: true } });
   } catch (error) {
     console.error('[Auth] Forgot password failed:', error.message);
     return res.json({ success: true, data: { resetCodeSent: true } });
@@ -544,6 +553,7 @@ app.post('/api/auth/forgot-password', async (req, res) => {
 });
 
 app.post('/api/auth/reset-password', async (req, res) => {
+  const email = String(req.body?.email || '').trim().toLowerCase();
   const resetCode = String(req.body?.code || '').trim();
   const newPassword = typeof req.body?.newPassword === 'string' ? req.body.newPassword : '';
   const confirmPassword =
@@ -557,6 +567,28 @@ app.post('/api/auth/reset-password', async (req, res) => {
 
   if (newPassword !== confirmPassword) {
     return res.status(400).json({ success: false, message: 'New passwords do not match.' });
+  }
+
+  if (email) {
+    try {
+      const passwordReset = await resetMobilePassword(email, resetCode, newPassword);
+      if (!passwordReset) {
+        return res.status(401).json({ success: false, message: 'Invalid or expired reset code.' });
+      }
+      console.log('[Auth] Mobile password reset successfully; existing sessions revoked.');
+      return res.json({
+        success: true,
+        data: { passwordReset: true },
+        message: 'Password reset successfully. Please sign in with your new password.',
+      });
+    } catch (error) {
+      const status = Number(error.statusCode) || 500;
+      if (status >= 500) console.error('[Auth] Mobile password reset failed:', error.message);
+      return res.status(status).json({
+        success: false,
+        message: status >= 500 ? 'Password reset failed. Please try again.' : error.message,
+      });
+    }
   }
 
   const policyError = validatePasswordPolicy(newPassword);
@@ -1593,6 +1625,7 @@ if (require.main === module) {
     console.log('==========================================');
     console.log(`Listening on ${HOST}:${PORT}`);
     console.log(`CORS origins: ${allowedCorsOrigins.join(', ')}`);
+    console.log(`[Email] SMTP configured: ${isEmailConfigured() ? 'yes' : 'no'}`);
     console.log('==========================================');
   });
 

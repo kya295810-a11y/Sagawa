@@ -1,5 +1,7 @@
 import React, { useState } from "react";
 import {
+  ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -11,6 +13,7 @@ import {
   View,
 } from "react-native";
 import { router } from "expo-router";
+import { apiRequest } from '@/services/api/client';
 
 const ANDROID_EXTRA_BOLD = Platform.OS === "android" ? "700" : "800";
 const ANDROID_INPUT_TEXT_FIX = Platform.select({
@@ -23,16 +26,68 @@ const ANDROID_INPUT_TEXT_FIX = Platform.select({
 
 export default function ForgotPasswordScreen() {
   const [email, setEmail] = useState("");
-  const [sent, setSent] = useState(false);
+  const [code, setCode] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [stage, setStage] = useState<'request' | 'verify' | 'complete'>('request');
+  const [submitting, setSubmitting] = useState(false);
 
-  const handleReset = () => {
-    if (!email.trim()) {
+  const handleReset = async () => {
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail) return;
+
+    try {
+      setSubmitting(true);
+      await apiRequest('/api/auth/forgot-password', {
+        method: 'POST',
+        body: JSON.stringify({ email: normalizedEmail }),
+      });
+      setEmail(normalizedEmail);
+      setStage('verify');
+    } catch (error) {
+      Alert.alert(
+        'Unable to send code',
+        error instanceof Error ? error.message : 'Please try again.',
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleCompleteReset = async () => {
+    if (!/^\d{6}$/.test(code.trim())) {
+      Alert.alert('Invalid code', 'Enter the 6-digit code from your email.');
+      return;
+    }
+    if (newPassword.length < 8) {
+      Alert.alert('Password too short', 'Use at least 8 characters.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      Alert.alert('Passwords do not match', 'Enter the same password twice.');
       return;
     }
 
-    // Temporary UI state.
-    // Real password reset will be connected later.
-    setSent(true);
+    try {
+      setSubmitting(true);
+      await apiRequest('/api/auth/reset-password', {
+        method: 'POST',
+        body: JSON.stringify({
+          email,
+          code: code.trim(),
+          newPassword,
+          confirmPassword,
+        }),
+      });
+      setStage('complete');
+    } catch (error) {
+      Alert.alert(
+        'Password reset failed',
+        error instanceof Error ? error.message : 'Please request a new code and try again.',
+      );
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -68,7 +123,7 @@ export default function ForgotPasswordScreen() {
             <Text style={styles.brandName}>Sagawa</Text>
           </View>
 
-          {!sent ? (
+          {stage === 'request' ? (
             <>
               {/* Header */}
               <View style={styles.header}>
@@ -96,20 +151,23 @@ export default function ForgotPasswordScreen() {
                 />
 
                 <Pressable
-                  onPress={handleReset}
+                  onPress={() => void handleReset()}
+                  disabled={submitting}
                   style={({ pressed }) => [
                     styles.resetButton,
                     pressed && styles.buttonPressed,
+                    submitting && styles.buttonDisabled,
                   ]}
                 >
-                  <Text style={styles.resetButtonText}>
-                    Send reset link
-                  </Text>
+                  {submitting ? (
+                    <ActivityIndicator color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.resetButtonText}>Send reset code</Text>
+                  )}
                 </Pressable>
               </View>
             </>
-          ) : (
-            /* Success */
+          ) : stage === 'verify' ? (
             <View style={styles.successSection}>
               <View style={styles.successIcon}>
                 <Text style={styles.successCheck}>✓</Text>
@@ -119,16 +177,95 @@ export default function ForgotPasswordScreen() {
 
               <Text style={styles.successText}>
                 If an account exists for{" "}
-                <Text style={styles.emailText}>{email}</Text>,we&apos;ve sent instructions to reset your password.
+                <Text style={styles.emailText}>{email}</Text>, we&apos;ve sent a 6-digit reset code.
               </Text>
 
+              <View style={styles.form}>
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.label}>Reset code</Text>
+                  <TextInput
+                    value={code}
+                    onChangeText={(value) => setCode(value.replace(/\D/g, '').slice(0, 6))}
+                    placeholder="000000"
+                    placeholderTextColor="#9CA3AF"
+                    keyboardType="number-pad"
+                    autoComplete="one-time-code"
+                    maxLength={6}
+                    style={styles.input}
+                  />
+                </View>
+
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.label}>New password</Text>
+                  <TextInput
+                    value={newPassword}
+                    onChangeText={setNewPassword}
+                    placeholder="At least 8 characters"
+                    placeholderTextColor="#9CA3AF"
+                    secureTextEntry
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    style={styles.input}
+                  />
+                </View>
+
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.label}>Confirm password</Text>
+                  <TextInput
+                    value={confirmPassword}
+                    onChangeText={setConfirmPassword}
+                    placeholder="Enter the password again"
+                    placeholderTextColor="#9CA3AF"
+                    secureTextEntry
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    style={styles.input}
+                  />
+                </View>
+
+                <Pressable
+                  onPress={() => void handleCompleteReset()}
+                  disabled={submitting}
+                  style={({ pressed }) => [
+                    styles.resetButton,
+                    pressed && styles.buttonPressed,
+                    submitting && styles.buttonDisabled,
+                  ]}
+                >
+                  {submitting ? (
+                    <ActivityIndicator color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.resetButtonText}>Reset password</Text>
+                  )}
+                </Pressable>
+              </View>
+
               <Pressable
-                onPress={() => setSent(false)}
+                onPress={() => {
+                  setCode('');
+                  setNewPassword('');
+                  setConfirmPassword('');
+                  setStage('request');
+                }}
                 style={styles.tryAgainButton}
               >
-                <Text style={styles.tryAgainText}>
-                  Try another email
-                </Text>
+                <Text style={styles.tryAgainText}>Request another code</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <View style={styles.successSection}>
+              <View style={styles.successIcon}>
+                <Text style={styles.successCheck}>✓</Text>
+              </View>
+              <Text style={styles.successTitle}>Password updated</Text>
+              <Text style={styles.successText}>
+                Your existing sessions were signed out. Log in with your new password.
+              </Text>
+              <Pressable
+                onPress={() => router.replace('/login')}
+                style={({ pressed }) => [styles.resetButton, pressed && styles.buttonPressed]}
+              >
+                <Text style={styles.resetButtonText}>Back to login</Text>
               </Pressable>
             </View>
           )}
@@ -258,6 +395,11 @@ const styles = StyleSheet.create({
     width: "100%",
   },
 
+  fieldGroup: {
+    width: "100%",
+    marginTop: 18,
+  },
+
   label: {
     fontSize: 14,
     lineHeight: 18,
@@ -299,6 +441,10 @@ const styles = StyleSheet.create({
   buttonPressed: {
     opacity: 0.82,
     transform: [{ scale: 0.985 }],
+  },
+
+  buttonDisabled: {
+    opacity: 0.65,
   },
 
   resetButtonText: {
