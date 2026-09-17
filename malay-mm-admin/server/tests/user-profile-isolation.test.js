@@ -226,14 +226,15 @@ test('profiles remain isolated and server ignores client-supplied user IDs', asy
 
 test('mobile password reset codes are expiring, one-time, and revoke existing sessions', async () => {
   const { requestMobilePasswordReset, resetMobilePassword } = require('../user-auth');
-  const email = 'reset.integration@example.com';
+  // A mobile account may intentionally use the same email as the separate admin account.
+  const email = String(process.env.ADMIN_EMAIL).trim().toLowerCase();
   const originalPassword = 'OriginalPass123!';
   const nextPassword = 'UpdatedPass456!';
 
   const register = await request('/api/auth/register', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password: originalPassword }),
+    body: JSON.stringify({ email, password: originalPassword, accountType: 'mobile' }),
   });
   assert.equal(register.response.status, 201);
 
@@ -254,7 +255,7 @@ test('mobile password reset codes are expiring, one-time, and revoke existing se
   const nextLogin = await request('/api/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password: nextPassword }),
+    body: JSON.stringify({ email, password: nextPassword, accountType: 'mobile' }),
   });
   assert.equal(nextLogin.response.status, 200);
 });

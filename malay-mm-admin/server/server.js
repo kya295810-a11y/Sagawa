@@ -263,6 +263,7 @@ app.post('/api/auth/register', async (req, res) => {
 app.post('/api/auth/login', async (req, res) => {
   const email = String(req.body?.email || '').trim();
   const password = req.body?.password;
+  const isMobileRequest = req.body?.accountType === 'mobile';
 
   if (!email || typeof password !== 'string' || !password) {
     return res.status(400).json({
@@ -272,7 +273,7 @@ app.post('/api/auth/login', async (req, res) => {
   }
 
   try {
-    if (normalizeEmail(email) !== ADMIN_EMAIL) {
+    if (isMobileRequest || normalizeEmail(email) !== ADMIN_EMAIL) {
       const mobileSession = await loginUser(email, password);
       if (!mobileSession) {
         return res.status(401).json({ success: false, message: 'Invalid email or password.' });
@@ -503,13 +504,14 @@ app.post('/api/auth/forgot-password', resendLimiter, async (req, res) => {
     .trim()
     .toLowerCase();
   const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const isMobileRequest = req.body?.accountType === 'mobile';
 
   if (!email || !emailPattern.test(email)) {
     return res.status(400).json({ success: false, message: 'Please enter a valid email address.' });
   }
 
   try {
-    if (email === process.env.ADMIN_EMAIL?.trim().toLowerCase()) {
+    if (!isMobileRequest && email === process.env.ADMIN_EMAIL?.trim().toLowerCase()) {
       const { stateId, code } = createPasswordResetState();
 
       try {
