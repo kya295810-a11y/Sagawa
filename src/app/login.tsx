@@ -61,7 +61,7 @@ export default function LoginScreen() {
         message?: string;
       }>('/api/auth/login', {
         method: 'POST',
-        body: JSON.stringify({ email: email.trim(), password }),
+        body: JSON.stringify({ email: email.trim(), password, accountType: 'mobile' }),
       });
 
       if (!response.success || !response.data?.accessToken) {

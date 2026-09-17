@@ -40,7 +40,7 @@ export default function ForgotPasswordScreen() {
       setSubmitting(true);
       await apiRequest('/api/auth/forgot-password', {
         method: 'POST',
-        body: JSON.stringify({ email: normalizedEmail }),
+        body: JSON.stringify({ email: normalizedEmail, accountType: 'mobile' }),
       });
       setEmail(normalizedEmail);
       setStage('verify');
