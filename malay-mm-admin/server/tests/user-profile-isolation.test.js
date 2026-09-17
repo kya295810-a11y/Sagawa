@@ -47,11 +47,17 @@ test.before(async () => {
         updated_at timestamptz NOT NULL DEFAULT NOW()
       )
     `);
-    const migration = fs
-      .readFileSync(path.join(__dirname, '..', 'migrations', '001_user_profiles.sql'), 'utf8')
-      .replace(/^BEGIN;\s*/i, '')
-      .replace(/\s*COMMIT;\s*$/i, '');
-    await client.query(migration);
+    const migrationFiles = fs
+      .readdirSync(path.join(__dirname, '..', 'migrations'))
+      .filter((file) => /^\d+_[a-z0-9_-]+\.sql$/i.test(file))
+      .sort();
+    for (const migrationFile of migrationFiles) {
+      const migration = fs
+        .readFileSync(path.join(__dirname, '..', 'migrations', migrationFile), 'utf8')
+        .replace(/^BEGIN;\s*/i, '')
+        .replace(/\s*COMMIT;\s*$/i, '');
+      await client.query(migration);
+    }
   } finally {
     client.release();
   }
@@ -216,4 +222,39 @@ test('profiles remain isolated and server ignores client-supplied user IDs', asy
   assert.equal(refresh.response.status, 200);
   assert.equal((await getProfile(bob.accessToken)).response.status, 401);
   assert.equal((await getProfile(refresh.body.data.accessToken)).body.data.name, 'Bob');
+});
+
+test('mobile password reset codes are expiring, one-time, and revoke existing sessions', async () => {
+  const { requestMobilePasswordReset, resetMobilePassword } = require('../user-auth');
+  const email = 'reset.integration@example.com';
+  const originalPassword = 'OriginalPass123!';
+  const nextPassword = 'UpdatedPass456!';
+
+  const register = await request('/api/auth/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password: originalPassword }),
+  });
+  assert.equal(register.response.status, 201);
+
+  const reset = await requestMobilePasswordReset(email);
+  assert.match(reset.code, /^\d{6}$/);
+  const wrongCode = reset.code === '000000' ? '999999' : '000000';
+  assert.equal(await resetMobilePassword(email, wrongCode, nextPassword), false);
+  assert.equal(await resetMobilePassword(email, reset.code, nextPassword), true);
+  assert.equal(await resetMobilePassword(email, reset.code, originalPassword), false);
+
+  const oldLogin = await request('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password: originalPassword }),
+  });
+  assert.equal(oldLogin.response.status, 401);
+
+  const nextLogin = await request('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password: nextPassword }),
+  });
+  assert.equal(nextLogin.response.status, 200);
 });
