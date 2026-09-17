@@ -1,4 +1,6 @@
 const nodemailer = require('nodemailer');
+const dns = require('node:dns').promises;
+const net = require('node:net');
 
 const EMAIL_HOST = String(process.env.EMAIL_HOST || '').trim();
 const EMAIL_PORT = Number(process.env.EMAIL_PORT || 587);
@@ -12,33 +14,58 @@ function isEmailConfigured() {
 }
 
 let transporter = null;
+let transporterPromise = null;
 
-function createTransporter() {
+async function createTransporter() {
   if (!isEmailConfigured()) {
     return null;
   }
 
-  if (!transporter) {
-    transporter = nodemailer.createTransport({
-      host: EMAIL_HOST,
-      port: EMAIL_PORT,
-      secure: EMAIL_SECURE,
-      auth: {
-        user: EMAIL_USER,
-        pass: EMAIL_PASSWORD,
-      },
+  if (transporter) {
+    return transporter;
+  }
+
+  if (!transporterPromise) {
+    transporterPromise = (async () => {
+      let connectionHost = EMAIL_HOST;
+
+      // Render does not provide outbound IPv6 connectivity, while SMTP hosts such
+      // as Gmail publish both A and AAAA records. Resolve an IPv4 address here so
+      // Nodemailer cannot randomly select an unreachable IPv6 address.
+      if (!net.isIP(EMAIL_HOST)) {
+        const ipv4Addresses = await dns.resolve4(EMAIL_HOST);
+        if (!ipv4Addresses.length) {
+          throw new Error(`No IPv4 address found for email host ${EMAIL_HOST}.`);
+        }
+        [connectionHost] = ipv4Addresses;
+      }
+
+      transporter = nodemailer.createTransport({
+        host: connectionHost,
+        port: EMAIL_PORT,
+        secure: EMAIL_SECURE,
+        auth: {
+          user: EMAIL_USER,
+          pass: EMAIL_PASSWORD,
+        },
+        tls: net.isIP(EMAIL_HOST) ? undefined : { servername: EMAIL_HOST },
+      });
+
+      return transporter;
+    })().catch((error) => {
+      transporterPromise = null;
+      throw error;
     });
   }
 
-  return transporter;
+  return transporterPromise;
 }
-
 async function sendVerificationCode(toEmail, code) {
   if (!isEmailConfigured()) {
     throw new Error('Email service is not configured.');
   }
 
-  const transport = createTransporter();
+  const transport = await createTransporter();
   if (!transport) {
     throw new Error('Email service failed to initialize.');
   }
@@ -123,7 +150,7 @@ async function sendPasswordResetCode(toEmail, code, options = {}) {
     throw new Error('Email service is not configured.');
   }
 
-  const transport = createTransporter();
+  const transport = await createTransporter();
   if (!transport) {
     throw new Error('Email service failed to initialize.');
   }
