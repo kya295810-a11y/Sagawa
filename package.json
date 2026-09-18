@@ -66,5 +66,14 @@
     "dev:android": "expo start --dev-client",
     "build:android": "expo run:android"
   },
-  "private": true
+  "private": true,
+  "expo": {
+    "doctor": {
+      "reactNativeDirectoryCheck": {
+        "exclude": [
+          "react-native-nitro-google-signin"
+        ]
+      }
+    }
+  }
 }
