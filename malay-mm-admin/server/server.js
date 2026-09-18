@@ -61,7 +61,7 @@ const {
   isGoogleAuthConfigured,
   verifyGoogleIdToken,
 } = require('./google-auth');
-const { scheduleUserSheetSync } = require('./google-sheets-sync');
+const { scheduleUserSheetSync, verifySheetAccess } = require('./google-sheets-sync');
 
 const app = express();
 
@@ -1817,7 +1817,13 @@ if (require.main === module) {
     console.log(`Listening on ${HOST}:${PORT}`);
     console.log(`CORS origins: ${allowedCorsOrigins.join(', ')}`);
     console.log(`[Email] SMTP configured: ${isEmailConfigured() ? 'yes' : 'no'}`);
-    console.log(`[SheetsSync] Enabled: ${/^(1|true|yes)$/i.test(String(process.env.GOOGLE_SHEETS_SYNC_ENABLED || '')) ? 'yes' : 'no'}`);
+    const sheetsSyncEnabled = /^(1|true|yes)$/i.test(String(process.env.GOOGLE_SHEETS_SYNC_ENABLED || ''));
+    console.log(`[SheetsSync] Enabled: ${sheetsSyncEnabled ? 'yes' : 'no'}`);
+    if (sheetsSyncEnabled) {
+      verifySheetAccess()
+        .then(() => console.log('[SheetsSync] Access verified.'))
+        .catch((error) => console.error('[SheetsSync] Access check failed:', error.message));
+    }
     console.log('==========================================');
   });
 

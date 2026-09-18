@@ -333,7 +333,7 @@ async function readSheetUserRows(config) {
   const columnRange = `${quoteSheetTitle(config.tabName)}!A${config.dataStartRow}:A`;
   const url =
     `${spreadsheetValuesBaseUrl(config)}/${encodeRange(columnRange)}` +
-    '?majorDimension=COLUMMNS&valueRenderOption=UNFORMATTED_VALUE';
+    '?majorDimension=COLUMNS&valueRenderOption=UNFORMATTED_VALUE';
 
   const body = await googleRequest(config, url);
   const ids = Array.isArray(body?.values?.[0]) ? body.values[0] : [];
@@ -355,6 +355,19 @@ async function readSheetUserRows(config) {
   }
 
   return rowByUserId;
+}
+
+async function verifySheetAccess() {
+  const config = getConfig();
+  if (!config.enabled) return { skipped: true, reason: 'disabled' };
+
+  const probeRange = `${quoteSheetTitle(config.tabName)}!A1:A1`;
+  const url =
+    `${spreadsheetValuesBaseUrl(config)}/${encodeRange(probeRange)}` +
+    '?majorDimension=ROWS&valueRenderOption=UNFORMATTED_VALUE';
+
+  await googleRequest(config, url);
+  return { ok: true };
 }
 
 async function batchUpdateExistingRows(config, updates) {
@@ -573,6 +586,7 @@ module.exports = {
   scheduleUserSheetSync,
   syncAllUsersToSheet,
   syncUserToSheet,
+  verifySheetAccess,
   __test: {
     clearTokenCache,
     mergePendingSync,
