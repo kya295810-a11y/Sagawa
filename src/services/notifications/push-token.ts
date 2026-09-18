@@ -34,7 +34,7 @@ export type RegisterPushTokenResult =
   | { status: 'unsupported' };
 
 export async function registerPushToken(): Promise<RegisterPushTokenResult> {
-  if (Constants.appOwnership === 'expo') {
+  if (Constants.executionEnvironment === 'storeClient') {
     return { status: 'unsupported' };
   }
 
