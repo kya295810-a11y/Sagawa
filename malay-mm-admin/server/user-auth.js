@@ -90,6 +90,13 @@ async function loginOrRegisterGoogleUser(identity) {
       const existingUser = emailResult.rows[0];
 
       if (existingUser) {
+        if (existingUser.password_hash) {
+          const conflict = new Error('An account with this email already exists. Sign in with your Sagawa password first, then link Google from account settings.');
+          conflict.statusCode = 409;
+          conflict.code = 'google_link_required';
+          throw conflict;
+        }
+
         const existingIdentity = await client.query(
           "SELECT provider_subject FROM user_identities WHERE user_id = $1 AND provider = 'google'",
           [existingUser.id],
