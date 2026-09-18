@@ -63,7 +63,7 @@ export default function SignupScreen() {
         };
       }>('/api/auth/register', {
         method: 'POST',
-        body: JSON.stringify({ email: normalizedEmail, password }),
+        body: JSON.stringify({ email: normalizedEmail, password, platform: Platform.OS }),
       });
       await useAuthStore.getState().setSession(
         {
