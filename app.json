@@ -36,7 +36,8 @@
       "expo-localization",
       "expo-asset",
       "expo-image",
-      "expo-notifications"
+      "expo-notifications",
+      "react-native-nitro-google-signin"
     ],
     "experiments": {
       "typedRoutes": true,
