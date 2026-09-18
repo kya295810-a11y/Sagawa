@@ -57,12 +57,10 @@ export default function TermsScreen() {
         ))}
         <View style={styles.card}>
           <Text style={styles.title}>Contact</Text>
-          <Text style={styles.body}>
-            Sagawa{'
-'}Developer: Kyaw San Lin{'
-'}Website: https://kyawsanlin.com{'
-'}Email: sagawaap@gmail.com
-          </Text>
+          <Text style={styles.body}>Sagawa</Text>
+          <Text style={styles.body}>Developer: Kyaw San Lin</Text>
+          <Text style={styles.body}>Website: https://kyawsanlin.com</Text>
+          <Text style={styles.body}>Email: sagawaap@gmail.com</Text>
         </View>
       </ScrollView>
     </SafeAreaView>
