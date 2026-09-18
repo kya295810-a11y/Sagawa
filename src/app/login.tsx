@@ -38,6 +38,7 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [loggingIn, setLoggingIn] = useState(false);
   const [googleLoggingIn, setGoogleLoggingIn] = useState(false);
+  const [guestContinuing, setGuestContinuing] = useState(false);
   const passwordInputRef = useRef<TextInput>(null);
 
   const togglePasswordVisibility = () => {
@@ -265,6 +266,23 @@ export default function LoginScreen() {
     }
   };
 
+  const handleGuestContinue = async () => {
+    if (guestContinuing || googleLoggingIn || loggingIn) {
+      return;
+    }
+
+    try {
+      setGuestContinuing(true);
+      await useAuthStore.getState().continueAsGuest();
+      router.replace('/(tabs)' as Href);
+    } catch (error) {
+      console.error('Guest mode error:', error);
+      Alert.alert('Unable to Continue', 'Guest mode could not be started. Please try again.');
+    } finally {
+      setGuestContinuing(false);
+    }
+  };
+
   return (
     <View style={styles.screen}>
       <StatusBar style="light" />
@@ -445,53 +463,50 @@ export default function LoginScreen() {
                 <View style={styles.divider} />
               </View>
 
-              {/* Social buttons */}
+              {/* Sign-in options */}
               <View style={styles.socialRow}>
                 <Pressable
                   onPress={() => void handleGoogleLogin()}
-                  disabled={googleLoggingIn || loggingIn}
+                  disabled={googleLoggingIn || loggingIn || guestContinuing}
+                  accessibilityRole="button"
+                  accessibilityLabel="Continue with Google"
                   style={({ pressed }) => [
                     styles.socialButton,
                     pressed && styles.socialPressed,
-                    (googleLoggingIn || loggingIn) && { opacity: 0.6 },
+                    (googleLoggingIn || loggingIn || guestContinuing) && { opacity: 0.6 },
                   ]}
                 >
-                  <Text
-                    style={styles.googleIcon}
-                    allowFontScaling={false}
-                  >
+                  <Text style={styles.googleIcon} allowFontScaling={false}>
                     G
                   </Text>
 
-                  <Text
-                    style={styles.socialText}
-                    allowFontScaling={false}
-                  >
+                  <Text style={styles.socialText} allowFontScaling={false}>
                     {googleLoggingIn ? "Signing in..." : "Google"}
                   </Text>
                 </Pressable>
 
                 <Pressable
+                  onPress={() => void handleGuestContinue()}
+                  disabled={guestContinuing || googleLoggingIn || loggingIn}
+                  accessibilityRole="button"
+                  accessibilityLabel="Continue as guest"
                   style={({ pressed }) => [
                     styles.socialButton,
                     pressed && styles.socialPressed,
+                    (guestContinuing || googleLoggingIn || loggingIn) && { opacity: 0.6 },
                   ]}
                 >
-                  <Text
-                    style={styles.appleIcon}
-                    allowFontScaling={false}
-                  >
-                    ●
-                  </Text>
-
-                  <Text
-                    style={styles.socialText}
-                    allowFontScaling={false}
-                  >
-                    Apple
+                  <Ionicons name="person-outline" size={18} color="#FFFFFF" />
+                  <Text style={styles.socialText} allowFontScaling={false}>
+                    {guestContinuing ? "Opening..." : "Guest"}
                   </Text>
                 </Pressable>
               </View>
+
+              <Text style={styles.guestNote} allowFontScaling={false}>
+                Guest mode can read public content without creating an account. Account and profile
+                features require sign in.
+              </Text>
 
               {/* Sign up */}
               <View style={styles.signupRow}>
@@ -792,18 +807,21 @@ const styles = StyleSheet.create({
     includeFontPadding: false,
   },
 
-  appleIcon: {
-    fontSize: 14,
-    lineHeight: 18,
-    color: "#FFFFFF",
-    includeFontPadding: false,
-  },
-
   socialText: {
     fontSize: 14,
     lineHeight: 18,
     fontWeight: "600",
     color: "#FFFFFF",
+    includeFontPadding: false,
+  },
+
+  guestNote: {
+    marginTop: 10,
+    paddingHorizontal: 6,
+    textAlign: "center",
+    fontSize: 11,
+    lineHeight: 16,
+    color: "rgba(255,255,255,0.64)",
     includeFontPadding: false,
   },
 
