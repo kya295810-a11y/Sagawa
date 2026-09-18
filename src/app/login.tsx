@@ -92,86 +92,173 @@ export default function LoginScreen() {
     }
   };
 
+  const persistGoogleSession = async (response: {
+    success: boolean;
+    data?: {
+      accessToken?: string;
+      refreshToken?: string;
+      expiresAt?: string;
+      profileCompleted?: boolean;
+      user?: { id?: string; email?: string };
+    };
+    message?: string;
+  }) => {
+    if (!response.success || !response.data?.accessToken || !response.data.user?.id) {
+      throw new Error(response.message || 'Unable to complete Google sign-in.');
+    }
+
+    await useAuthStore.getState().setSession(
+      {
+        expiresAt: response.data.expiresAt || null,
+        profileCompleted: Boolean(response.data.profileCompleted),
+        user: {
+          id: response.data.user.id,
+          email: response.data.user.email,
+        },
+      },
+      {
+        accessToken: response.data.accessToken,
+        refreshToken: response.data.refreshToken || response.data.accessToken,
+      },
+    );
+
+    router.replace((response.data.profileCompleted ? '/(tabs)' : '/complete-profile') as Href);
+  };
+
+  const handleNativeGoogleLogin = async () => {
+    const configResponse = await apiRequest<{
+      success: boolean;
+      data?: { webClientId?: string; nonce?: string };
+      message?: string;
+    }>('/api/auth/google/native-config');
+
+    const webClientId = configResponse.data?.webClientId;
+    const nonce = configResponse.data?.nonce;
+    if (!configResponse.success || !webClientId || !nonce) {
+      throw new Error(configResponse.message || 'Google sign-in is unavailable.');
+    }
+
+    const {
+      GoogleOneTapSignIn,
+      isCancelledResponse,
+      isNoSavedCredentialFoundResponse,
+      isSuccessResponse,
+    } = await import('react-native-nitro-google-signin');
+
+    GoogleOneTapSignIn.configure({
+      webClientId,
+      nonce,
+      autoSelectOnSignIn: false,
+    });
+
+    await GoogleOneTapSignIn.checkPlayServices();
+
+    let googleResponse = await GoogleOneTapSignIn.createAccount();
+    if (isNoSavedCredentialFoundResponse(googleResponse)) {
+      googleResponse = await GoogleOneTapSignIn.presentExplicitSignIn();
+    }
+
+    if (isCancelledResponse(googleResponse)) {
+      return;
+    }
+    if (!isSuccessResponse(googleResponse) || !googleResponse.data.idToken) {
+      throw new Error('Google account selection did not complete.');
+    }
+
+    const response = await apiRequest<{
+      success: boolean;
+      data?: {
+        accessToken?: string;
+        refreshToken?: string;
+        expiresAt?: string;
+        profileCompleted?: boolean;
+        user?: { id?: string; email?: string };
+      };
+      message?: string;
+    }>('/api/auth/google/native', {
+      method: 'POST',
+      body: JSON.stringify({
+        idToken: googleResponse.data.idToken,
+        nonce,
+      }),
+    });
+
+    await persistGoogleSession(response);
+  };
+
+  const handleBrowserGoogleLogin = async () => {
+    const startResponse = await apiRequest<{
+      success: boolean;
+      data?: { authorizationUrl?: string };
+      message?: string;
+    }>('/api/auth/google/start');
+
+    const authorizationUrl = startResponse.data?.authorizationUrl;
+    if (!startResponse.success || !authorizationUrl) {
+      throw new Error(startResponse.message || 'Google sign-in is unavailable.');
+    }
+
+    const redirectUri = Linking.createURL('auth/google');
+    const result = await WebBrowser.openAuthSessionAsync(authorizationUrl, redirectUri);
+
+    if (result.type === 'cancel' || result.type === 'dismiss') {
+      return;
+    }
+    if (result.type !== 'success' || !result.url) {
+      throw new Error('Google sign-in could not be completed.');
+    }
+
+    const parsed = Linking.parse(result.url);
+    const query = parsed.queryParams ?? {};
+    const errorCode = typeof query.error === 'string' ? query.error : '';
+    const errorDescription =
+      typeof query.error_description === 'string' ? query.error_description : '';
+
+    if (errorCode) {
+      throw new Error(errorDescription || 'Google sign-in failed.');
+    }
+
+    const code = typeof query.code === 'string' ? query.code : '';
+    if (!code) {
+      throw new Error('Google sign-in response is missing the authorization code.');
+    }
+
+    const response = await apiRequest<{
+      success: boolean;
+      data?: {
+        accessToken?: string;
+        refreshToken?: string;
+        expiresAt?: string;
+        profileCompleted?: boolean;
+        user?: { id?: string; email?: string };
+      };
+      message?: string;
+    }>('/api/auth/google/exchange', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    });
+
+    await persistGoogleSession(response);
+  };
+
   const handleGoogleLogin = async () => {
     try {
       setGoogleLoggingIn(true);
 
-      const startResponse = await apiRequest<{
-        success: boolean;
-        data?: { authorizationUrl?: string };
-        message?: string;
-      }>('/api/auth/google/start');
-
-      const authorizationUrl = startResponse.data?.authorizationUrl;
-      if (!startResponse.success || !authorizationUrl) {
-        throw new Error(startResponse.message || 'Google sign-in is unavailable.');
+      if (Platform.OS === 'android') {
+        await handleNativeGoogleLogin();
+      } else {
+        await handleBrowserGoogleLogin();
       }
-
-      const redirectUri = Linking.createURL('auth/google');
-      const result = await WebBrowser.openAuthSessionAsync(authorizationUrl, redirectUri);
-
-      if (result.type === 'cancel' || result.type === 'dismiss') {
-        return;
-      }
-      if (result.type !== 'success' || !result.url) {
-        throw new Error('Google sign-in could not be completed.');
-      }
-
-      const parsed = Linking.parse(result.url);
-      const query = parsed.queryParams ?? {};
-      const errorCode = typeof query.error === 'string' ? query.error : '';
-      const errorDescription =
-        typeof query.error_description === 'string' ? query.error_description : '';
-
-      if (errorCode) {
-        throw new Error(errorDescription || 'Google sign-in failed.');
-      }
-
-      const code = typeof query.code === 'string' ? query.code : '';
-      if (!code) {
-        throw new Error('Google sign-in response is missing the authorization code.');
-      }
-
-      const response = await apiRequest<{
-        success: boolean;
-        data?: {
-          accessToken?: string;
-          refreshToken?: string;
-          expiresAt?: string;
-          profileCompleted?: boolean;
-          user?: { id?: string; email?: string };
-        };
-        message?: string;
-      }>('/api/auth/google/exchange', {
-        method: 'POST',
-        body: JSON.stringify({ code }),
-      });
-
-      if (!response.success || !response.data?.accessToken || !response.data.user?.id) {
-        throw new Error(response.message || 'Unable to complete Google sign-in.');
-      }
-
-      await useAuthStore.getState().setSession(
-        {
-          expiresAt: response.data.expiresAt || null,
-          profileCompleted: Boolean(response.data.profileCompleted),
-          user: {
-            id: response.data.user.id,
-            email: response.data.user.email,
-          },
-        },
-        {
-          accessToken: response.data.accessToken,
-          refreshToken: response.data.refreshToken || response.data.accessToken,
-        },
-      );
-
-      router.replace((response.data.profileCompleted ? '/(tabs)' : '/complete-profile') as Href);
     } catch (error) {
       console.error('Google login error:', error);
+      const message =
+        error instanceof Error ? error.message : 'Unable to sign in with Google.';
       Alert.alert(
         'Google Sign In Failed',
-        error instanceof Error ? error.message : 'Unable to sign in with Google.',
+        message.includes('NitroGoogleSignin')
+          ? 'Native Google Sign-In is not installed in this development build. Rebuild Sagawa for Android once.'
+          : message,
       );
     } finally {
       setGoogleLoggingIn(false);

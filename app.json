@@ -8,7 +8,7 @@
     "scheme": "sagawa",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "bundleIdentifier": "com.anonymous.sagawa"
+      "bundleIdentifier": "com.kyawsanlin.sagawa"
     },
     "android": {
       "adaptiveIcon": {
@@ -16,7 +16,7 @@
         "foregroundImage": "./assets/images/sagawa-icon.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.anonymous.sagawa"
+      "package": "com.kyawsanlin.sagawa"
     },
     "web": {
       "output": "static",

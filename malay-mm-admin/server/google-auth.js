@@ -5,6 +5,7 @@ const GOOGLE_TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
 const GOOGLE_JWKS_ENDPOINT = 'https://www.googleapis.com/oauth2/v3/certs';
 
 const STATE_TTL_MS = 10 * 60 * 1000;
+const NATIVE_NONCE_TTL_MS = 5 * 60 * 1000;
 const CLOCK_SKEW_SECONDS = 60;
 const DEFAULT_JWKS_TTL_MS = 60 * 60 * 1000;
 const MAX_JWKS_TTL_MS = 24 * 60 * 60 * 1000;
@@ -106,6 +107,17 @@ function verifyState(state) {
   }
 
   return payload;
+}
+
+function createNativeGoogleConfig() {
+  const webClientId = requiredEnv('GOOGLE_CLIENT_ID');
+  const nonce = signState({
+    v: 1,
+    nonce: crypto.randomBytes(24).toString('base64url'),
+    exp: Date.now() + NATIVE_NONCE_TTL_MS,
+  });
+
+  return { webClientId, nonce };
 }
 
 function createGoogleAuthorizationUrl() {
@@ -252,8 +264,11 @@ async function verifyGoogleIdToken(idToken, expectedNonce) {
   if (Number.isFinite(payload.iat) && payload.iat > now + CLOCK_SKEW_SECONDS) {
     throw authError('Google identity token is not yet valid.', 401, 'invalid_google_token');
   }
-  if (payload.nonce !== expectedNonce) {
-    throw authError('Google identity token nonce mismatch.', 401, 'invalid_google_token');
+  if (typeof expectedNonce === 'string' && expectedNonce) {
+    verifyState(expectedNonce);
+    if (payload.nonce !== expectedNonce) {
+      throw authError('Google identity token nonce mismatch.', 401, 'invalid_google_token');
+    }
   }
   if (payload.email_verified !== true || typeof payload.email !== 'string' || !payload.email) {
     throw authError('Google account email is not verified.', 401, 'invalid_google_token');
@@ -317,6 +332,8 @@ async function authenticateGoogleCallback(code, state) {
 module.exports = {
   authenticateGoogleCallback,
   createGoogleAuthorizationUrl,
+  createNativeGoogleConfig,
   getGoogleAppRedirectUri,
   isGoogleAuthConfigured,
+  verifyGoogleIdToken,
 };

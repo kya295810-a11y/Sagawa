@@ -39,6 +39,7 @@ const {
 } = require('./auth');
 const {
   consumeOAuthHandoff,
+  createMobileSessionForUser,
   createOAuthHandoff,
   getMobileSession,
   loginOrRegisterGoogleUser,
@@ -55,8 +56,10 @@ const { isEmailConfigured, sendVerificationCode, sendPasswordResetCode } = requi
 const {
   authenticateGoogleCallback,
   createGoogleAuthorizationUrl,
+  createNativeGoogleConfig,
   getGoogleAppRedirectUri,
   isGoogleAuthConfigured,
+  verifyGoogleIdToken,
 } = require('./google-auth');
 
 const app = express();
@@ -291,6 +294,62 @@ app.get('/api/auth/google/start', (req, res) => {
     return res.status(status).json({
       success: false,
       message: status >= 500 ? 'Google sign-in is unavailable.' : error.message,
+      code: error.code || 'google_auth_error',
+    });
+  }
+});
+
+app.get('/api/auth/google/native-config', (req, res) => {
+  try {
+    return res.json({
+      success: true,
+      data: createNativeGoogleConfig(),
+    });
+  } catch (error) {
+    const status = Number(error.statusCode) || 500;
+    if (status >= 500) console.error('[Auth] Native Google config failed:', error.message);
+    return res.status(status).json({
+      success: false,
+      message: status >= 500 ? 'Google sign-in is unavailable.' : error.message,
+      code: error.code || 'google_auth_error',
+    });
+  }
+});
+
+app.post('/api/auth/google/native', async (req, res) => {
+  const idToken = req.body?.idToken;
+  const nonce = req.body?.nonce;
+
+  if (typeof idToken !== 'string' || !idToken || typeof nonce !== 'string' || !nonce) {
+    return res.status(400).json({
+      success: false,
+      message: 'Google identity token and nonce are required.',
+      code: 'invalid_google_native_request',
+    });
+  }
+
+  try {
+    const identity = await verifyGoogleIdToken(idToken, nonce);
+    const googleUser = await loginOrRegisterGoogleUser(identity);
+    const session = await createMobileSessionForUser(googleUser.user.id);
+
+    if (!session) {
+      throw new Error('Google-authenticated user could not be loaded.');
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        ...session,
+        authenticated: true,
+      },
+    });
+  } catch (error) {
+    const status = Number(error.statusCode) || 500;
+    if (status >= 500) console.error('[Auth] Native Google sign-in failed:', error.message);
+    return res.status(status).json({
+      success: false,
+      message: status >= 500 ? 'Unable to complete Google sign-in.' : error.message,
       code: error.code || 'google_auth_error',
     });
   }

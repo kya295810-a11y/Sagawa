@@ -219,6 +219,38 @@ async function consumeOAuthHandoff(code) {
   }
 }
 
+async function createMobileSessionForUser(userId) {
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+    const userResult = await client.query(
+      'SELECT id, email FROM users WHERE id = $1',
+      [userId],
+    );
+    const user = userResult.rows[0];
+
+    if (!user) {
+      await client.query('ROLLBACK');
+      return null;
+    }
+
+    const profileCompleted = await getProfileCompleted(client, user.id);
+    const session = await createUserSession(client, user.id);
+    await client.query('COMMIT');
+
+    return {
+      user: publicUser(user),
+      profileCompleted,
+      ...session,
+    };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function createUserSession(client, userId) {
   const accessToken = createOpaqueToken();
   const refreshToken = createOpaqueToken();
@@ -510,6 +542,7 @@ async function logoutMobileSession(req) {
 
 module.exports = {
   consumeOAuthHandoff,
+  createMobileSessionForUser,
   createOAuthHandoff,
   getMobileSession,
   loginOrRegisterGoogleUser,
