@@ -36,10 +36,10 @@ type ExchangeResponse = {
   data?: {
     rate?: number | string;
     updatedAt?: string;
-    rates?: Array<{
+    rates?: {
       currency?: string;
       buy?: number | string;
-    }>;
+    }[];
   };
 };
 
@@ -222,10 +222,6 @@ export default function ExchangeScreen() {
 
   const clearAmount = () => {
     setAmount('');
-  };
-
-  const resetAmount = () => {
-    setAmount('100');
   };
 
   const styles = createStyles(theme.colors);
