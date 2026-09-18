@@ -49,6 +49,113 @@ function publicUser(row) {
   return { id: row.id, email: row.email };
 }
 
+async function getProfileCompleted(client, userId) {
+  const result = await client.query(
+    'SELECT profile_completed FROM profiles WHERE user_id = $1',
+    [userId],
+  );
+  return Boolean(result.rows[0]?.profile_completed);
+}
+
+async function loginOrRegisterGoogleUser(identity) {
+  const email = normalizeEmail(identity?.email);
+  const providerSubject = String(identity?.sub || '').trim();
+
+  if (!validateEmail(email) || !providerSubject) {
+    const error = new Error('Verified Google account information is incomplete.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+
+    const identityResult = await client.query(
+      `SELECT u.id, u.email
+         FROM user_identities i
+         JOIN users u ON u.id = i.user_id
+        WHERE i.provider = 'google' AND i.provider_subject = $1
+        FOR UPDATE OF i`,
+      [providerSubject],
+    );
+
+    let user = identityResult.rows[0];
+
+    if (!user) {
+      const emailResult = await client.query(
+        'SELECT id, email, password_hash FROM users WHERE lower(email) = $1 FOR UPDATE',
+        [email],
+      );
+      const existingUser = emailResult.rows[0];
+
+      if (existingUser) {
+        const existingIdentity = await client.query(
+          "SELECT provider_subject FROM user_identities WHERE user_id = $1 AND provider = 'google'",
+          [existingUser.id],
+        );
+        if (existingIdentity.rows[0]?.provider_subject && existingIdentity.rows[0].provider_subject !== providerSubject) {
+          const conflict = new Error('This email is already linked to a different Google account.');
+          conflict.statusCode = 409;
+          throw conflict;
+        }
+
+        await client.query(
+          `INSERT INTO user_identities (user_id, provider, provider_subject, email_at_link)
+           VALUES ($1, 'google', $2, $3)
+           ON CONFLICT (provider, provider_subject) DO NOTHING`,
+          [existingUser.id, providerSubject, email],
+        );
+        user = existingUser;
+      } else {
+        const userResult = await client.query(
+          `INSERT INTO users (id, email, password_hash)
+           VALUES ($1, $2, NULL)
+           RETURNING id, email`,
+          [crypto.randomUUID(), email],
+        );
+        user = userResult.rows[0];
+
+        await client.query(
+          `INSERT INTO user_identities (user_id, provider, provider_subject, email_at_link)
+           VALUES ($1, 'google', $2, $3)`,
+          [user.id, providerSubject, email],
+        );
+
+        await client.query(
+          `INSERT INTO profiles (user_id, name, profile_completed)
+           VALUES ($1, $2, false)`,
+          [user.id, String(identity?.name || '').trim().slice(0, 120)],
+        );
+      }
+    }
+
+    const profileExists = await client.query('SELECT 1 FROM profiles WHERE user_id = $1', [user.id]);
+    if (!profileExists.rows[0]) {
+      await client.query(
+        `INSERT INTO profiles (user_id, name, profile_completed)
+         VALUES ($1, $2, false)`,
+        [user.id, String(identity?.name || '').trim().slice(0, 120)],
+      );
+    }
+
+    const profileCompleted = await getProfileCompleted(client, user.id);
+    const session = await createUserSession(client, user.id);
+    await client.query('COMMIT');
+
+    return {
+      user: publicUser(user),
+      profileCompleted,
+      ...session,
+    };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function createUserSession(client, userId) {
   const accessToken = createOpaqueToken();
   const refreshToken = createOpaqueToken();
@@ -340,6 +447,7 @@ async function logoutMobileSession(req) {
 
 module.exports = {
   getMobileSession,
+  loginOrRegisterGoogleUser,
   loginUser,
   logoutMobileSession,
   normalizeEmail,
