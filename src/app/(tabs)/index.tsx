@@ -17,6 +17,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 
 import { useAppTheme } from '@/theme/provider';
 import { useSettingsStore } from '@/store/settings-store';
+import { useAuthStore } from '@/store/auth-store';
 import type { ThemeColors } from '@/theme/types';
 import { useProfile } from '@/features/profile/hooks';
 
@@ -57,8 +58,11 @@ export default function HomeScreen() {
 
   const { theme } = useAppTheme();
 
+  const isGuest = useAuthStore((state) => state.status === 'guest');
   const profileQuery = useProfile();
-  const userName = profileQuery.data?.name || (profileQuery.isLoading ? '…' : 'there');
+  const userName = isGuest
+    ? 'Guest'
+    : profileQuery.data?.name || (profileQuery.isLoading ? '…' : 'there');
 
   const styles = createStyles(theme.colors);
 
