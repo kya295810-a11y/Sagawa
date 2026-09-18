@@ -51,30 +51,48 @@ test('platform values match the Sheet dropdown options', () => {
   assert.equal(sheetsSync.__test.normalizePlatform('unknown'), '');
 });
 
-test('snapshot rows match the Sagawa User Details column order', () => {
+test('existing rows update only backend-managed A:H columns', () => {
   const snapshot = {
     userId: 'user-1',
     name: 'Example User',
     email: 'user@example.com',
     phone: '+60123456789',
     loginMethod: 'Google',
-    platform: 'android',
+    platform: 'Android',
     registeredAt: '2026-09-18T10:00:00.000Z',
     lastLogin: '2026-09-18T11:00:00.000Z',
-    status: 'Active',
-    role: 'User',
   };
 
-  assert.deepEqual(sheetsSync.__test.snapshotToRow(snapshot), [
+  assert.deepEqual(sheetsSync.__test.snapshotToManagedRow(snapshot), [
     'user-1',
     'Example User',
     'user@example.com',
     '+60123456789',
     'Google',
-    'android',
+    'Android',
+    '2026-09-18T10:00:00.000Z',
+    '2026-09-18T11:00:00.000Z',
+  ]);
+
+  assert.deepEqual(sheetsSync.__test.snapshotToNewRow(snapshot), [
+    'user-1',
+    'Example User',
+    'user@example.com',
+    '+60123456789',
+    'Google',
+    'Android',
     '2026-09-18T10:00:00.000Z',
     '2026-09-18T11:00:00.000Z',
     'Active',
     'User',
   ]);
+});
+
+
+test('pending sync coalesces duplicate user events', () => {
+  const existing = { userId: 'user-1', platform: 'iOS', force: false };
+  assert.deepEqual(
+    sheetsSync.__test.mergePendingSync(existing, { platform: 'android', force: true }),
+    { userId: 'user-1', platform: 'Android', force: true },
+  );
 });
