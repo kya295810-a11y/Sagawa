@@ -38,7 +38,10 @@ const {
   verifyPassword,
 } = require('./auth');
 const {
+  consumeOAuthHandoff,
+  createOAuthHandoff,
   getMobileSession,
+  loginOrRegisterGoogleUser,
   loginUser,
   logoutMobileSession,
   normalizeEmail,
@@ -49,6 +52,12 @@ const {
   requireMobileUser,
 } = require('./user-auth');
 const { isEmailConfigured, sendVerificationCode, sendPasswordResetCode } = require('./email');
+const {
+  authenticateGoogleCallback,
+  createGoogleAuthorizationUrl,
+  getGoogleAppRedirectUri,
+  isGoogleAuthConfigured,
+} = require('./google-auth');
 
 const app = express();
 
@@ -256,6 +265,97 @@ app.post('/api/auth/register', async (req, res) => {
     return res.status(status).json({
       success: false,
       message: status >= 500 ? 'Unable to create account.' : error.message,
+    });
+  }
+});
+
+app.get('/api/auth/google/start', (req, res) => {
+  if (!isGoogleAuthConfigured()) {
+    return res.status(503).json({
+      success: false,
+      message: 'Google sign-in is not configured yet.',
+      code: 'google_auth_not_configured',
+    });
+  }
+
+  try {
+    return res.json({
+      success: true,
+      data: {
+        authorizationUrl: createGoogleAuthorizationUrl(),
+      },
+    });
+  } catch (error) {
+    const status = Number(error.statusCode) || 500;
+    if (status >= 500) console.error('[Auth] Google start failed:', error.message);
+    return res.status(status).json({
+      success: false,
+      message: status >= 500 ? 'Google sign-in is unavailable.' : error.message,
+      code: error.code || 'google_auth_error',
+    });
+  }
+});
+
+app.get('/api/auth/google/callback', async (req, res) => {
+  const appRedirectUri = getGoogleAppRedirectUri();
+  const redirectToApp = (params) => {
+    const url = new URL(appRedirectUri);
+    for (const [key, value] of Object.entries(params)) {
+      if (value !== undefined && value !== null && value !== '') {
+        url.searchParams.set(key, String(value));
+      }
+    }
+    return res.redirect(302, url.toString());
+  };
+
+  if (req.query?.error) {
+    return redirectToApp({
+      error: String(req.query.error).slice(0, 80),
+      error_description: String(req.query.error_description || 'Google sign-in was cancelled.').slice(0, 240),
+    });
+  }
+
+  try {
+    const identity = await authenticateGoogleCallback(req.query?.code, req.query?.state);
+    const user = await loginOrRegisterGoogleUser(identity);
+    const handoffCode = await createOAuthHandoff(user.user.id);
+
+    return redirectToApp({
+      code: handoffCode,
+    });
+  } catch (error) {
+    const status = Number(error.statusCode) || 500;
+    if (status >= 500) console.error('[Auth] Google callback failed:', error.message);
+    return redirectToApp({
+      error: error.code || 'google_auth_error',
+      error_description: status >= 500 ? 'Google sign-in is temporarily unavailable.' : error.message,
+    });
+  }
+});
+
+app.post('/api/auth/google/exchange', async (req, res) => {
+  try {
+    const session = await consumeOAuthHandoff(req.body?.code);
+    if (!session) {
+      return res.status(401).json({
+        success: false,
+        message: 'Google sign-in code is invalid or expired.',
+        code: 'invalid_google_handoff',
+      });
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        ...session,
+        authenticated: true,
+      },
+    });
+  } catch (error) {
+    console.error('[Auth] Google exchange failed:', error.message);
+    return res.status(500).json({
+      success: false,
+      message: 'Unable to complete Google sign-in.',
     });
   }
 });
