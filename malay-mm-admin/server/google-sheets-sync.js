@@ -255,6 +255,7 @@ function snapshotToManagedRow(snapshot) {
     snapshot.name,
     snapshot.email,
     snapshot.age,
+    snapshot.gender,
     snapshot.loginMethod,
     snapshot.platform,
     snapshot.registeredAt,
@@ -279,6 +280,7 @@ async function getUserSnapshots(userItems) {
        COALESCE(p.name, '') AS name,
        u.email,
        COALESCE(p.age::text, '') AS age,
+       COALESCE(INITCAP(p.gender), '') AS gender,
        CASE
          WHEN u.password_hash IS NOT NULL
               AND EXISTS (
@@ -318,6 +320,7 @@ async function getUserSnapshots(userItems) {
     name: String(row.name || ''),
     email: String(row.email || ''),
     age: String(row.age || ''),
+    gender: String(row.gender || ''),
     loginMethod: String(row.loginMethod || 'Password'),
     platform: platformByUserId.get(String(row.userId)) || '',
     registeredAt: toIsoString(row.registeredAt),
@@ -427,7 +430,7 @@ async function syncUserBatch(userItems, options = {}) {
   for (const snapshot of snapshots) {
     const existingRow = rowByUserId.get(snapshot.userId);
     if (existingRow) {
-      // A:H are backend-managed. I:J (Status/Role) are intentionally admin-managed.
+      // A:I are backend-managed. J:K (Status/Role) are intentionally admin-managed.
       updates.push({ rowNumber: existingRow, values: snapshotToManagedRow(snapshot) });
     } else {
       appends.push(snapshotToNewRow(snapshot));
