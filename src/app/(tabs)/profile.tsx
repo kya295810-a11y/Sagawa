@@ -155,7 +155,6 @@ export default function ProfileScreen() {
 
   useEffect(() => {
     if (isGuest) {
-      setProfileImageHeaders({});
       return;
     }
 
@@ -169,6 +168,8 @@ export default function ProfileScreen() {
       active = false;
     };
   }, [isGuest, profile.profileImage]);
+
+  const profileImageRequestHeaders = isGuest ? undefined : profileImageHeaders;
 
   const toggleTheme = () => {
     useSettingsStore.setState({
@@ -487,7 +488,7 @@ export default function ProfileScreen() {
             <View style={styles.avatar}>
               {avatarUri && !profileImageFailed ? (
                 <Image
-                  source={{ uri: avatarUri, headers: profileImageHeaders }}
+                  source={{ uri: avatarUri, headers: profileImageRequestHeaders }}
                   style={styles.avatarImage}
                   onError={() => setProfileImageFailed(true)}
                 />
