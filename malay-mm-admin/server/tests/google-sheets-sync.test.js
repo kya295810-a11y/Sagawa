@@ -51,12 +51,13 @@ test('platform values match the Sheet dropdown options', () => {
   assert.equal(sheetsSync.__test.normalizePlatform('unknown'), '');
 });
 
-test('existing rows update only backend-managed A:H columns', () => {
+test('existing rows update only backend-managed A:I columns', () => {
   const snapshot = {
     userId: 'user-1',
     name: 'Example User',
     email: 'user@example.com',
     age: '22',
+    gender: 'Male',
     loginMethod: 'Google',
     platform: 'Android',
     registeredAt: '2026-09-18T10:00:00.000Z',
@@ -68,6 +69,7 @@ test('existing rows update only backend-managed A:H columns', () => {
     'Example User',
     'user@example.com',
     '22',
+    'Male',
     'Google',
     'Android',
     '2026-09-18T10:00:00.000Z',
