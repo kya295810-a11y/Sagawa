@@ -43,10 +43,12 @@ test('sheet titles are escaped safely for A1 notation', () => {
   assert.equal(sheetsSync.__test.quoteSheetTitle("O'Reilly"), "'O''Reilly'");
 });
 
-test('platform values are bounded and have a safe fallback', () => {
-  assert.equal(sheetsSync.__test.normalizePlatform('android'), 'android');
-  assert.equal(sheetsSync.__test.normalizePlatform(''), 'Mobile');
-  assert.equal(sheetsSync.__test.normalizePlatform('x'.repeat(100)).length, 40);
+test('platform values match the Sheet dropdown options', () => {
+  assert.equal(sheetsSync.__test.normalizePlatform('android'), 'Android');
+  assert.equal(sheetsSync.__test.normalizePlatform('ios'), 'iOS');
+  assert.equal(sheetsSync.__test.normalizePlatform('ANDROID'), 'Android');
+  assert.equal(sheetsSync.__test.normalizePlatform(''), '');
+  assert.equal(sheetsSync.__test.normalizePlatform('unknown'), '');
 });
 
 test('snapshot rows match the Sagawa User Details column order', () => {
