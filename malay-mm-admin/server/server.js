@@ -61,6 +61,7 @@ const {
   isGoogleAuthConfigured,
   verifyGoogleIdToken,
 } = require('./google-auth');
+const { scheduleUserSheetSync } = require('./google-sheets-sync');
 
 const app = express();
 
@@ -266,6 +267,7 @@ app.use(
 app.post('/api/auth/register', async (req, res) => {
   try {
     const result = await registerUser(req.body?.email, req.body?.password);
+    scheduleUserSheetSync(result.user.id, { platform: req.body?.platform || 'Mobile' });
     return res.status(201).json({
       success: true,
       data: { ...result, profileCompleted: false },
@@ -345,6 +347,8 @@ app.post('/api/auth/google/native', async (req, res) => {
       throw new Error('Google-authenticated user could not be loaded.');
     }
 
+    scheduleUserSheetSync(session.user.id, { platform: req.body?.platform || 'Mobile' });
+
     return res.json({
       success: true,
       data: {
@@ -411,6 +415,8 @@ app.post('/api/auth/google/exchange', async (req, res) => {
       });
     }
 
+    scheduleUserSheetSync(session.user.id, { platform: req.body?.platform || 'Mobile' });
+
     return res.json({
       success: true,
       data: {
@@ -449,6 +455,7 @@ app.post('/api/auth/login', async (req, res) => {
         'SELECT profile_completed FROM profiles WHERE user_id = $1',
         [mobileSession.user.id],
       );
+      scheduleUserSheetSync(mobileSession.user.id, { platform: req.body?.platform || 'Mobile' });
       return res.json({
         success: true,
         data: {
@@ -503,6 +510,7 @@ app.post('/api/auth/refresh', async (req, res) => {
       'SELECT profile_completed FROM profiles WHERE user_id = $1',
       [session.user.id],
     );
+    scheduleUserSheetSync(session.user.id, { platform: req.body?.platform || 'Mobile' });
     return res.json({
       success: true,
       data: { ...session, profileCompleted: Boolean(profileResult.rows[0]?.profile_completed) },
@@ -1637,6 +1645,7 @@ app.put('/api/profile', requireMobileUser, async (req, res) => {
     if (!result.rows[0]) {
       return res.status(404).json({ success: false, message: 'Profile not found.' });
     }
+    scheduleUserSheetSync(req.mobileUser.id, { platform: req.body?.platform || 'Mobile' });
     return res.json({ success: true, data: profilePayload(result.rows[0]) });
   } catch (error) {
     console.error('[Profile] Save failed:', error.message);
@@ -1809,6 +1818,7 @@ if (require.main === module) {
     console.log(`Listening on ${HOST}:${PORT}`);
     console.log(`CORS origins: ${allowedCorsOrigins.join(', ')}`);
     console.log(`[Email] SMTP configured: ${isEmailConfigured() ? 'yes' : 'no'}`);
+    console.log(`[SheetsSync] Enabled: ${/^(1|true|yes)$/i.test(String(process.env.GOOGLE_SHEETS_SYNC_ENABLED || '')) ? 'yes' : 'no'}`);
     console.log('==========================================');
   });
 
