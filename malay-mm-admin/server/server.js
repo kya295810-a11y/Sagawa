@@ -1644,7 +1644,7 @@ app.put('/api/profile', requireMobileUser, async (req, res) => {
     if (!result.rows[0]) {
       return res.status(404).json({ success: false, message: 'Profile not found.' });
     }
-    scheduleUserSheetSync(req.mobileUser.id, { platform: req.body?.platform || 'Mobile' });
+    scheduleUserSheetSync(req.mobileUser.id, { platform: req.body?.platform || 'Mobile', force: true });
     return res.json({ success: true, data: profilePayload(result.rows[0]) });
   } catch (error) {
     console.error('[Profile] Save failed:', error.message);
