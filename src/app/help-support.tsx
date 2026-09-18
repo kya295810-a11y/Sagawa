@@ -20,11 +20,13 @@ import { useAppTheme } from '@/theme/provider';
 import { apiRequest } from '@/services/api/client';
 import { ApiError } from '@/services/api/errors';
 import { ApiResponse, Profile } from '@/types/profile';
+import { useAuthStore } from '@/store/auth-store';
 
 export default function HelpSupportScreen() {
   const router = useRouter();
   const { theme } = useAppTheme();
   const styles = createStyles(theme.colors);
+  const isGuest = useAuthStore((state) => state.status === 'guest');
 
   const [name, setName] = useState('');
   const [contact, setContact] = useState('');
@@ -35,6 +37,11 @@ export default function HelpSupportScreen() {
   useFocusEffect(
     useCallback(() => {
       if (prefilled) {
+        return;
+      }
+
+      if (isGuest) {
+        setPrefilled(true);
         return;
       }
 
@@ -66,7 +73,7 @@ export default function HelpSupportScreen() {
       return () => {
         cancelled = true;
       };
-    }, [prefilled]),
+    }, [isGuest, prefilled]),
   );
 
   const submitMessage = async () => {
