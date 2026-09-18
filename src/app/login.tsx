@@ -13,7 +13,9 @@ import {
   ImageBackground,
 } from "react-native";
 import { BlurView } from "expo-blur";
+import * as Linking from "expo-linking";
 import { router, type Href } from "expo-router";
+import * as WebBrowser from "expo-web-browser";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { apiRequest } from '@/services/api/client';
@@ -35,6 +37,7 @@ export default function LoginScreen() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loggingIn, setLoggingIn] = useState(false);
+  const [googleLoggingIn, setGoogleLoggingIn] = useState(false);
   const passwordInputRef = useRef<TextInput>(null);
 
   const togglePasswordVisibility = () => {
@@ -86,6 +89,92 @@ export default function LoginScreen() {
       Alert.alert('Sign In Failed', error instanceof Error ? error.message : 'Unable to sign in.');
     } finally {
       setLoggingIn(false);
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    try {
+      setGoogleLoggingIn(true);
+
+      const startResponse = await apiRequest<{
+        success: boolean;
+        data?: { authorizationUrl?: string };
+        message?: string;
+      }>('/api/auth/google/start');
+
+      const authorizationUrl = startResponse.data?.authorizationUrl;
+      if (!startResponse.success || !authorizationUrl) {
+        throw new Error(startResponse.message || 'Google sign-in is unavailable.');
+      }
+
+      const redirectUri = Linking.createURL('auth/google');
+      const result = await WebBrowser.openAuthSessionAsync(authorizationUrl, redirectUri);
+
+      if (result.type === 'cancel' || result.type === 'dismiss') {
+        return;
+      }
+      if (result.type !== 'success' || !result.url) {
+        throw new Error('Google sign-in could not be completed.');
+      }
+
+      const parsed = Linking.parse(result.url);
+      const query = parsed.queryParams ?? {};
+      const errorCode = typeof query.error === 'string' ? query.error : '';
+      const errorDescription =
+        typeof query.error_description === 'string' ? query.error_description : '';
+
+      if (errorCode) {
+        throw new Error(errorDescription || 'Google sign-in failed.');
+      }
+
+      const code = typeof query.code === 'string' ? query.code : '';
+      if (!code) {
+        throw new Error('Google sign-in response is missing the authorization code.');
+      }
+
+      const response = await apiRequest<{
+        success: boolean;
+        data?: {
+          accessToken?: string;
+          refreshToken?: string;
+          expiresAt?: string;
+          profileCompleted?: boolean;
+          user?: { id?: string; email?: string };
+        };
+        message?: string;
+      }>('/api/auth/google/exchange', {
+        method: 'POST',
+        body: JSON.stringify({ code }),
+      });
+
+      if (!response.success || !response.data?.accessToken || !response.data.user?.id) {
+        throw new Error(response.message || 'Unable to complete Google sign-in.');
+      }
+
+      await useAuthStore.getState().setSession(
+        {
+          expiresAt: response.data.expiresAt || null,
+          profileCompleted: Boolean(response.data.profileCompleted),
+          user: {
+            id: response.data.user.id,
+            email: response.data.user.email,
+          },
+        },
+        {
+          accessToken: response.data.accessToken,
+          refreshToken: response.data.refreshToken || response.data.accessToken,
+        },
+      );
+
+      router.replace((response.data.profileCompleted ? '/(tabs)' : '/complete-profile') as Href);
+    } catch (error) {
+      console.error('Google login error:', error);
+      Alert.alert(
+        'Google Sign In Failed',
+        error instanceof Error ? error.message : 'Unable to sign in with Google.',
+      );
+    } finally {
+      setGoogleLoggingIn(false);
     }
   };
 
@@ -272,9 +361,12 @@ export default function LoginScreen() {
               {/* Social buttons */}
               <View style={styles.socialRow}>
                 <Pressable
+                  onPress={() => void handleGoogleLogin()}
+                  disabled={googleLoggingIn || loggingIn}
                   style={({ pressed }) => [
                     styles.socialButton,
                     pressed && styles.socialPressed,
+                    (googleLoggingIn || loggingIn) && { opacity: 0.6 },
                   ]}
                 >
                   <Text
@@ -288,7 +380,7 @@ export default function LoginScreen() {
                     style={styles.socialText}
                     allowFontScaling={false}
                   >
-                    Google
+                    {googleLoggingIn ? "Signing in..." : "Google"}
                   </Text>
                 </Pressable>
 
