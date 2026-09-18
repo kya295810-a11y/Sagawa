@@ -65,7 +65,7 @@ export default function LoginScreen() {
         message?: string;
       }>('/api/auth/login', {
         method: 'POST',
-        body: JSON.stringify({ email: email.trim(), password, accountType: 'mobile' }),
+        body: JSON.stringify({ email: email.trim(), password, accountType: 'mobile', platform: Platform.OS }),
       });
 
       if (!response.success || !response.data?.accessToken) {
@@ -181,6 +181,7 @@ export default function LoginScreen() {
       body: JSON.stringify({
         idToken: googleResponse.data.idToken,
         nonce,
+        platform: Platform.OS,
       }),
     });
 
@@ -236,7 +237,7 @@ export default function LoginScreen() {
       message?: string;
     }>('/api/auth/google/exchange', {
       method: 'POST',
-      body: JSON.stringify({ code }),
+      body: JSON.stringify({ code, platform: Platform.OS }),
     });
 
     await persistGoogleSession(response);

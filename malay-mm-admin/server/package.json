@@ -9,6 +9,7 @@
     "admin:set-password": "node scripts/set-admin-password.js",
     "db:migrate": "node scripts/migrate.js",
     "db:migrate-user-profiles": "node scripts/migrate-user-profiles.js",
+    "users:sync-sheet": "node scripts/sync-users-to-sheets.js",
     "start": "node server.js"
   },
   "keywords": [],
