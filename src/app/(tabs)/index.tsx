@@ -16,7 +16,6 @@ import { StatusBar } from 'expo-status-bar';
 import { useFocusEffect, useRouter } from 'expo-router';
 
 import { useAppTheme } from '@/theme/provider';
-import { useSettingsStore } from '@/store/settings-store';
 import type { ThemeColors } from '@/theme/types';
 import { useProfile } from '@/features/profile/hooks';
 
@@ -56,16 +55,6 @@ export default function HomeScreen() {
   const router = useRouter();
 
   const { theme } = useAppTheme();
-
-  /*
-   * Read the current global theme preference.
-   *
-   * The actual resolved light/dark state comes from
-   * AppThemeProvider through theme.isDark.
-   */
-  const themePreference = useSettingsStore(
-    (state) => state.themePreference,
-  );
 
   const profileQuery = useProfile();
   const userName = profileQuery.data?.name || (profileQuery.isLoading ? '…' : 'there');
