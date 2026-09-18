@@ -16,7 +16,10 @@ function RootNavigator() {
   const { theme } = useAppTheme();
   const status = useAuthStore((state) => state.status);
   const profileCompleted = useAuthStore((state) => state.session?.profileCompleted ?? false);
+
   const isAuthenticated = status === 'authenticated';
+  const isGuest = status === 'guest';
+  const canUseApp = isGuest || (isAuthenticated && profileCompleted);
 
   return (
     <>
@@ -31,24 +34,31 @@ function RootNavigator() {
         }}
       >
         <Stack.Screen name="index" />
+
         <Stack.Protected guard={!isAuthenticated}>
           <Stack.Screen name="login" />
           <Stack.Screen name="signup" />
           <Stack.Screen name="forgot-password" />
         </Stack.Protected>
+
         <Stack.Protected guard={isAuthenticated && !profileCompleted}>
           <Stack.Screen name="complete-profile" />
         </Stack.Protected>
-        <Stack.Protected guard={isAuthenticated && profileCompleted}>
+
+        <Stack.Protected guard={canUseApp}>
           <Stack.Screen name="(tabs)" />
-          <Stack.Screen name="perdonal-information" />
-          <Stack.Screen name="help-support" />
-          <Stack.Screen name="about" />
-          <Stack.Screen name="privacy-policy" />
-          <Stack.Screen name="terms" />
           <Stack.Screen name="news/[id]" />
           <Stack.Screen name="services/[id]" />
         </Stack.Protected>
+
+        <Stack.Protected guard={isAuthenticated && profileCompleted}>
+          <Stack.Screen name="perdonal-information" />
+        </Stack.Protected>
+
+        <Stack.Screen name="help-support" />
+        <Stack.Screen name="about" />
+        <Stack.Screen name="privacy-policy" />
+        <Stack.Screen name="terms" />
       </Stack>
     </>
   );
