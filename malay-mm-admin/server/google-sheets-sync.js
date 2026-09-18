@@ -209,8 +209,10 @@ async function googleRequest(config, url, options = {}, allowAuthRetry = true) {
 }
 
 function normalizePlatform(value) {
-  const platform = String(value || '').trim().slice(0, 40);
-  return platform || 'Mobile';
+  const platform = String(value || '').trim().toLowerCase();
+  if (platform === 'ios') return 'iOS';
+  if (platform === 'android') return 'Android';
+  return '';
 }
 
 function toIsoString(value) {
