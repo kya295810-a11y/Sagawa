@@ -7,6 +7,7 @@ const ACCESS_TOKEN_TTL_MS = 15 * 60 * 1000;
 const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const PASSWORD_RESET_TTL_MS = 10 * 60 * 1000;
 const PASSWORD_RESET_MAX_ATTEMPTS = 5;
+const OAUTH_HANDOFF_TTL_MS = 2 * 60 * 1000;
 const BCRYPT_ROUNDS = 12;
 const SESSION_MAX_PER_USER = Math.min(
   100,
@@ -144,6 +145,61 @@ async function loginOrRegisterGoogleUser(identity) {
          VALUES ($1, $2, false)`,
         [user.id, String(identity?.name || '').trim().slice(0, 120)],
       );
+    }
+
+    const profileCompleted = await getProfileCompleted(client, user.id);
+    await client.query('COMMIT');
+
+    return {
+      user: publicUser(user),
+      profileCompleted,
+    };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function createOAuthHandoff(userId) {
+  const code = createOpaqueToken();
+  const expiresAt = new Date(Date.now() + OAUTH_HANDOFF_TTL_MS);
+  await db.query('DELETE FROM user_oauth_handoffs WHERE expires_at <= NOW()');
+  await db.query(
+    `INSERT INTO user_oauth_handoffs (id, user_id, code_hash, expires_at)
+     VALUES ($1, $2, $3, $4)`,
+    [crypto.randomUUID(), userId, tokenHash(code), expiresAt],
+  );
+  return code;
+}
+
+async function consumeOAuthHandoff(code) {
+  if (typeof code !== 'string' || !code || code.length > 256) return null;
+
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await client.query(
+      `DELETE FROM user_oauth_handoffs
+        WHERE code_hash = $1 AND expires_at > NOW()
+        RETURNING user_id`,
+      [tokenHash(code)],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      await client.query('ROLLBACK');
+      return null;
+    }
+
+    const userResult = await client.query(
+      'SELECT id, email FROM users WHERE id = $1',
+      [row.user_id],
+    );
+    const user = userResult.rows[0];
+    if (!user) {
+      await client.query('ROLLBACK');
+      return null;
     }
 
     const profileCompleted = await getProfileCompleted(client, user.id);
@@ -453,6 +509,8 @@ async function logoutMobileSession(req) {
 }
 
 module.exports = {
+  consumeOAuthHandoff,
+  createOAuthHandoff,
   getMobileSession,
   loginOrRegisterGoogleUser,
   loginUser,
