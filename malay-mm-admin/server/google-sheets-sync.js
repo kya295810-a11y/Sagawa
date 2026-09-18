@@ -378,7 +378,7 @@ async function batchUpdateExistingRows(config, updates) {
 
   const url = `${spreadsheetValuesBaseUrl(config)}:batchUpdate`;
   const data = updates.map(({ rowNumber, values }) => ({
-    range: `${quoteSheetTitle(config.tabName)}!A${rowNumber}:H${rowNumber}`,
+    range: `${quoteSheetTitle(config.tabName)}!A${rowNumber}:I${rowNumber}`,
     majorDimension: 'ROWS',
     values: [values],
   }));
@@ -392,7 +392,7 @@ async function batchUpdateExistingRows(config, updates) {
 async function appendNewRows(config, rows) {
   if (!rows.length) return;
 
-  const appendRange = `${quoteSheetTitle(config.tabName)}!A${config.dataStartRow}:J`;
+  const appendRange = `${quoteSheetTitle(config.tabName)}!A${config.dataStartRow}:K`;
   const url =
     `${spreadsheetValuesBaseUrl(config)}/${encodeRange(appendRange)}:append` +
     '?valueInputOption=RAW&insertDataOption=INSERT_ROWS';
