@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback } from 'react';
 import { create } from 'zustand';
 
@@ -6,29 +7,66 @@ import { queryClient } from '@/lib/query-client';
 import { apiRequest } from '@/services/api/client';
 import { clearTokens, getStoredTokens, saveTokens } from '@/services/auth/token-storage';
 
+const GUEST_MODE_KEY = 'auth.guestMode';
+
 type AuthState = {
   hydrated: boolean;
   session: AuthSession | null;
   status: AuthStatus;
   clearSession: () => Promise<void>;
+  continueAsGuest: () => Promise<void>;
+  exitGuest: () => Promise<void>;
   hydrateSession: () => Promise<void>;
   markProfileCompleted: () => void;
   setSession: (session: AuthSession, tokens: AuthTokens) => Promise<void>;
 };
 
+async function clearGuestMode() {
+  await AsyncStorage.removeItem(GUEST_MODE_KEY);
+}
+
 export const useAuthStore = create<AuthState>((set) => ({
   clearSession: async () => {
-    await clearTokens();
+    await Promise.all([clearTokens(), clearGuestMode()]);
     queryClient.clear();
     set({
+      hydrated: true,
       session: null,
       status: 'anonymous',
     });
   },
+
+  continueAsGuest: async () => {
+    await clearTokens();
+    await AsyncStorage.setItem(GUEST_MODE_KEY, '1');
+    queryClient.clear();
+    set({
+      hydrated: true,
+      session: null,
+      status: 'guest',
+    });
+  },
+
+  exitGuest: async () => {
+    await clearGuestMode();
+    queryClient.clear();
+    set({
+      hydrated: true,
+      session: null,
+      status: 'anonymous',
+    });
+  },
+
   hydrateSession: async () => {
     const tokens = await getStoredTokens();
+
     if (!tokens) {
-      set({ hydrated: true, session: null, status: 'anonymous' });
+      const guestMode = await AsyncStorage.getItem(GUEST_MODE_KEY);
+      set({
+        hydrated: true,
+        session: null,
+        status: guestMode === '1' ? 'guest' : 'anonymous',
+      });
       return;
     }
 
@@ -47,7 +85,8 @@ export const useAuthStore = create<AuthState>((set) => ({
         method: 'POST',
         body: JSON.stringify({ refreshToken: tokens.refreshToken }),
       });
-      await saveTokens(response.data);
+
+      await Promise.all([saveTokens(response.data), clearGuestMode()]);
       set({
         hydrated: true,
         session: {
@@ -59,24 +98,35 @@ export const useAuthStore = create<AuthState>((set) => ({
       });
     } catch {
       await clearTokens();
+      const guestMode = await AsyncStorage.getItem(GUEST_MODE_KEY);
       queryClient.clear();
-      set({ hydrated: true, session: null, status: 'anonymous' });
+      set({
+        hydrated: true,
+        session: null,
+        status: guestMode === '1' ? 'guest' : 'anonymous',
+      });
     }
   },
+
   hydrated: false,
+
   markProfileCompleted: () =>
     set((state) => ({
       session: state.session ? { ...state.session, profileCompleted: true } : state.session,
     })),
+
   session: null,
+
   setSession: async (session, tokens) => {
     queryClient.clear();
-    await saveTokens(tokens);
+    await Promise.all([saveTokens(tokens), clearGuestMode()]);
     set({
+      hydrated: true,
       session,
       status: 'authenticated',
     });
   },
+
   status: 'anonymous',
 }));
 
