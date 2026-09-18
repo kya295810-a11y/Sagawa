@@ -16,6 +16,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useFocusEffect, useRouter } from 'expo-router';
 
 import { useAppTheme } from '@/theme/provider';
+import { useSettingsStore } from '@/store/settings-store';
 import type { ThemeColors } from '@/theme/types';
 import { useProfile } from '@/features/profile/hooks';
 
