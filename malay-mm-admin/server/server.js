@@ -214,6 +214,14 @@ const resendLimiter = rateLimit({
   message: { success: false, message: 'Too many code requests. Try again later.' },
 });
 
+const supportLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 5,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many support messages. Try again later.' },
+});
+
 app.use(cors(corsOptions));
 app.options('/{*splat}', cors(corsOptions));
 app.use('/api/auth', authLimiter);
@@ -882,6 +890,7 @@ app.post('/api/auth/passkey/registration', requireAdmin, async (req, res) => {
 app.use('/api', (req, res, next) => {
   if (req.path.startsWith('/auth/') || req.path === '/auth/me') return next();
   if (req.path === '/profile' || req.path.startsWith('/profile/')) return next();
+  if (req.path === '/support' && req.method === 'POST') return next();
   if (req.method === 'GET') return next();
   return requireAdmin(req, res, next);
 });
@@ -1699,34 +1708,47 @@ app.post('/api/profile/image', requireMobileUser, profileUploadMiddleware, async
   }
 });
 
-app.post('/api/support', (req, res) => {
-  const body = req.body || {};
+app.post('/api/support', supportLimiter, (req, res) => {
+  try {
+    const body = req.body || {};
+    const name = boundedText(body.name, 100, 'Name');
+    const contact = boundedText(body.contact, 200, 'Contact');
+    const text = boundedText(body.message, 2000, 'Support message');
 
-  const message = {
-    id: Date.now(),
-    name: String(body.name || '').trim(),
-    contact: String(body.contact || '').trim(),
-    message: String(body.message || '').trim(),
-    createdAt: new Date().toISOString(),
-  };
+    if (!text) {
+      return res.status(400).json({
+        success: false,
+        message: 'Support message is required.',
+      });
+    }
 
-  if (!message.message) {
-    return res.status(400).json({
+    const message = {
+      id: crypto.randomUUID(),
+      name,
+      contact,
+      message: text,
+      createdAt: new Date().toISOString(),
+    };
+
+    const stored = readJson(supportFile, []);
+    const messages = Array.isArray(stored) ? stored : [];
+    messages.unshift(message);
+
+    // Bound local storage growth. Keep only the newest 500 records.
+    writeJson(supportFile, messages.slice(0, 500));
+
+    return res.status(201).json({
+      success: true,
+      data: { id: message.id, createdAt: message.createdAt },
+    });
+  } catch (error) {
+    const status = Number(error.statusCode) || 500;
+    if (status >= 500) console.error('[Support] Submit failed:', error.message);
+    return res.status(status).json({
       success: false,
-      message: 'Support message is required.',
+      message: status >= 500 ? 'Unable to send support message.' : error.message,
     });
   }
-
-  const messages = readJson(supportFile, []);
-
-  messages.unshift(message);
-
-  writeJson(supportFile, messages);
-
-  res.status(201).json({
-    success: true,
-    data: message,
-  });
 });
 
 app.post('/api/notifications/register-token', (req, res) => {
