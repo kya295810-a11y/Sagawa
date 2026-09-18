@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import { apiRequest } from '@/services/api/client';
 import { ApiResponse, Profile } from '@/types/profile';
 
@@ -16,7 +17,7 @@ export async function getProfile() {
 export async function updateProfile(input: ProfileInput) {
   const response = await apiRequest<ApiResponse<Profile>>('/api/profile', {
     method: 'PUT',
-    body: JSON.stringify(input),
+    body: JSON.stringify({ ...input, platform: Platform.OS }),
   });
   return response.data;
 }
