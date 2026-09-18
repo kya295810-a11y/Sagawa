@@ -143,15 +143,22 @@ export default function ProfileScreen() {
   const isDark = theme.isDark;
   const styles = createStyles(theme.colors, isDark);
 
+  const authStatus = useAuthStore((state) => state.status);
+  const isGuest = authStatus === 'guest';
   const profileQuery = useProfile();
   const imageUpload = useUploadProfileImage();
   const profile = profileQuery.data ?? EMPTY_PROFILE;
-  const loading = profileQuery.isLoading;
+  const loading = !isGuest && profileQuery.isLoading;
   const uploadingImage = imageUpload.isPending;
   const [profileImageFailed, setProfileImageFailed] = useState(false);
   const [profileImageHeaders, setProfileImageHeaders] = useState<Record<string, string>>({});
 
   useEffect(() => {
+    if (isGuest) {
+      setProfileImageHeaders({});
+      return;
+    }
+
     let active = true;
     void getStoredTokens().then((tokens) => {
       if (active && tokens?.accessToken) {
@@ -161,7 +168,7 @@ export default function ProfileScreen() {
     return () => {
       active = false;
     };
-  }, [profile.profileImage]);
+  }, [isGuest, profile.profileImage]);
 
   const toggleTheme = () => {
     useSettingsStore.setState({
@@ -205,6 +212,11 @@ export default function ProfileScreen() {
   };
 
   const selectProfileImage = async () => {
+    if (isGuest) {
+      Alert.alert('Sign In Required', 'Create an account or sign in to add a profile picture.');
+      return;
+    }
+
     try {
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
 
@@ -283,6 +295,13 @@ export default function ProfileScreen() {
   };
 
   const handleLogout = () => {
+    if (isGuest) {
+      void useAuthStore.getState().exitGuest().then(() => {
+        router.replace('/login');
+      });
+      return;
+    }
+
     Alert.alert(
       'Log Out',
       'Are you sure you want to log out?',
@@ -344,6 +363,76 @@ export default function ProfileScreen() {
     </View>
   );
 
+  if (isGuest) {
+    return (
+      <SafeAreaView style={styles.safeArea} edges={['top']}>
+        <StatusBar style={theme.statusBarStyle} />
+        <ScrollView
+          style={styles.container}
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.header}>
+            <Text style={styles.headerTitle} allowFontScaling={false}>
+              Profile
+            </Text>
+            <AppearanceSwitch value={isDark} onValueChange={toggleTheme} />
+          </View>
+
+          <View style={styles.guestHero}>
+            <View style={styles.guestAvatar}>
+              <Ionicons name="person-outline" size={34} color="#FFFFFF" />
+            </View>
+            <Text style={styles.guestTitle} allowFontScaling={false}>
+              Guest mode
+            </Text>
+            <Text style={styles.guestDescription} allowFontScaling={false}>
+              You can read public news, exchange rates, and services without an account. Sign in to
+              save and manage personal profile features.
+            </Text>
+
+            <View style={styles.guestActions}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Sign in"
+                onPress={() => router.push('/login')}
+                style={({ pressed }) => [styles.guestPrimaryButton, pressed && styles.pressed]}
+              >
+                <Text style={styles.guestPrimaryText}>Sign in</Text>
+              </Pressable>
+
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Create account"
+                onPress={() => router.push('/signup')}
+                style={({ pressed }) => [styles.guestSecondaryButton, pressed && styles.pressed]}
+              >
+                <Text style={styles.guestSecondaryText}>Create account</Text>
+              </Pressable>
+            </View>
+          </View>
+
+          <Text style={[styles.sectionLabel, styles.supportLabel]} allowFontScaling={false}>
+            SUPPORT
+          </Text>
+          {renderSection(SUPPORT_ITEMS)}
+
+          <Pressable
+            onPress={handleLogout}
+            accessibilityRole="button"
+            accessibilityLabel="Exit guest mode"
+            style={({ pressed }) => [styles.logoutRow, pressed && styles.pressed]}
+          >
+            <Ionicons name="exit-outline" size={21} color="#FF3B30" />
+            <Text style={styles.logoutText} allowFontScaling={false}>
+              Exit Guest Mode
+            </Text>
+          </Pressable>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
   if (loading) {
     return (
       <SafeAreaView style={styles.safeArea}>
@@ -355,7 +444,7 @@ export default function ProfileScreen() {
     );
   }
 
-  if (profileQuery.isError) {
+  if (!isGuest && profileQuery.isError) {
     return (
       <SafeAreaView style={styles.safeArea}>
         <StatusBar style={theme.statusBarStyle} />
@@ -501,6 +590,72 @@ const createStyles = (
       lineHeight: 40,
       fontWeight: '700',
       letterSpacing: -1.1,
+    },
+    guestHero: {
+      alignItems: 'center',
+      marginBottom: 8,
+      paddingHorizontal: 18,
+      paddingVertical: 24,
+      borderRadius: 18,
+      backgroundColor: colors.surface,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+    },
+    guestAvatar: {
+      width: 72,
+      height: 72,
+      borderRadius: 36,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.primary,
+      marginBottom: 14,
+    },
+    guestTitle: {
+      color: colors.text,
+      fontSize: 22,
+      lineHeight: 28,
+      fontWeight: '700',
+    },
+    guestDescription: {
+      marginTop: 8,
+      color: colors.textMuted,
+      fontSize: 14,
+      lineHeight: 21,
+      textAlign: 'center',
+    },
+    guestActions: {
+      alignSelf: 'stretch',
+      flexDirection: 'row',
+      gap: 10,
+      marginTop: 20,
+    },
+    guestPrimaryButton: {
+      flex: 1,
+      minHeight: 48,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: 14,
+      backgroundColor: colors.primary,
+    },
+    guestPrimaryText: {
+      color: '#FFFFFF',
+      fontSize: 15,
+      fontWeight: '700',
+    },
+    guestSecondaryButton: {
+      flex: 1,
+      minHeight: 48,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: 14,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    guestSecondaryText: {
+      color: colors.text,
+      fontSize: 15,
+      fontWeight: '700',
     },
     profileHeader: {
       minHeight: 78,
