@@ -44,6 +44,8 @@ function RootNavigator() {
           <Stack.Screen name="perdonal-information" />
           <Stack.Screen name="help-support" />
           <Stack.Screen name="about" />
+          <Stack.Screen name="privacy-policy" />
+          <Stack.Screen name="terms" />
           <Stack.Screen name="news/[id]" />
           <Stack.Screen name="services/[id]" />
         </Stack.Protected>
