@@ -254,7 +254,7 @@ function snapshotToManagedRow(snapshot) {
     snapshot.userId,
     snapshot.name,
     snapshot.email,
-    snapshot.phone,
+    snapshot.age,
     snapshot.loginMethod,
     snapshot.platform,
     snapshot.registeredAt,
@@ -278,7 +278,7 @@ async function getUserSnapshots(userItems) {
        u.id::text AS "userId",
        COALESCE(p.name, '') AS name,
        u.email,
-       COALESCE(p.phone_number, '') AS phone,
+       COALESCE(p.age::text, '') AS age,
        CASE
          WHEN u.password_hash IS NOT NULL
               AND EXISTS (
@@ -317,7 +317,7 @@ async function getUserSnapshots(userItems) {
     userId: String(row.userId),
     name: String(row.name || ''),
     email: String(row.email || ''),
-    phone: String(row.phone || ''),
+    age: String(row.age || ''),
     loginMethod: String(row.loginMethod || 'Password'),
     platform: platformByUserId.get(String(row.userId)) || '',
     registeredAt: toIsoString(row.registeredAt),
