@@ -1,4 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
+import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -193,8 +194,11 @@ export default function NewsScreen() {
   }, []);
 
   useEffect(() => {
-    // Expo Go does not support remote push notifications.
-    // Only enable notification listeners in a development/production build.
+    // Never load expo-notifications remote-push code inside Expo Go.
+    // Android remote push requires a development or production build.
+    if (Constants.executionEnvironment === 'storeClient') {
+      return;
+    }
 
     let isMounted = true;
     let subscription: { remove: () => void } | undefined;
