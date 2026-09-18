@@ -1,4 +1,4 @@
-export type AuthStatus = 'anonymous' | 'authenticated' | 'refreshing';
+export type AuthStatus = 'anonymous' | 'guest' | 'authenticated' | 'refreshing';
 
 export interface AuthTokens {
   accessToken: string;
