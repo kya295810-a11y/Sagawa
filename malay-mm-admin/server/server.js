@@ -510,7 +510,6 @@ app.post('/api/auth/refresh', async (req, res) => {
       'SELECT profile_completed FROM profiles WHERE user_id = $1',
       [session.user.id],
     );
-    scheduleUserSheetSync(session.user.id, { platform: req.body?.platform || 'Mobile' });
     return res.json({
       success: true,
       data: { ...session, profileCompleted: Boolean(profileResult.rows[0]?.profile_completed) },
