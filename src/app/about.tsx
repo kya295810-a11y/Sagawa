@@ -1,11 +1,12 @@
 import React from 'react';
-import { Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Stack, useRouter } from 'expo-router';
 import Constants from 'expo-constants';
 
+import SagawaFlowerLogo from '../../assets/images/sagawa-flower-logo.svg';
 import { useAppTheme } from '@/theme/provider';
 
 const FEATURES: { icon: keyof typeof Ionicons.glyphMap; label: string }[] = [
@@ -50,11 +51,10 @@ export default function AboutScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <Image
-          source={require('../../assets/images/sagawa-about-logo-full.png')}
-          style={styles.aboutLogo}
-          resizeMode="contain"
-          fadeDuration={0}
+        <SagawaFlowerLogo
+          width={164}
+          height={150}
+          preserveAspectRatio="xMidYMid meet"
           accessibilityLabel="Sagawa flower logo"
         />
 
@@ -174,9 +174,7 @@ export default function AboutScreen() {
           </Pressable>
         </View>
 
-        <Text style={styles.footer}>
-          Developer: Kyaw San Lin · kyawsanlin.com
-        </Text>
+        <Text style={styles.footer}>Developer: Kyaw San Lin · kyawsanlin.com</Text>
       </ScrollView>
     </SafeAreaView>
   );
@@ -215,12 +213,6 @@ const createStyles = (colors: {
       paddingBottom: 32,
       alignItems: 'center',
       gap: 14,
-    },
-    aboutLogo: {
-      width: 156,
-      height: 156,
-      marginTop: 8,
-      marginBottom: 6,
     },
     appName: {
       color: colors.text,
