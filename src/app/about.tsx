@@ -51,7 +51,7 @@ export default function AboutScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <SagawaLogo width={112} height={112} />
+        <SagawaLogo width={140} height={140} />
 
         <Text style={styles.appName}>Sagawa</Text>
         <Text style={styles.version}>Version {version}</Text>
