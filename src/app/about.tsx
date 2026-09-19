@@ -52,7 +52,7 @@ export default function AboutScreen() {
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.aboutLogo}>
-          <SagawaLogo width={112} height={112} />
+          <SagawaLogo width={132} height={132} />
         </View>
 
         <Text style={styles.appName}>Sagawa</Text>
@@ -133,7 +133,7 @@ export default function AboutScreen() {
         <View style={styles.sectionCard}>
           <Text style={styles.sectionTitle}>Privacy, legal terms & contact</Text>
 
-          <Pressable style={styles.linkRow} onPress={() => router.push('/privacy-policy')}>
+          <Pressable style={styles.linkRow} onPress={() => router.push('/privacy-policy' as never)}>
             <View style={styles.linkIcon}>
               <Ionicons name="lock-closed-outline" size={20} color={theme.colors.text} />
             </View>
@@ -146,7 +146,7 @@ export default function AboutScreen() {
 
           <View style={styles.dividerWide} />
 
-          <Pressable style={styles.linkRow} onPress={() => router.push('/terms')}>
+          <Pressable style={styles.linkRow} onPress={() => router.push('/terms' as never)}>
             <View style={styles.linkIcon}>
               <Ionicons name="document-text-outline" size={20} color={theme.colors.text} />
             </View>
@@ -214,10 +214,10 @@ const createStyles = (colors: {
       gap: 14,
     },
     aboutLogo: {
-      width: 112,
-      height: 112,
-      marginTop: 6,
-      marginBottom: 2,
+      width: 132,
+      height: 132,
+      marginTop: 2,
+      marginBottom: 0,
       alignItems: 'center',
       justifyContent: 'center',
     },
