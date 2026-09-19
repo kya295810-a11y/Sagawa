@@ -6,7 +6,7 @@ import { env } from '@/config/env';
  * configured API base URL. Absolute URLs are returned unchanged.
  * Never hard-code a host here — always read from env.
  */
-export function getMediaUrl(path?: string | null): string | undefined {
+export function resolveMediaUrl(path?: string | null): string | undefined {
   if (!path) {
     return undefined;
   }
@@ -24,3 +24,6 @@ export function getMediaUrl(path?: string | null): string | undefined {
 
   return `${base}${relative}`;
 }
+
+// Compatibility export for existing non-news screens.
+export const getMediaUrl = resolveMediaUrl;

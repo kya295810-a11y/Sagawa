@@ -1197,15 +1197,36 @@ textarea:focus-visible {
   border-bottom: 0;
 }
 
-.news-card > img {
+.news-card-media {
+  position: relative;
   width: 72px;
   height: 58px;
-
   border-radius: 11px;
 
-  object-fit: cover;
-
+  overflow: hidden;
   background: #eef2f6;
+}
+
+.news-card-media img {
+  width: 100%;
+  height: 100%;
+
+  object-fit: cover;
+}
+
+.media-play-badge {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  transform: translate(-50%, -50%);
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding-left: 2px;
+  border-radius: 50%;
+  color: #ffffff;
+  background: rgba(12, 24, 38, 0.72);
+  font-size: 11px;
 }
 
 .news-card-main {
@@ -1807,6 +1828,32 @@ textarea:focus-visible {
   margin-top: 15px;
 }
 
+.media-type-selector {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 15px;
+  padding: 4px;
+  border-radius: 12px;
+  background: #f0f4f8;
+}
+
+.media-type-selector button {
+  min-height: 36px;
+  border-radius: 9px;
+  color: #637083;
+  background: transparent;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.media-type-selector button.active {
+  color: #1688ff;
+  background: #ffffff;
+  box-shadow: 0 2px 8px rgba(34, 68, 102, 0.08);
+}
+
 .upload-card {
   padding: 14px;
 
@@ -2109,6 +2156,35 @@ textarea:focus-visible {
   margin-top: 10px;
 }
 
+.large-video-thumbnail {
+  position: relative;
+  height: 230px;
+  margin-bottom: 15px;
+  border-radius: 15px;
+  overflow: hidden;
+  background: #111827;
+}
+
+.large-video-thumbnail img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.large-video-thumbnail span {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  transform: translate(-50%, -50%);
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  padding-left: 3px;
+  border-radius: 50%;
+  color: #ffffff;
+  background: rgba(12, 24, 38, 0.75);
+}
+
 .preview-content h3 {
   margin: 7px 0;
 
@@ -2392,7 +2468,7 @@ textarea:focus-visible {
     align-items: start;
   }
 
-  .news-card > img {
+  .news-card-media {
     width: 62px;
     height: 52px;
   }

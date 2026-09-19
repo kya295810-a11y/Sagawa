@@ -62,6 +62,11 @@ const {
   verifyGoogleIdToken,
 } = require('./google-auth');
 const { scheduleUserSheetSync, verifySheetAccess } = require('./google-sheets-sync');
+const {
+  VIDEO_LIMIT_BYTES,
+  fileMatchesSignature,
+  validateUploadMetadata,
+} = require('./news-media');
 
 const app = express();
 
@@ -78,6 +83,16 @@ function boundedText(value, maxLength, fieldName) {
     throw error;
   }
   return text;
+}
+
+function cleanMediaUrl(value, fieldName) {
+  const url = boundedText(value, 4096, fieldName);
+  if (/^(?:data:|blob:|file:)/i.test(url)) {
+    const error = new Error(`${fieldName} must reference an uploaded file or an HTTP URL.`);
+    error.statusCode = 400;
+    throw error;
+  }
+  return url;
 }
 
 const profileUploadDir = path.join(__dirname, 'uploads', 'profile');
@@ -156,6 +171,145 @@ const profileUploadMiddleware = (req, res, next) => {
     });
   });
 };
+
+const defaultContentUploadDir = path.join(__dirname, 'uploads', 'content');
+const newsUploadDir = path.resolve(
+  process.env.NEWS_UPLOAD_DIR || path.join(defaultContentUploadDir, 'news'),
+);
+fs.mkdirSync(newsUploadDir, { recursive: true });
+
+if (process.env.NODE_ENV === 'production' && !process.env.NEWS_UPLOAD_DIR) {
+  console.warn(
+    '[News] NEWS_UPLOAD_DIR is not configured. Uploaded media may be lost on an ephemeral host.',
+  );
+}
+
+const newsStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, newsUploadDir),
+  filename: (_req, file, cb) => {
+    try {
+      const { extension } = validateUploadMetadata({ ...file, size: 0 });
+      cb(null, `news-${file.fieldname}-${crypto.randomUUID()}${extension}`);
+    } catch (error) {
+      cb(error);
+    }
+  },
+});
+
+const newsUpload = multer({
+  storage: newsStorage,
+  limits: { fileSize: VIDEO_LIMIT_BYTES, files: 3, fields: 12 },
+  fileFilter: (_req, file, cb) => {
+    try {
+      validateUploadMetadata({ ...file, size: 0 });
+      cb(null, true);
+    } catch (error) {
+      cb(error);
+    }
+  },
+});
+
+function removeUploadedFiles(files) {
+  for (const file of Object.values(files || {}).flat()) {
+    try {
+      fs.unlinkSync(file.path);
+    } catch {
+      // Best-effort cleanup of rejected or unused uploads.
+    }
+  }
+}
+
+const newsUploadMiddleware = (req, res, next) => {
+  newsUpload.fields([
+    { name: 'image', maxCount: 1 },
+    { name: 'video', maxCount: 1 },
+    { name: 'thumbnail', maxCount: 1 },
+  ])(req, res, (error) => {
+    if (error) {
+      removeUploadedFiles(req.files);
+      const tooLarge = error.code === 'LIMIT_FILE_SIZE' || error.statusCode === 413;
+      return res.status(tooLarge ? 413 : 422).json({
+        success: false,
+        message: tooLarge
+          ? 'Video must be 100 MB or smaller; images must be 10 MB or smaller.'
+          : error.message || 'Invalid news media upload.',
+      });
+    }
+
+    try {
+      for (const file of Object.values(req.files || {}).flat()) {
+        validateUploadMetadata(file);
+        if (!fileMatchesSignature(file.path, file.mimetype, fs)) {
+          throw Object.assign(new Error(`${file.fieldname} file contents do not match its type.`), {
+            statusCode: 422,
+          });
+        }
+      }
+      next();
+    } catch (validationError) {
+      removeUploadedFiles(req.files);
+      return res.status(validationError.statusCode || 422).json({
+        success: false,
+        message: validationError.message || 'Invalid news media upload.',
+      });
+    }
+  });
+};
+
+function parseBoolean(value, fallback) {
+  if (value === undefined) return fallback;
+  if (typeof value === 'boolean') return value;
+  return /^(1|true|yes|on)$/i.test(String(value));
+}
+
+function newsFileUrl(file) {
+  return file ? `/uploads/content/news/${file.filename}` : '';
+}
+
+function normalizeMediaType(value, imageUrl, videoUrl) {
+  if (value === 'image' || value === 'video') return value;
+  return videoUrl ? 'video' : imageUrl ? 'image' : 'image';
+}
+
+function mapNewsRow(row) {
+  const imageUrl = row.image_url || row.image_name || '';
+  const videoUrl = row.video_url || '';
+  const thumbnailUrl = row.thumbnail_url || (videoUrl ? imageUrl : '') || '';
+  const mediaType = normalizeMediaType(row.media_type, imageUrl, videoUrl);
+  return {
+    id: row.id,
+    title: row.title,
+    description: row.description,
+    mediaType,
+    imageUrl,
+    videoUrl,
+    thumbnailUrl,
+    published: row.published,
+    date: row.date,
+    // Transitional aliases for older app builds.
+    image: mediaType === 'video' ? thumbnailUrl : imageUrl,
+    video: videoUrl,
+  };
+}
+
+function localNewsFilePath(mediaUrl) {
+  const prefix = '/uploads/content/news/';
+  if (!mediaUrl || !String(mediaUrl).startsWith(prefix)) return null;
+  const candidate = path.resolve(newsUploadDir, path.basename(String(mediaUrl)));
+  return candidate.startsWith(`${newsUploadDir}${path.sep}`) ? candidate : null;
+}
+
+function removeStoredNewsMedia(...urls) {
+  for (const url of new Set(urls.filter(Boolean))) {
+    const filePath = localNewsFilePath(url);
+    if (!filePath) continue;
+    try {
+      fs.unlinkSync(filePath);
+    } catch (error) {
+      if (error.code !== 'ENOENT') console.error('[News] Media cleanup failed:', error.message);
+    }
+  }
+}
 
 const PORT = Number(process.env.API_PORT || process.env.PORT || 3000);
 const HOST = process.env.HOST || '0.0.0.0';
@@ -250,7 +404,14 @@ app.get('/health', async (req, res) => {
 
 app.use(['/api/news', '/api/services'], express.json({ limit: '32mb' }));
 app.use(express.json({ limit: '256kb' }));
-app.use('/uploads/content', express.static(path.join(__dirname, 'uploads', 'content'), {
+app.use('/uploads/content/news', express.static(newsUploadDir, {
+  index: false,
+  dotfiles: 'deny',
+  setHeaders(res) {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+  },
+}));
+app.use('/uploads/content', express.static(defaultContentUploadDir, {
   index: false,
   dotfiles: 'deny',
   setHeaders(res) {
@@ -1005,8 +1166,11 @@ app.get('/api/news', async (req, res) => {
         id,
         title,
         description,
-        image_name AS image,
-        video_url AS video,
+        media_type,
+        image_url,
+        image_name,
+        video_url,
+        thumbnail_url,
         published,
         date
       FROM news
@@ -1016,7 +1180,7 @@ app.get('/api/news', async (req, res) => {
 
     res.json({
       success: true,
-      data: result.rows,
+      data: result.rows.map(mapNewsRow),
     });
   } catch (error) {
     console.error('[News] GET failed:', error.message);
@@ -1034,8 +1198,11 @@ app.get('/api/news/:id', async (req, res) => {
         id,
         title,
         description,
-        image_name AS image,
-        video_url AS video,
+        media_type,
+        image_url,
+        image_name,
+        video_url,
+        thumbnail_url,
         published,
         date
        FROM news
@@ -1053,7 +1220,7 @@ app.get('/api/news/:id', async (req, res) => {
 
     res.json({
       success: true,
-      data: result.rows[0],
+      data: mapNewsRow(result.rows[0]),
     });
   } catch (error) {
     console.error('[News] GET by id failed:', error.message);
@@ -1064,24 +1231,43 @@ app.get('/api/news/:id', async (req, res) => {
   }
 });
 
-app.post('/api/news', async (req, res) => {
+app.post('/api/news', newsUploadMiddleware, async (req, res) => {
   try {
-    const { title, description = '', image = '', video = '', published = true } = req.body || {};
+    const { title, description = '', published = true } = req.body || {};
 
     const cleanTitle = boundedText(title, 160, 'Title');
     const cleanDescription = boundedText(description, 10000, 'Description');
-    const cleanImage = boundedText(image, 8 * 1024 * 1024, 'Image');
-    const cleanVideo = boundedText(video, 17 * 1024 * 1024, 'Video');
+    const legacyImage = cleanMediaUrl(req.body?.imageUrl || req.body?.image, 'Image URL');
+    const legacyVideo = cleanMediaUrl(req.body?.videoUrl || req.body?.video, 'Video URL');
+    const legacyThumbnail = cleanMediaUrl(req.body?.thumbnailUrl, 'Thumbnail URL');
+    const imageUrl = newsFileUrl(req.files?.image?.[0]) || legacyImage;
+    const videoUrl = newsFileUrl(req.files?.video?.[0]) || legacyVideo;
+    const thumbnailUrl = newsFileUrl(req.files?.thumbnail?.[0]) || legacyThumbnail;
+    const mediaType = normalizeMediaType(req.body?.mediaType || req.body?.media_type, imageUrl, videoUrl);
 
     if (!cleanTitle) {
+      removeUploadedFiles(req.files);
       return res.status(400).json({
         success: false,
         message: 'Title is required.',
       });
     }
 
+    if (mediaType === 'image' && !imageUrl) {
+      removeUploadedFiles(req.files);
+      return res.status(400).json({ success: false, message: 'An image is required.' });
+    }
+    if (mediaType === 'video' && (!videoUrl || !thumbnailUrl)) {
+      removeUploadedFiles(req.files);
+      return res.status(400).json({
+        success: false,
+        message: 'A video and a thumbnail image are required.',
+      });
+    }
+
     const countResult = await db.query('SELECT COUNT(*)::int AS count FROM news');
     if (countResult.rows[0].count >= 10) {
+      removeUploadedFiles(req.files);
       return res.status(409).json({ success: false, message: 'A maximum of 10 news items is allowed.' });
     }
 
@@ -1089,23 +1275,28 @@ app.post('/api/news', async (req, res) => {
 
     const result = await db.query(
       `INSERT INTO news
-        (id, title, description, image_name, video_url, published, date)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+        (id, title, description, media_type, image_url, image_name, video_url, thumbnail_url, published, date)
+       VALUES ($1, $2, $3, $4, $5, $5, $6, $7, $8, $9)
        RETURNING
          id,
          title,
          description,
-         image_name AS image,
-         video_url AS video,
+         media_type,
+         image_url,
+         image_name,
+         video_url,
+         thumbnail_url,
          published,
          date`,
       [
         id,
         cleanTitle,
         cleanDescription,
-        cleanImage,
-        cleanVideo,
-        Boolean(published),
+        mediaType,
+        mediaType === 'image' ? imageUrl : '',
+        mediaType === 'video' ? videoUrl : '',
+        mediaType === 'video' ? thumbnailUrl : '',
+        parseBoolean(published, true),
         new Date().toLocaleDateString('en-GB', {
           day: '2-digit',
           month: 'short',
@@ -1116,9 +1307,10 @@ app.post('/api/news', async (req, res) => {
 
     res.status(201).json({
       success: true,
-      data: result.rows[0],
+      data: mapNewsRow(result.rows[0]),
     });
   } catch (error) {
+    removeUploadedFiles(req.files);
     console.error('[News] POST failed:', error.message);
     res.status(error.statusCode || 500).json({
       success: false,
@@ -1127,22 +1319,33 @@ app.post('/api/news', async (req, res) => {
   }
 });
 
-app.put('/api/news/:id', async (req, res) => {
+app.put('/api/news/:id', newsUploadMiddleware, async (req, res) => {
   try {
     const id = String(req.params.id);
     const body = req.body || {};
 
     if (body.title !== undefined) {
       body.title = boundedText(body.title, 160, 'Title');
-      if (!body.title) return res.status(400).json({ success: false, message: 'Title is required.' });
+      if (!body.title) {
+        removeUploadedFiles(req.files);
+        return res.status(400).json({ success: false, message: 'Title is required.' });
+      }
     }
     if (body.description !== undefined) body.description = boundedText(body.description, 10000, 'Description');
-    if (body.image !== undefined) body.image = boundedText(body.image, 8 * 1024 * 1024, 'Image');
-    if (body.video !== undefined) body.video = boundedText(body.video, 17 * 1024 * 1024, 'Video');
+    if (body.imageUrl !== undefined || body.image !== undefined) {
+      body.imageUrl = cleanMediaUrl(body.imageUrl ?? body.image, 'Image URL');
+    }
+    if (body.videoUrl !== undefined || body.video !== undefined) {
+      body.videoUrl = cleanMediaUrl(body.videoUrl ?? body.video, 'Video URL');
+    }
+    if (body.thumbnailUrl !== undefined) {
+      body.thumbnailUrl = cleanMediaUrl(body.thumbnailUrl, 'Thumbnail URL');
+    }
 
     const existing = await db.query('SELECT * FROM news WHERE id = $1', [id]);
 
     if (existing.rows.length === 0) {
+      removeUploadedFiles(req.files);
       return res.status(404).json({
         success: false,
         message: 'News not found.',
@@ -1150,41 +1353,76 @@ app.put('/api/news/:id', async (req, res) => {
     }
 
     const current = existing.rows[0];
+    const nextImageUrl = newsFileUrl(req.files?.image?.[0]) || (body.imageUrl ?? current.image_url ?? current.image_name ?? '');
+    const nextVideoUrl = newsFileUrl(req.files?.video?.[0]) || (body.videoUrl ?? current.video_url ?? '');
+    const nextThumbnailUrl = newsFileUrl(req.files?.thumbnail?.[0]) || (body.thumbnailUrl ?? current.thumbnail_url ?? '');
+    const nextMediaType = normalizeMediaType(
+      body.mediaType || body.media_type || current.media_type,
+      nextImageUrl,
+      nextVideoUrl,
+    );
+
+    if (nextMediaType === 'image' && !nextImageUrl) {
+      removeUploadedFiles(req.files);
+      return res.status(400).json({ success: false, message: 'An image is required.' });
+    }
+    if (nextMediaType === 'video' && (!nextVideoUrl || !nextThumbnailUrl)) {
+      removeUploadedFiles(req.files);
+      return res.status(400).json({
+        success: false,
+        message: 'A video and a thumbnail image are required.',
+      });
+    }
 
     const result = await db.query(
       `UPDATE news
        SET title = $1,
            description = $2,
-           image_name = $3,
-           video_url = $4,
-           published = $5,
-           date = $6,
+           media_type = $3,
+           image_url = $4,
+           image_name = $4,
+           video_url = $5,
+           thumbnail_url = $6,
+           published = $7,
+           date = $8,
            updated_at = NOW()
-       WHERE id = $7
+       WHERE id = $9
        RETURNING
          id,
          title,
          description,
-         image_name AS image,
-         video_url AS video,
+         media_type,
+         image_url,
+         image_name,
+         video_url,
+         thumbnail_url,
          published,
          date`,
       [
         body.title ?? current.title,
         body.description ?? current.description,
-        body.image ?? current.image_name,
-        body.video ?? current.video_url,
-        body.published ?? current.published,
+        nextMediaType,
+        nextMediaType === 'image' ? nextImageUrl : '',
+        nextMediaType === 'video' ? nextVideoUrl : '',
+        nextMediaType === 'video' ? nextThumbnailUrl : '',
+        parseBoolean(body.published, current.published),
         body.date ?? current.date,
         id,
       ],
     );
 
+    if (req.files?.image?.[0] || nextMediaType !== 'image') {
+      removeStoredNewsMedia(current.image_url, current.image_name);
+    }
+    if (req.files?.video?.[0] || nextMediaType !== 'video') removeStoredNewsMedia(current.video_url);
+    if (req.files?.thumbnail?.[0] || nextMediaType !== 'video') removeStoredNewsMedia(current.thumbnail_url);
+
     res.json({
       success: true,
-      data: result.rows[0],
+      data: mapNewsRow(result.rows[0]),
     });
   } catch (error) {
+    removeUploadedFiles(req.files);
     console.error('[News] PUT failed:', error.message);
     res.status(error.statusCode || 500).json({
       success: false,
@@ -1195,7 +1433,7 @@ app.put('/api/news/:id', async (req, res) => {
 
 app.delete('/api/news/:id', async (req, res) => {
   try {
-    const result = await db.query('DELETE FROM news WHERE id = $1 RETURNING id', [
+    const result = await db.query('DELETE FROM news WHERE id = $1 RETURNING id, image_url, image_name, video_url, thumbnail_url', [
       String(req.params.id),
     ]);
 
@@ -1205,6 +1443,13 @@ app.delete('/api/news/:id', async (req, res) => {
         message: 'News not found.',
       });
     }
+
+    removeStoredNewsMedia(
+      result.rows[0].image_url,
+      result.rows[0].image_name,
+      result.rows[0].video_url,
+      result.rows[0].thumbnail_url,
+    );
 
     res.json({
       success: true,

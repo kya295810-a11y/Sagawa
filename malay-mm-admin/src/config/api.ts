@@ -11,3 +11,9 @@ if (!API_BASE) {
 export function apiUrl(path: string) {
   return `${API_BASE}${path}`;
 }
+
+export function mediaUrl(path?: string) {
+  if (!path) return '';
+  if (/^(?:https?:|data:|blob:)/i.test(path)) return path;
+  return apiUrl(path.startsWith('/') ? path : `/${path}`);
+}

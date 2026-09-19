@@ -18,49 +18,11 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { apiRequest } from '@/services/api/client';
+import type { NewsArticle } from '@/features/news/types';
+import { fetchNews } from '@/services/news/news-service';
 import { registerPushToken } from '@/services/notifications/push-token';
 import { useAppTheme } from '@/theme/provider';
 import type { ThemeColors } from '@/theme/types';
-import { getMediaUrl } from '@/utils/media';
-
-/* ============================================================
-   TYPES
-============================================================ */
-
-type NewsType = 'photo' | 'video';
-
-type ApiNewsItem = {
-  id: number;
-  title: string;
-  description: string;
-  image: string;
-  video: string;
-  published: boolean;
-  date: string;
-};
-
-type NewsItem = {
-  id: string;
-  category: string;
-  title: string;
-  description: string;
-  time: string;
-  image: string;
-  video: string;
-  type: NewsType;
-};
-
-const mapApiNews = (item: ApiNewsItem): NewsItem => ({
-  id: String(item.id),
-  category: 'Latest',
-  title: item.title,
-  description: item.description,
-  time: item.date,
-  image: item.image,
-  video: item.video || '',
-  type: item.video ? 'video' : 'photo',
-});
 
 /* ============================================================
    NEWS SCREEN
@@ -87,7 +49,7 @@ export default function NewsScreen() {
 
   const styles = createStyles(theme.colors);
 
-  const [news, setNews] = useState<NewsItem[]>([]);
+  const [news, setNews] = useState<NewsArticle[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
@@ -98,17 +60,8 @@ export default function NewsScreen() {
     try {
       setError('');
 
-      const result = await apiRequest<{ success?: boolean; data?: ApiNewsItem[] }>('/api/news');
-
-      if (!result.success || !Array.isArray(result.data)) {
-        throw new Error('Invalid news API response.');
-      }
-
-      const latestNews = result.data
-        .filter((item: ApiNewsItem) => item.published)
-        .sort((a: ApiNewsItem, b: ApiNewsItem) => b.id - a.id)
-        .slice(0, 10)
-        .map(mapApiNews);
+      const result = await fetchNews();
+      const latestNews = result.items.filter((item) => item.published).slice(0, 10);
 
       setNews(latestNews);
     } catch (err) {
@@ -144,7 +97,7 @@ export default function NewsScreen() {
     }
 
     return news.filter((item) =>
-      `${item.title} ${item.description} ${item.category} ${item.time}`
+      `${item.title} ${item.description} ${item.category} ${item.date}`
         .toLowerCase()
         .includes(query),
     );
@@ -267,8 +220,8 @@ export default function NewsScreen() {
      NEWS CARD
   ========================================================== */
 
-  const renderNewsCard = ({ item }: { item: NewsItem }) => {
-    const imageUrl = getMediaUrl(item.image);
+  const renderNewsCard = ({ item }: { item: NewsArticle }) => {
+    const imageUrl = item.mediaType === 'video' ? item.thumbnailUrl : item.imageUrl;
     return (
       <Pressable
         style={({ pressed }) => [styles.newsCard, pressed && styles.cardPressed]}
@@ -294,7 +247,11 @@ export default function NewsScreen() {
               onError={() =>
                 setNews((current) =>
                   current.map((newsItem) =>
-                    newsItem.id === item.id ? { ...newsItem, image: '' } : newsItem,
+                    newsItem.id === item.id
+                      ? item.mediaType === 'video'
+                        ? { ...newsItem, thumbnailUrl: undefined }
+                        : { ...newsItem, imageUrl: undefined }
+                      : newsItem,
                   ),
                 )
               }
@@ -302,7 +259,7 @@ export default function NewsScreen() {
           ) : (
             <View style={styles.imagePlaceholder}>
               <Ionicons
-                name={item.type === 'video' ? 'videocam-outline' : 'image-outline'}
+                name={item.mediaType === 'video' ? 'videocam-outline' : 'image-outline'}
                 size={34}
                 color={theme.colors.primary}
               />
@@ -321,7 +278,7 @@ export default function NewsScreen() {
 
           {/* VIDEO */}
 
-          {item.type === 'video' && (
+          {item.mediaType === 'video' && (
             <View style={styles.videoButton}>
               <Ionicons name="play" size={16} color="#FFFFFF" />
             </View>
@@ -355,11 +312,11 @@ export default function NewsScreen() {
               <Ionicons name="time-outline" size={12} color={theme.colors.textMuted} />
 
               <Text style={styles.time} numberOfLines={1} allowFontScaling={false}>
-                {item.time}
+                {item.date}
               </Text>
             </View>
 
-            {item.type === 'video' && (
+            {item.mediaType === 'video' && (
               <View style={styles.videoLabel}>
                 <Ionicons name="videocam-outline" size={12} color={theme.colors.primary} />
 

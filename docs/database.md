@@ -12,6 +12,18 @@ Mobile App -> Secure Backend API -> PostgreSQL
 
 The backend is responsible for authentication, authorization, rate limiting, validation, auditing, and database access.
 
+## News media storage
+
+Migration `004_news_media.sql` adds the canonical `media_type`, `image_url`, and
+`thumbnail_url` fields while retaining and backfilling the legacy `image_name` and
+`video_url` data. News upload files are stored beneath `NEWS_UPLOAD_DIR` (or
+`server/uploads/content/news` locally) and exposed as `/uploads/content/news/...`.
+
+Production deployments must set `NEWS_UPLOAD_DIR` to storage that survives deploys
+(for example, a mounted persistent disk). The repository does not configure an
+external object-storage provider, so deploying with the default local directory on
+an ephemeral host would lose uploaded media on restart or redeploy.
+
 ## Planned entities
 
 - `users`

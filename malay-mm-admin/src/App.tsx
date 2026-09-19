@@ -5,7 +5,7 @@ import {
 } from '@simplewebauthn/browser';
 
 import './App.css';
-import { API_BASE, apiUrl } from './config/api';
+import { API_BASE, apiUrl, mediaUrl } from './config/api';
 
 
 type Page = 'dashboard' | 'news' | 'services' | 'exchange';
@@ -21,13 +21,35 @@ type ModalMode =
   | 'exchangePreview';
 
 type NewsItem = {
-  id: number;
+  id: string;
   title: string;
   description: string;
-  image: string;
-  video: string;
+  mediaType: 'image' | 'video';
+  imageUrl: string;
+  videoUrl: string;
+  thumbnailUrl: string;
   published: boolean;
   date: string;
+};
+
+const normalizeNewsItem = (item: Record<string, unknown>): NewsItem => {
+  const value = (...keys: string[]) => {
+    const result = keys.map((key) => item[key]).find((entry) => typeof entry === 'string' && entry);
+    return typeof result === 'string' ? result : '';
+  };
+  const videoUrl = value('videoUrl', 'video_url', 'video');
+  const imageUrl = value('imageUrl', 'image_url', 'image');
+  return {
+    id: String(item.id ?? ''),
+    title: value('title'),
+    description: value('description'),
+    mediaType: item.mediaType === 'video' || item.media_type === 'video' || videoUrl ? 'video' : 'image',
+    imageUrl,
+    videoUrl,
+    thumbnailUrl: value('thumbnailUrl', 'thumbnail_url') || (videoUrl ? imageUrl : ''),
+    published: item.published !== false,
+    date: value('date'),
+  };
 };
 
 type ServiceItem = {
@@ -73,6 +95,10 @@ const fileToDataUrl = (file: File): Promise<string> =>
 
     reader.readAsDataURL(file);
   });
+
+const revokeObjectUrl = (value: string) => {
+  if (value.startsWith('blob:')) URL.revokeObjectURL(value);
+};
 
 const initialExchange: ExchangeItem = {
   currency: 'MYR → MMK',
@@ -630,13 +656,13 @@ function App() {
     useState('');
 
   const [editingNewsId, setEditingNewsId] =
-    useState<number | null>(null);
+    useState<string | null>(null);
 
   const [editingServiceId, setEditingServiceId] =
     useState<number | null>(null);
 
   const [deleteNewsId, setDeleteNewsId] =
-    useState<number | null>(null);
+    useState<string | null>(null);
 
   const [deleteServiceId, setDeleteServiceId] =
     useState<number | null>(null);
@@ -660,6 +686,9 @@ function App() {
   const [newsPublished, setNewsPublished] =
     useState(true);
 
+  const [newsMediaType, setNewsMediaType] =
+    useState<'image' | 'video'>('image');
+
   const [newsImageFile, setNewsImageFile] =
     useState<File | null>(null);
 
@@ -670,6 +699,12 @@ function App() {
     useState<File | null>(null);
 
   const [newsVideoPreview, setNewsVideoPreview] =
+    useState('');
+
+  const [newsThumbnailFile, setNewsThumbnailFile] =
+    useState<File | null>(null);
+
+  const [newsThumbnailPreview, setNewsThumbnailPreview] =
     useState('');
 
   /* =========================================================
@@ -919,7 +954,7 @@ function App() {
       }
 
       if (!cancelled) {
-        setNews(newsResult.data);
+        setNews(newsResult.data.map((item: Record<string, unknown>) => normalizeNewsItem(item)));
         setServices(servicesResult.data.slice(0, 25));
 
         if (
@@ -1043,38 +1078,50 @@ function App() {
   ========================================================= */
 
   const openAddNews = () => {
+    revokeObjectUrl(newsImagePreview);
+    revokeObjectUrl(newsVideoPreview);
+    revokeObjectUrl(newsThumbnailPreview);
     setEditingNewsId(null);
 
     setNewsTitle('');
     setNewsDescription('');
     setNewsPublished(true);
+    setNewsMediaType('image');
 
     setNewsImageFile(null);
     setNewsImagePreview('');
 
     setNewsVideoFile(null);
     setNewsVideoPreview('');
+    setNewsThumbnailFile(null);
+    setNewsThumbnailPreview('');
 
     setModal('newsForm');
   };
 
   const openEditNews = (item: NewsItem) => {
+    revokeObjectUrl(newsImagePreview);
+    revokeObjectUrl(newsVideoPreview);
+    revokeObjectUrl(newsThumbnailPreview);
     setEditingNewsId(item.id);
 
     setNewsTitle(item.title);
     setNewsDescription(item.description);
     setNewsPublished(item.published);
+    setNewsMediaType(item.mediaType);
 
     setNewsImageFile(null);
-    setNewsImagePreview(item.image);
+    setNewsImagePreview(mediaUrl(item.imageUrl));
 
     setNewsVideoFile(null);
-    setNewsVideoPreview(item.video);
+    setNewsVideoPreview(mediaUrl(item.videoUrl));
+    setNewsThumbnailFile(null);
+    setNewsThumbnailPreview(mediaUrl(item.thumbnailUrl));
 
     setModal('newsForm');
   };
 
-  const handleNewsImage = async (
+  const handleNewsImage = (
     event: React.ChangeEvent<HTMLInputElement>
   ) => {
     const file = event.target.files?.[0];
@@ -1083,30 +1130,26 @@ function App() {
       return;
     }
 
-    if (!file.type.startsWith('image/')) {
-      alert('Please choose an image file.');
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      alert('Image must be a JPEG, PNG, or WebP file.');
       event.target.value = '';
       return;
     }
 
-    if (file.size > 5 * 1024 * 1024) {
-      alert('Image must be 5 MB or smaller.');
+    if (file.size > 10 * 1024 * 1024) {
+      alert('Image must be 10 MB or smaller.');
       event.target.value = '';
       return;
     }
 
-    try {
-      const dataUrl = await fileToDataUrl(file);
-
-      setNewsImageFile(file);
-      setNewsImagePreview(dataUrl);
-    } catch (error) {
-      console.error('Image read error:', error);
-      alert('Could not read the selected image.');
-    }
+    setNewsImageFile(file);
+    setNewsImagePreview((current) => {
+      revokeObjectUrl(current);
+      return URL.createObjectURL(file);
+    });
   };
 
-  const handleNewsVideo = async (
+  const handleNewsVideo = (
     event: React.ChangeEvent<HTMLInputElement>
   ) => {
     const file = event.target.files?.[0];
@@ -1115,27 +1158,43 @@ function App() {
       return;
     }
 
-    if (!file.type.startsWith('video/')) {
-      alert('Please choose a video file.');
+    if (!['video/mp4', 'video/quicktime', 'video/webm'].includes(file.type)) {
+      alert('Video must be an MP4, MOV, or WebM file.');
       event.target.value = '';
       return;
     }
 
-    if (file.size > 12 * 1024 * 1024) {
-      alert('Video must be 12 MB or smaller.');
+    if (file.size > 100 * 1024 * 1024) {
+      alert('Video must be 100 MB or smaller.');
       event.target.value = '';
       return;
     }
 
-    try {
-      const dataUrl = await fileToDataUrl(file);
+    setNewsVideoFile(file);
+    setNewsVideoPreview((current) => {
+      revokeObjectUrl(current);
+      return URL.createObjectURL(file);
+    });
+  };
 
-      setNewsVideoFile(file);
-      setNewsVideoPreview(dataUrl);
-    } catch (error) {
-      console.error('Video read error:', error);
-      alert('Could not read the selected video.');
+  const handleNewsThumbnail = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      alert('Thumbnail must be a JPEG, PNG, or WebP image.');
+      event.target.value = '';
+      return;
     }
+    if (file.size > 10 * 1024 * 1024) {
+      alert('Thumbnail must be 10 MB or smaller.');
+      event.target.value = '';
+      return;
+    }
+    setNewsThumbnailFile(file);
+    setNewsThumbnailPreview((current) => {
+      revokeObjectUrl(current);
+      return URL.createObjectURL(file);
+    });
   };
 
   const previewNewsDraft = () => {
@@ -1155,6 +1214,16 @@ function App() {
       return;
     }
 
+    if (newsMediaType === 'image' && !newsImagePreview) {
+      alert('Please choose a news image.');
+      return;
+    }
+
+    if (newsMediaType === 'video' && (!newsVideoPreview || !newsThumbnailPreview)) {
+      alert('Please choose both a video and a thumbnail image.');
+      return;
+    }
+
     const existingNews = editingNewsId
       ? news.find(
           (item) => item.id === editingNewsId
@@ -1162,15 +1231,19 @@ function App() {
       : undefined;
 
     const draft: NewsItem = {
-      id: editingNewsId ?? Date.now(),
+      id: editingNewsId ?? String(Date.now()),
 
       title,
 
       description,
 
-      image: newsImagePreview,
+      mediaType: newsMediaType,
 
-      video: newsVideoPreview,
+      imageUrl: newsMediaType === 'image' ? newsImagePreview : '',
+
+      videoUrl: newsMediaType === 'video' ? newsVideoPreview : '',
+
+      thumbnailUrl: newsMediaType === 'video' ? newsThumbnailPreview : '',
 
       published: newsPublished,
 
@@ -1205,12 +1278,20 @@ function App() {
         ? apiUrl(`/api/news/${editingNewsId}`)
         : apiUrl('/api/news');
 
+      const formData = new FormData();
+      formData.append('title', previewNews.title);
+      formData.append('description', previewNews.description);
+      formData.append('mediaType', previewNews.mediaType);
+      formData.append('published', String(previewNews.published));
+      if (newsMediaType === 'image' && newsImageFile) formData.append('image', newsImageFile);
+      if (newsMediaType === 'video' && newsVideoFile) formData.append('video', newsVideoFile);
+      if (newsMediaType === 'video' && newsThumbnailFile) {
+        formData.append('thumbnail', newsThumbnailFile);
+      }
+
       const response = await adminFetch(url, {
         method: isEditing ? 'PUT' : 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(previewNews),
+        body: formData,
       });
 
       const result = await response.json();
@@ -1221,7 +1302,7 @@ function App() {
         );
       }
 
-      const savedItem = result.data as NewsItem;
+      const savedItem = normalizeNewsItem(result.data as Record<string, unknown>);
 
       if (isEditing) {
         setNews((current) =>
@@ -1243,18 +1324,15 @@ function App() {
     } catch (error) {
       console.error('Save news error:', error);
 
-      setApiError(
-        'Could not save news. Make sure the Local API is running.'
-      );
-      alert(
-        'Could not save news. Please check that the Local API is running.'
-      );
+      const message = error instanceof Error ? error.message : 'Could not save news.';
+      setApiError(message);
+      alert(message);
     } finally {
       setApiLoading(false);
     }
   };
 
-  const askDeleteNews = (id: number) => {
+  const askDeleteNews = (id: string) => {
     setDeleteNewsId(id);
     setModal('newsDelete');
   };
@@ -1305,7 +1383,7 @@ function App() {
     }
   };
 
-  const toggleNewsPublished = async (id: number) => {
+  const toggleNewsPublished = async (id: string) => {
     const item = news.find((newsItem) => newsItem.id === id);
 
     if (!item) {
@@ -1340,7 +1418,7 @@ function App() {
       setNews((current) =>
         current.map((currentItem) =>
           currentItem.id === id
-            ? result.data
+            ? normalizeNewsItem(result.data as Record<string, unknown>)
             : currentItem
         )
       );
@@ -1949,10 +2027,16 @@ function App() {
                 className="news-card"
                 key={item.id}
               >
-                {item.image ? (
-                  <img src={item.image} alt="" />
+                {(item.mediaType === 'video' ? item.thumbnailUrl : item.imageUrl) ? (
+                  <div className="news-card-media">
+                    <img
+                      src={mediaUrl(item.mediaType === 'video' ? item.thumbnailUrl : item.imageUrl)}
+                      alt=""
+                    />
+                    {item.mediaType === 'video' && <span className="media-play-badge">▶</span>}
+                  </div>
                 ) : (
-                  <div className="media-placeholder" aria-label="No image">No image</div>
+                  <div className="media-placeholder" aria-label="No media">No media</div>
                 )}
 
                 <div className="news-card-main">
@@ -2366,8 +2450,25 @@ function App() {
           />
         </div>
 
+        <div className="media-type-selector" role="group" aria-label="News media type">
+          <button
+            type="button"
+            className={newsMediaType === 'image' ? 'active' : ''}
+            onClick={() => setNewsMediaType('image')}
+          >
+            Image news
+          </button>
+          <button
+            type="button"
+            className={newsMediaType === 'video' ? 'active' : ''}
+            onClick={() => setNewsMediaType('video')}
+          >
+            Video news
+          </button>
+        </div>
+
         <div className="media-grid">
-          <div className="upload-card">
+          {newsMediaType === 'image' && <div className="upload-card">
             <div className="upload-card-top">
               <div>
                 <strong>
@@ -2389,7 +2490,7 @@ function App() {
 
               <input
                 type="file"
-                accept="image/*"
+                accept="image/jpeg,image/png,image/webp"
                 onChange={
                   handleNewsImage
                 }
@@ -2407,6 +2508,7 @@ function App() {
                   type="button"
                   onClick={() => {
                     setNewsImageFile(null);
+                    revokeObjectUrl(newsImagePreview);
                     setNewsImagePreview('');
                   }}
                 >
@@ -2420,8 +2522,9 @@ function App() {
                 Selected: {newsImageFile.name}
               </small>
             )}
-          </div>
+          </div>}
 
+          {newsMediaType === 'video' && <>
           <div className="upload-card">
             <div className="upload-card-top">
               <div>
@@ -2430,7 +2533,7 @@ function App() {
                 </strong>
 
                 <span>
-                  MP4, MOV, WEBM
+                  MP4, MOV, WEBM · max 100 MB
                 </span>
               </div>
 
@@ -2444,7 +2547,7 @@ function App() {
 
               <input
                 type="file"
-                accept="video/*"
+                accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm"
                 onChange={
                   handleNewsVideo
                 }
@@ -2463,6 +2566,7 @@ function App() {
                   type="button"
                   onClick={() => {
                     setNewsVideoFile(null);
+                    revokeObjectUrl(newsVideoPreview);
                     setNewsVideoPreview('');
                   }}
                 >
@@ -2477,6 +2581,40 @@ function App() {
               </small>
             )}
           </div>
+          <div className="upload-card">
+            <div className="upload-card-top">
+              <div>
+                <strong>Video Thumbnail</strong>
+                <span>Required · JPG, PNG, WEBP</span>
+              </div>
+              <span className="upload-symbol">🖼️</span>
+            </div>
+            <label className="upload-button">
+              Choose Thumbnail
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                onChange={handleNewsThumbnail}
+              />
+            </label>
+            {newsThumbnailPreview && (
+              <div className="preview-media">
+                <img src={newsThumbnailPreview} alt="Video thumbnail preview" />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewsThumbnailFile(null);
+                    revokeObjectUrl(newsThumbnailPreview);
+                    setNewsThumbnailPreview('');
+                  }}
+                >
+                  Remove
+                </button>
+              </div>
+            )}
+            {newsThumbnailFile && <small>Selected: {newsThumbnailFile.name}</small>}
+          </div>
+          </>}
         </div>
 
         <div className="publish-setting">
@@ -2573,12 +2711,19 @@ function App() {
               </div>
             </div>
 
-            {previewNews.image && (
+            {previewNews.mediaType === 'image' && previewNews.imageUrl && (
               <img
                 className="large-preview-image"
-                src={previewNews.image}
+                src={previewNews.imageUrl}
                 alt=""
               />
+            )}
+
+            {previewNews.mediaType === 'video' && previewNews.thumbnailUrl && (
+              <div className="large-video-thumbnail">
+                <img src={previewNews.thumbnailUrl} alt="Video thumbnail" />
+                <span>▶</span>
+              </div>
             )}
 
             <div className="preview-content">
@@ -2608,11 +2753,12 @@ function App() {
                 {previewNews.description}
               </p>
 
-              {previewNews.video && (
+              {previewNews.mediaType === 'video' && previewNews.videoUrl && (
                 <video
                   className="large-preview-video"
-                  src={previewNews.video}
+                  src={previewNews.videoUrl}
                   controls
+                  preload="metadata"
                 />
               )}
             </div>

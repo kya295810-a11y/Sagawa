@@ -1,24 +1,17 @@
-export interface NewsCategory {
-  id: string;
-  label: string;
-  slug: string;
-}
-
-export interface NewsSource {
-  id: string;
-  name: string;
-}
-
 export interface NewsArticle {
-  category: NewsCategory;
   id: string;
-  imageUrl?: string | null;
-  publishedAt: string;
-  source: NewsSource;
-  summary: string;
+  category: string;
+  date: string;
+  description: string;
+  imageUrl?: string;
+  mediaType: 'image' | 'video';
+  published: boolean;
+  thumbnailUrl?: string;
   title: string;
-  url: string;
+  videoUrl?: string;
 }
+
+export type ApiNewsItem = Record<string, unknown>;
 
 export interface PaginatedNewsResponse {
   items: NewsArticle[];

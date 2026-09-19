@@ -24,21 +24,26 @@ async function migrate() {
     for (const item of news) {
       await client.query(
         `INSERT INTO news
-          (id, title, description, image_name, video_url, published, date)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
+          (id, title, description, media_type, image_url, image_name, video_url, thumbnail_url, published, date)
+         VALUES ($1, $2, $3, $4, $5, $5, $6, $7, $8, $9)
          ON CONFLICT (id) DO UPDATE SET
            title = EXCLUDED.title,
            description = EXCLUDED.description,
+           media_type = EXCLUDED.media_type,
+           image_url = EXCLUDED.image_url,
            image_name = EXCLUDED.image_name,
            video_url = EXCLUDED.video_url,
+           thumbnail_url = EXCLUDED.thumbnail_url,
            published = EXCLUDED.published,
            date = EXCLUDED.date`,
         [
           item.id,
           item.title,
           item.description || '',
-          item.image || '',
+          item.video ? 'video' : 'image',
+          item.video ? '' : item.image || '',
           item.video || '',
+          item.video ? item.image || '' : '',
           item.published !== false,
           item.date || ''
         ]

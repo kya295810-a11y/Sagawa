@@ -81,6 +81,7 @@ test('existing rows update only backend-managed A:I columns', () => {
     'Example User',
     'user@example.com',
     '22',
+    'Male',
     'Google',
     'Android',
     '2026-09-18T10:00:00.000Z',

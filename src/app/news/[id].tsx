@@ -1,6 +1,8 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { router, useLocalSearchParams } from 'expo-router';
+import { useEvent } from 'expo';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import { useCallback, useEffect, useState } from 'react';
 import {
     ActivityIndicator,
@@ -13,37 +15,50 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { apiRequest } from '@/services/api/client';
+import type { NewsArticle } from '@/features/news/types';
+import { fetchNewsById } from '@/services/news/news-service';
 import { useAppTheme } from '@/theme/provider';
 import type { ThemeColors } from '@/theme/types';
-import { getMediaUrl } from '@/utils/media';
 
-type NewsArticle = {
-  title: string;
-  description: string;
-  category: string;
-  date: string;
-  image: string;
-};
+function NewsVideo({ article, styles }: { article: NewsArticle; styles: ReturnType<typeof createStyles> }) {
+  const [firstFrameRendered, setFirstFrameRendered] = useState(false);
+  const player = useVideoPlayer(article.videoUrl ?? null);
+  const { status, error } = useEvent(player, 'statusChange', {
+    status: player.status,
+    error: undefined,
+  });
 
-type ApiNewsItem = Record<string, unknown>;
-
-function textValue(...values: unknown[]) {
-  return (
-    values
-      .find((value): value is string => typeof value === 'string' && value.trim().length > 0)
-      ?.trim() ?? ''
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        if (player.playing) player.pause();
+      };
+    }, [player]),
   );
-}
 
-function mapNewsArticle(item: ApiNewsItem): NewsArticle {
-  return {
-    title: textValue(item.title, item.name),
-    description: textValue(item.description, item.content, item.body),
-    category: textValue(item.category, item.type),
-    date: textValue(item.date, item.publishedAt, item.createdAt),
-    image: textValue(item.image, item.imageUrl, item.image_url),
-  };
+  return (
+    <View style={styles.videoContainer}>
+      <VideoView
+        player={player}
+        style={styles.video}
+        nativeControls
+        contentFit="contain"
+        onFirstFrameRender={() => setFirstFrameRendered(true)}
+      />
+      {!firstFrameRendered && article.thumbnailUrl ? (
+        <Image source={{ uri: article.thumbnailUrl }} style={styles.videoCover} resizeMode="cover" />
+      ) : null}
+      {status === 'loading' ? (
+        <ActivityIndicator style={styles.videoStatus} size="large" color="#FFFFFF" />
+      ) : null}
+      {status === 'error' ? (
+        <View style={styles.videoError}>
+          <Ionicons name="alert-circle-outline" size={36} color="#FFFFFF" />
+          <Text style={styles.videoErrorText}>{error?.message || 'Video could not be loaded.'}</Text>
+        </View>
+      ) : null}
+    </View>
+  );
 }
 
 export default function NewsDetailScreen() {
@@ -78,16 +93,8 @@ export default function NewsDetailScreen() {
       setImageFailed(false);
 
       try {
-        const response = await apiRequest<{ success?: boolean; data?: ApiNewsItem }>(
-          `/api/news/${encodeURIComponent(newsId)}`,
-          { signal },
-        );
-
-        if (!response.success || !response.data) {
-          throw new Error('News not found');
-        }
-
-        if (isActive()) setArticle(mapNewsArticle(response.data));
+        const response = await fetchNewsById(newsId, signal);
+        if (isActive()) setArticle(response);
       } catch (requestError) {
         if (requestError instanceof Error && requestError.name === 'AbortError') return;
         console.error('News detail API error:', requestError);
@@ -116,8 +123,7 @@ export default function NewsDetailScreen() {
     };
   }, [loadArticle]);
 
-  const imageUrl = getMediaUrl(article?.image);
-  const showImage = Boolean(imageUrl) && !imageFailed;
+  const showImage = Boolean(article?.imageUrl) && !imageFailed;
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
@@ -154,17 +160,25 @@ export default function NewsDetailScreen() {
         </View>
       ) : (
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-          {showImage ? (
+          {article.mediaType === 'video' && article.videoUrl ? (
+            <NewsVideo article={article} styles={styles} />
+          ) : showImage ? (
             <Image
-              source={{ uri: imageUrl }}
+              source={{ uri: article.imageUrl }}
               style={styles.image}
               resizeMode="cover"
               onError={() => setImageFailed(true)}
             />
           ) : (
             <View style={styles.imagePlaceholder}>
-              <Ionicons name="newspaper-outline" size={42} color={theme.colors.textMuted} />
-              <Text style={styles.placeholderText}>Image unavailable</Text>
+              <Ionicons
+                name={article.mediaType === 'video' ? 'videocam-off-outline' : 'newspaper-outline'}
+                size={42}
+                color={theme.colors.textMuted}
+              />
+              <Text style={styles.placeholderText}>
+                {article.mediaType === 'video' ? 'Video unavailable' : 'Image unavailable'}
+              </Text>
             </View>
           )}
 
@@ -218,6 +232,32 @@ const createStyles = (colors: ThemeColors) =>
       backgroundColor: colors.surface,
     },
     placeholderText: { color: colors.textMuted, fontSize: 15, marginTop: 10 },
+    videoContainer: {
+      width: '100%',
+      aspectRatio: 16 / 9,
+      borderRadius: 14,
+      marginBottom: 20,
+      overflow: 'hidden',
+      backgroundColor: '#000000',
+    },
+    video: { width: '100%', height: '100%' },
+    videoCover: {
+      position: 'absolute',
+      inset: 0,
+      width: '100%',
+      height: '100%',
+    },
+    videoStatus: { position: 'absolute', inset: 0 },
+    videoError: {
+      position: 'absolute',
+      inset: 0,
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      padding: 20,
+      backgroundColor: 'rgba(0, 0, 0, 0.72)',
+    },
+    videoErrorText: { color: '#FFFFFF', fontSize: 14, textAlign: 'center' },
     metaRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 10 },
     category: {
       color: colors.primary,
