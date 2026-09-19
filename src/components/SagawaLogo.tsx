@@ -8,7 +8,7 @@ type SagawaLogoProps = {
 
 const SAGAWA_LOGO = require('../../assets/images/sagawa-about-logo-exact.png');
 
-export function SagawaLogo({ width = 128, height = 128 }: SagawaLogoProps) {
+export function SagawaLogo({ width = 150, height = 142 }: SagawaLogoProps) {
   return (
     <Image
       source={SAGAWA_LOGO}
