@@ -218,10 +218,10 @@ const createStyles = (colors: {
       gap: 14,
     },
     aboutLogo: {
-      width: 112,
-      height: 112,
-      marginTop: 6,
-      marginBottom: 2,
+      width: 64,
+      height: 64,
+      marginTop: 10,
+      marginBottom: 6,
     },
     appName: {
       color: colors.text,
