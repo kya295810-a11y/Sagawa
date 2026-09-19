@@ -1,12 +1,11 @@
 import React from 'react';
-import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Stack, useRouter } from 'expo-router';
 import Constants from 'expo-constants';
 
-import { SagawaLogo } from '@/components/SagawaLogo';
 import { useAppTheme } from '@/theme/provider';
 
 const FEATURES: { icon: keyof typeof Ionicons.glyphMap; label: string }[] = [
@@ -51,7 +50,13 @@ export default function AboutScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <SagawaLogo width={150} height={142} />
+        <Image
+          source={require('../../assets/images/sagawa-about-logo-full.png')}
+          style={styles.aboutLogo}
+          resizeMode="contain"
+          fadeDuration={0}
+          accessibilityLabel="Sagawa flower logo"
+        />
 
         <Text style={styles.appName}>Sagawa</Text>
         <Text style={styles.version}>Version {version}</Text>
@@ -210,6 +215,12 @@ const createStyles = (colors: {
       paddingBottom: 32,
       alignItems: 'center',
       gap: 14,
+    },
+    aboutLogo: {
+      width: 156,
+      height: 156,
+      marginTop: 8,
+      marginBottom: 6,
     },
     appName: {
       color: colors.text,
