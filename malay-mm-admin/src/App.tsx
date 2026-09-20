@@ -137,6 +137,41 @@ type ApiResult<T> = {
 };
 
 const ADMIN_SESSION_KEY = 'sagawa_admin_session_token';
+const ADMIN_BROWSER_ID_KEY = 'sagawa_admin_browser_id';
+const ADMIN_TRUSTED_BROWSER_KEY = 'sagawa_admin_trusted_browser';
+
+const getAdminBrowserId = () => {
+  if (typeof window === 'undefined') return '';
+  let browserId = window.localStorage.getItem(ADMIN_BROWSER_ID_KEY) || '';
+  if (!browserId) {
+    const bytes = new Uint8Array(24);
+    window.crypto.getRandomValues(bytes);
+    browserId = Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('');
+    window.localStorage.setItem(ADMIN_BROWSER_ID_KEY, browserId);
+  }
+  return browserId;
+};
+
+const getTrustedBrowserToken = () => {
+  if (typeof window === 'undefined') return '';
+  return window.localStorage.getItem(ADMIN_TRUSTED_BROWSER_KEY) || '';
+};
+
+const storeTrustedBrowserToken = (token?: string | null) => {
+  if (typeof window === 'undefined') return;
+  if (token) {
+    window.localStorage.setItem(ADMIN_TRUSTED_BROWSER_KEY, token);
+  } else {
+    window.localStorage.removeItem(ADMIN_TRUSTED_BROWSER_KEY);
+  }
+};
+
+const adminBrowserHeaders = () => ({
+  'X-Sagawa-Browser-Id': getAdminBrowserId(),
+  ...(getTrustedBrowserToken()
+    ? { 'X-Sagawa-Trusted-Browser': getTrustedBrowserToken() }
+    : {}),
+});
 
 const getAdminSessionToken = () => {
   if (typeof window === 'undefined') return '';
@@ -253,6 +288,8 @@ function LoginScreen({ onAuthenticated }: LoginScreenProps) {
     try {
       const result = await readApiResponse<{
         authenticated?: boolean;
+        sessionToken?: string;
+        user?: Partial<CurrentUser> | null;
         verificationRequired?: boolean;
         verificationId?: string;
         verificationExpiresAt?: string;
@@ -260,9 +297,19 @@ function LoginScreen({ onAuthenticated }: LoginScreenProps) {
       }>(await fetch(apiUrl('/api/auth/login'), {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...adminBrowserHeaders(),
+        },
         body: JSON.stringify({ email: email.trim(), password }),
       }));
+
+      if (result.data?.authenticated) {
+        storeAdminSessionToken((result.data as { sessionToken?: string }).sessionToken);
+        setError('');
+        onAuthenticated((result.data as { user?: Partial<CurrentUser> | null }).user ?? null);
+        return;
+      }
 
       if (!result.data?.verificationRequired || !result.data?.verificationId) {
         throw new Error('Email verification was not started.');
@@ -357,11 +404,15 @@ function LoginScreen({ onAuthenticated }: LoginScreenProps) {
       const result = await readApiResponse<{
         authenticated?: boolean;
         sessionToken?: string;
+        trustedBrowserToken?: string;
         user?: Partial<CurrentUser> | null;
       }>(await fetch(apiUrl('/api/auth/admin/verify-email'), {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Sagawa-Browser-Id': getAdminBrowserId(),
+        },
         body: JSON.stringify({
           verificationId: loginVerificationId,
           code: loginVerificationCode,
@@ -369,6 +420,7 @@ function LoginScreen({ onAuthenticated }: LoginScreenProps) {
       }));
 
       storeAdminSessionToken(result.data?.sessionToken);
+      storeTrustedBrowserToken(result.data?.trustedBrowserToken);
       setLoginVerificationId('');
       setLoginVerificationCode('');
       setLoginVerificationExpiresAt('');
@@ -648,14 +700,14 @@ function LoginScreen({ onAuthenticated }: LoginScreenProps) {
 
     return renderLoginShell(
       'Verify this sign-in',
-      `We sent a one-time code to ${loginEmailHint || 'your admin email'}. Password sign-in is not complete until this step succeeds.`,
+      `We sent a one-time code to ${loginEmailHint || 'your admin email'}. This browser is new, so password sign-in needs one email verification. Future password sign-ins on this browser can skip this step.`,
       (
         <>
           <div className="two-step-security-card">
             <div className="two-step-security-icon" aria-hidden="true">2</div>
             <div>
               <strong>Two-step verification</strong>
-              <span>New or password-based admin access requires email confirmation.</span>
+              <span>Email confirmation is required only for a new browser or device when signing in with email and password.</span>
             </div>
           </div>
 
@@ -4249,13 +4301,6 @@ function App() {
             </button>
           ))}
         </nav>
-
-        <div className="sidebar-health-v4" aria-label="System status">
-          <div><span>System</span><strong><i className={apiError ? 'issue' : ''} />{apiError ? 'Attention' : 'Online'}</strong></div>
-          <div><span>API Status</span><strong>{apiLoading ? 'Syncing' : apiError ? 'Issue' : 'Online'}</strong></div>
-          <div><span>Database</span><strong>{backendHealth === 'healthy' ? 'Connected' : backendHealth === 'checking' ? 'Checking' : 'Error'}</strong></div>
-          <div><span>Environment</span><strong>{API_BASE ? 'Production' : 'Not configured'}</strong></div>
-        </div>
 
         <div className="sidebar-bottom">
           <button
