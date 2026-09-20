@@ -1,6 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useEvent } from 'expo';
-import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useCallback, useEffect, useState } from 'react';
@@ -27,14 +27,6 @@ function NewsVideo({ article, styles }: { article: NewsArticle; styles: ReturnTy
     status: player.status,
     error: undefined,
   });
-
-  useFocusEffect(
-    useCallback(() => {
-      return () => {
-        if (player.playing) player.pause();
-      };
-    }, [player]),
-  );
 
   return (
     <View style={styles.videoContainer}>
