@@ -2244,7 +2244,6 @@ function App() {
 
   const renderDashboard = () => {
     const publishedNews = news.filter((item) => item.published);
-    const draftNews = news.filter((item) => !item.published);
     const publishedServices = services.filter((item) => item.published);
 
     const today = new Date();
@@ -2522,10 +2521,7 @@ function App() {
             <div className="dashboard-quick-grid-v4">
               <button className="blue" type="button" onClick={openAddNews}><span>＋</span>Add News</button>
               <button className="green" type="button" onClick={openAddService}><span>＋</span>Add Service</button>
-              <button className="violet" type="button" onClick={() => setActivePage('exchange')}><span>↻</span>Update Rate</button>
-              <button className="orange" type="button" onClick={() => setShowPasswordChange(true)}><span>⚙</span>Password</button>
-              <button className="red" type="button" onClick={registerPasskey} disabled={passkeyBusy}><span>◎</span>{passkeyBusy ? 'Registering…' : 'Passkey'}</button>
-              <button className="cyan" type="button" onClick={openAdminProfile}><span>◉</span>Profile</button>
+              <button className="violet dashboard-quick-wide-v4" type="button" onClick={() => setActivePage('exchange')}><span>↻</span>Update Rate</button>
             </div>
           </div>
 
@@ -4276,7 +4272,7 @@ function App() {
             </span>
           </button>
 
-          <button className="admin-user admin-user-button" type="button" onClick={openAdminProfile}>
+          <div className="admin-user admin-user-button sidebar-account-summary-v4">
             <div className="user-avatar">
               {currentUser.avatarUrl ? (
                 <img src={currentUser.avatarUrl} alt="" />
@@ -4294,15 +4290,11 @@ function App() {
                 Secure admin account
               </span>
             </div>
-          </button>
+          </div>
 
           <button className="nav-item logout-button" type="button" onClick={logout}>
             <span className="nav-icon">↪</span>
             <span>Log out</span>
-          </button>
-
-          <button className="secondary-button passkey-manage-button" type="button" onClick={registerPasskey}>
-            Register Fingerprint / Passkey
           </button>
         </div>
       </aside>
