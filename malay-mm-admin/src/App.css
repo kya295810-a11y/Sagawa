@@ -5873,3 +5873,19 @@ body {
     transform: none;
   }
 }
+
+
+/* Admin 4.1 cleanup: one clear action per function */
+.sidebar-account-summary-v4 {
+  cursor: default;
+}
+
+.sidebar-account-summary-v4:hover {
+  border-color: var(--admin-border);
+  background: #ffffff;
+}
+
+.dashboard-quick-wide-v4 {
+  grid-column: 1 / -1;
+  justify-content: center;
+}
