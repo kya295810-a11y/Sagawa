@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="360" height="330" viewBox="0 0 360 330" preserveAspectRatio="xMidYMid meet">
+  <defs>
+    <radialGradient id="petal" cx="50%" cy="62%" r="70%">
+      <stop offset="0" stop-color="#fff7cf"/>
+      <stop offset="0.2" stop-color="#fff"/>
+      <stop offset="0.68" stop-color="#edf8ff"/>
+      <stop offset="1" stop-color="#72bfff"/>
+    </radialGradient>
+    <linearGradient id="petalEdge" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fff"/>
+      <stop offset="0.55" stop-color="#a8d8ff"/>
+      <stop offset="1" stop-color="#1688f3"/>
+    </linearGradient>
+    <radialGradient id="flowerCenter" cx="50%" cy="48%" r="58%">
+      <stop offset="0" stop-color="#fff4a8"/>
+      <stop offset="0.48" stop-color="#ffc928"/>
+      <stop offset="1" stop-color="#d98600"/>
+    </radialGradient>
+    <linearGradient id="ribbon" x1="0" y1="0" x2="0.7" y2="1">
+      <stop offset="0" stop-color="#fff"/>
+      <stop offset="0.55" stop-color="#f6fbff"/>
+      <stop offset="1" stop-color="#cceaff"/>
+    </linearGradient>
+    <linearGradient id="ribbonBlue" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#075dcb"/>
+      <stop offset="0.52" stop-color="#22a2ff"/>
+      <stop offset="1" stop-color="#0750bd"/>
+    </linearGradient>
+  </defs>
+  <g id="flower" stroke="url(#petalEdge)" stroke-width="3" stroke-linejoin="round">
+    <path fill="url(#petal)" d="M171 170C135 138 119 70 167 24c48 30 64 102 17 151-4 5-9 3-13-5Z"/>
+    <path fill="url(#petal)" d="M163 174C113 181 47 157 22 109c43-36 116-24 151 42 4 9 0 20-10 23Z"/>
+    <path fill="url(#petal)" d="M177 171c30-55 91-86 139-54-13 55-70 89-133 72-9-2-11-10-6-18Z"/>
+    <path fill="url(#petal)" d="M164 181c-46 4-91 39-103 91 54 9 109-22 124-80 3-10-9-13-21-11Z"/>
+    <path fill="url(#petal)" d="M176 181c42 0 80 32 84 79-47 10-91-21-96-69-1-7 5-10 12-10Z"/>
+    <path fill="#e8f6ff" d="M84 250c-24 20-31 44-15 61 22-3 47-17 65-39-18 6-35 1-50-22Z"/>
+    <path fill="#d6efff" d="M262 245c31-15 59-39 77-70-1 34-19 68-54 92-10 6-18-5-23-22Z"/>
+  </g>
+  <g id="stamens" stroke="#e49a00" stroke-width="4" stroke-linecap="round">
+    <path d="M170 177c-13-28-16-48-14-66"/>
+    <path d="M172 177c0-31 5-51 14-69"/>
+    <path d="M169 177c-24-21-34-38-40-55"/>
+    <path d="M175 178c20-24 33-38 48-48"/>
+    <path d="M174 177c11-28 14-44 13-61"/>
+    <g fill="url(#flowerCenter)" stroke="#f2a600" stroke-width="1.5">
+      <ellipse cx="155" cy="106" rx="8" ry="12"/>
+      <ellipse cx="187" cy="104" rx="8" ry="12" transform="rotate(24 187 104)"/>
+      <ellipse cx="125" cy="119" rx="8" ry="12" transform="rotate(-31 125 119)"/>
+      <ellipse cx="226" cy="127" rx="8" ry="12" transform="rotate(46 226 127)"/>
+      <ellipse cx="188" cy="113" rx="7" ry="11"/>
+    </g>
+  </g>
+  <path fill="url(#flowerCenter)" d="M145 175c7-17 20-29 29-29 11 1 24 13 30 31-14 17-44 18-59-2Z"/>
+  <g id="ribbon" stroke-linejoin="round">
+    <path fill="url(#ribbonBlue)" d="M43 235c22 13 45 20 69 19l-13 31c-24 1-49-8-70-26l19-5-5-19Z"/>
+    <path fill="url(#ribbonBlue)" d="M304 194c17-5 31-15 44-30l-4 31 13 13c-16 16-33 25-52 27l8-20-9-21Z"/>
+    <path fill="url(#ribbonBlue)" stroke="#0757c7" stroke-width="2" d="M53 226c78 41 168-18 270-42l12 59C229 261 149 319 58 278l13-22-18-30Z"/>
+    <path fill="url(#ribbon)" stroke="#66bfff" stroke-width="2.5" d="M59 223c80 33 168-21 263-43l4 49c-99 20-177 73-264 44l10-22-13-28Z"/>
+    <path fill="none" stroke="#fff" stroke-opacity=".85" stroke-width="3" d="M72 232c75 24 156-22 239-43"/>
+    <text x="111" y="267" fill="#0876df" stroke="#0457bd" stroke-width="0.8" font-family="Georgia, serif" font-size="54" font-style="italic" font-weight="700" letter-spacing="-2" transform="rotate(-10 205 246)">Sagawa</text>
+  </g>
+</svg>
