@@ -127,6 +127,7 @@ type LoginScreenProps = {
 type CurrentUser = {
   name: string;
   email: string;
+  avatarUrl: string;
 };
 
 type ApiResult<T> = {
@@ -509,69 +510,25 @@ function LoginScreen({ onAuthenticated }: LoginScreenProps) {
   };
 
   const renderLoginShell = (title: string, subtitle: string, children: React.ReactNode) => (
-    <main className="login-shell login-shell-v3">
-      <div className="login-ambient login-ambient-one" aria-hidden="true" />
-      <div className="login-ambient login-ambient-two" aria-hidden="true" />
-
-      <section className="login-stage">
-        <aside className="login-visual">
-          <div className="login-visual-brand">
-            <div className="login-logo-frame">
-              <img src="/sagawa-flower-logo.svg" alt="Sagawa" className="login-logo-image" />
-            </div>
-            <div>
-              <strong>Sagawa</strong>
-              <span>Control Center</span>
-            </div>
-          </div>
-
-          <div className="login-visual-copy">
-            <span className="login-kicker">PRIVATE OPERATIONS WORKSPACE</span>
-            <h2>Run Sagawa with clarity.</h2>
-            <p>
-              Publish trusted content, monitor system health and manage day-to-day operations from one secure workspace.
-            </p>
-          </div>
-
-          <div className="login-trust-list">
-            <div>
-              <span className="login-trust-icon">01</span>
-              <div><strong>Touch ID ready</strong><small>WebAuthn passkeys keep private keys on your device.</small></div>
-            </div>
-            <div>
-              <span className="login-trust-icon">02</span>
-              <div><strong>Protected sessions</strong><small>Admin actions stay behind authenticated server sessions.</small></div>
-            </div>
-            <div>
-              <span className="login-trust-icon">03</span>
-              <div><strong>Operational visibility</strong><small>Runtime, API and backend health are visible after sign-in.</small></div>
-            </div>
-          </div>
-
-          <div className="login-visual-foot">
-            Sagawa Admin · Secure operations
-          </div>
-        </aside>
-
-        <section className="login-panel login-panel-v3">
-          <div className="login-mobile-brand">
-            <img src="/sagawa-flower-logo.svg" alt="" aria-hidden="true" />
-            <div><strong>Sagawa</strong><span>Control Center</span></div>
-          </div>
-
-          <span className="login-step-label">SECURE ADMIN ACCESS</span>
-          <h1>{title}</h1>
-          <p className="login-subtitle">{subtitle}</p>
-          {children}
-        </section>
+    <main className="login-shell simple-login-shell">
+      <div className="login-live-orb orb-one" aria-hidden="true" />
+      <div className="login-live-orb orb-two" aria-hidden="true" />
+      <section className="simple-login-card">
+        <div className="simple-logo-wrap">
+          <span className="simple-logo-ring" aria-hidden="true" />
+          <img src="/sagawa-flower-logo.svg" alt="Sagawa" className="simple-login-logo" />
+        </div>
+        <h1>{title}</h1>
+        {subtitle && <p className="simple-login-subtitle">{subtitle}</p>}
+        {children}
       </section>
     </main>
   );
 
   if (step === 'credentials') {
     return renderLoginShell(
-      'Welcome back',
-      'Use Touch ID on this Mac, or sign in with your admin credentials.',
+      'Welcome',
+      '',
       (
         <>
           <div className="passkey-primary-block">
@@ -597,10 +554,9 @@ function LoginScreen({ onAuthenticated }: LoginScreenProps) {
                     : passkeyChecking
                       ? 'Checking Touch ID…'
                       : passkeyAvailable
-                        ? 'Continue with Touch ID'
-                        : 'Touch ID unavailable on this Mac'}
+                        ? 'Touch ID'
+                        : 'Touch ID unavailable'}
                 </strong>
-                <small>{passkeyAvailable ? 'Fast, passwordless admin sign-in' : 'Use your admin password below'}</small>
               </span>
               <span className="passkey-arrow" aria-hidden="true">→</span>
             </button>
@@ -692,10 +648,6 @@ function LoginScreen({ onAuthenticated }: LoginScreenProps) {
               <span aria-hidden="true">→</span>
             </button>
           </form>
-
-          <p className="login-security-note">
-            Sagawa does not pre-fill your admin email or password. Saved credentials are controlled by your browser or password manager.
-          </p>
         </>
       ),
     );
@@ -975,10 +927,12 @@ function App() {
   const [currentUser, setCurrentUser] = useState<CurrentUser>({
     name: 'Admin',
     email: '',
+    avatarUrl: '',
   });
   const normalizeCurrentUser = (user?: Partial<CurrentUser> | null): CurrentUser => ({
     name: typeof user?.name === 'string' && user.name.trim() ? user.name.trim() : 'Admin',
     email: typeof user?.email === 'string' ? user.email : '',
+    avatarUrl: typeof user?.avatarUrl === 'string' ? user.avatarUrl : '',
   });
   const [activePage, setActivePage] =
     useState<Page>('dashboard');
@@ -1106,6 +1060,12 @@ function App() {
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [showAdminProfile, setShowAdminProfile] = useState(false);
+  const [adminProfileName, setAdminProfileName] = useState('Admin');
+  const [adminProfileAvatarFile, setAdminProfileAvatarFile] = useState<File | null>(null);
+  const [adminProfileAvatarPreview, setAdminProfileAvatarPreview] = useState('');
+  const [adminProfileSaving, setAdminProfileSaving] = useState(false);
+  const [adminProfileError, setAdminProfileError] = useState('');
 
   const recordDiagnostic = useCallback((
     entry: Omit<DiagnosticEntry, 'id' | 'createdAt'>,
@@ -1198,17 +1158,94 @@ function App() {
           message: error instanceof Error ? error.message : String(error),
           detail: 'GET /api/auth/me',
         });
-        setCurrentUser({ name: 'Admin', email: '' });
+        setCurrentUser({ name: 'Admin', email: '', avatarUrl: '' });
         setAuthenticated(false);
       });
   }, [recordDiagnostic]);
+
+  const loadAdminProfile = useCallback(async () => {
+    try {
+      const result = await readApiResponse<CurrentUser>(
+        await adminFetch(apiUrl('/api/admin/profile')),
+      );
+      const profile = normalizeCurrentUser(result.data);
+      setCurrentUser(profile);
+      setAdminProfileName(profile.name);
+      setAdminProfileAvatarPreview(profile.avatarUrl);
+    } catch (error) {
+      console.error('[AdminProfile] Load failed:', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (authenticated === true) {
+      void loadAdminProfile();
+    }
+  }, [authenticated, loadAdminProfile]);
+
+  const openAdminProfile = () => {
+    setAdminProfileName(currentUser.name || 'Admin');
+    setAdminProfileAvatarPreview(currentUser.avatarUrl || '');
+    setAdminProfileAvatarFile(null);
+    setAdminProfileError('');
+    setShowAdminProfile(true);
+  };
+
+  const handleAdminProfilePhoto = (file?: File | null) => {
+    if (!file) return;
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setAdminProfileError('Use a JPEG, PNG, or WebP image.');
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setAdminProfileError('Photo must be 2 MB or smaller.');
+      return;
+    }
+    setAdminProfileError('');
+    setAdminProfileAvatarFile(file);
+    setAdminProfileAvatarPreview(URL.createObjectURL(file));
+  };
+
+  const saveAdminProfile = async () => {
+    const name = adminProfileName.trim();
+    if (!name) {
+      setAdminProfileError('Admin name is required.');
+      return;
+    }
+
+    setAdminProfileSaving(true);
+    setAdminProfileError('');
+    try {
+      const body = new FormData();
+      body.append('name', name);
+      if (adminProfileAvatarFile) body.append('avatar', adminProfileAvatarFile);
+
+      const result = await readApiResponse<CurrentUser>(
+        await adminFetch(apiUrl('/api/admin/profile'), {
+          method: 'PUT',
+          body,
+        }),
+      );
+
+      const profile = normalizeCurrentUser(result.data);
+      setCurrentUser(profile);
+      setAdminProfileName(profile.name);
+      setAdminProfileAvatarPreview(profile.avatarUrl);
+      setAdminProfileAvatarFile(null);
+      setShowAdminProfile(false);
+    } catch (error) {
+      setAdminProfileError(error instanceof Error ? error.message : 'Could not save admin profile.');
+    } finally {
+      setAdminProfileSaving(false);
+    }
+  };
 
   const logout = async () => {
     try {
       await adminFetch(apiUrl('/api/auth/logout'), { method: 'POST' });
     } finally {
       storeAdminSessionToken(null);
-      setCurrentUser({ name: 'Admin', email: '' });
+      setCurrentUser({ name: 'Admin', email: '', avatarUrl: '' });
       setAuthenticated(false);
       setShowPasswordChange(false);
     }
@@ -1260,7 +1297,7 @@ function App() {
       setShowCurrentPassword(false);
       setShowNewPassword(false);
       setShowConfirmPassword(false);
-      setCurrentUser({ name: 'Admin', email: '' });
+      setCurrentUser({ name: 'Admin', email: '', avatarUrl: '' });
       setAuthenticated(false);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Password change failed.';
@@ -3913,6 +3950,64 @@ function App() {
 
   return (
     <div className="admin-app">
+      {showAdminProfile && (
+        <div className="modal-overlay">
+          <div className="modal-card compact-modal admin-profile-modal">
+            <div className="modal-heading">
+              <div>
+                <span className="eyebrow">ADMIN PROFILE</span>
+                <h2>Profile</h2>
+              </div>
+              <button className="modal-close" type="button" onClick={() => setShowAdminProfile(false)} aria-label="Close admin profile">
+                ×
+              </button>
+            </div>
+
+            <div className="admin-profile-editor">
+              <label className="admin-photo-picker">
+                {adminProfileAvatarPreview ? (
+                  <img src={adminProfileAvatarPreview} alt="Admin profile" />
+                ) : (
+                  <span>{(adminProfileName || 'A').slice(0, 1).toUpperCase()}</span>
+                )}
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  onChange={(event) => handleAdminProfilePhoto(event.target.files?.[0])}
+                />
+                <small>Change photo</small>
+              </label>
+
+              <div className="login-field">
+                <label htmlFor="admin-profile-name">Admin name</label>
+                <input
+                  id="admin-profile-name"
+                  type="text"
+                  maxLength={80}
+                  value={adminProfileName}
+                  onChange={(event) => setAdminProfileName(event.target.value)}
+                  autoComplete="off"
+                />
+              </div>
+
+              <div className="admin-profile-email">
+                <span>Email</span>
+                <strong>{currentUser.email || 'Configured admin email'}</strong>
+              </div>
+
+              {adminProfileError && <div className="login-error" role="alert">{adminProfileError}</div>}
+            </div>
+
+            <div className="modal-actions">
+              <button className="secondary-button" type="button" onClick={() => setShowAdminProfile(false)}>Cancel</button>
+              <button className="primary-button" type="button" onClick={saveAdminProfile} disabled={adminProfileSaving}>
+                {adminProfileSaving ? 'Saving…' : 'Save profile'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showPasswordChange && (
         <div className="modal-overlay">
           <div className="modal-card compact-modal">
@@ -4043,9 +4138,13 @@ function App() {
             </span>
           </button>
 
-          <div className="admin-user">
+          <button className="admin-user admin-user-button" type="button" onClick={openAdminProfile}>
             <div className="user-avatar">
-              {(currentUser.name || 'A').slice(0, 1).toUpperCase()}
+              {currentUser.avatarUrl ? (
+                <img src={currentUser.avatarUrl} alt="" />
+              ) : (
+                (currentUser.name || 'A').slice(0, 1).toUpperCase()
+              )}
             </div>
 
             <div>
@@ -4057,7 +4156,7 @@ function App() {
                 Secure admin account
               </span>
             </div>
-          </div>
+          </button>
 
           <button className="nav-item logout-button" type="button" onClick={logout}>
             <span className="nav-icon">↪</span>
@@ -4095,21 +4194,23 @@ function App() {
             <button
               className="profile-button"
               type="button"
-              onClick={logout}
-              aria-label="Sign out of Sagawa Admin"
-              title="Sign out"
+              onClick={openAdminProfile}
+              aria-label="Open admin profile"
+              title="Admin profile"
             >
               <span className="profile-avatar">
-                {(currentUser.name || 'A').slice(0, 1).toUpperCase()}
+                {currentUser.avatarUrl ? (
+                  <img src={currentUser.avatarUrl} alt="" />
+                ) : (
+                  (currentUser.name || 'A').slice(0, 1).toUpperCase()
+                )}
               </span>
 
               <span>
                 {currentUser.name || 'Admin'}
               </span>
 
-              <span className="profile-signout">
-                Sign out
-              </span>
+              <span className="profile-signout">Profile</span>
             </button>
           </div>
         </header>
