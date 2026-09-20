@@ -1649,7 +1649,14 @@ function App() {
     {
       id: 'exchange',
       label: 'Exchange Rate',
-      icon: '
+      icon: '$',
+    },
+    {
+      id: 'analytics',
+      label: 'Analytics',
+      icon: '↗',
+    },
+  ];
 
   /* =========================================================
      SEARCH
