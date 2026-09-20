@@ -178,6 +178,11 @@ function hasVerificationState(stateId, expectedPurpose = null) {
   return expectedPurpose ? state.purpose === expectedPurpose : true;
 }
 
+function invalidateVerificationState(stateId) {
+  if (!stateId) return false;
+  return verificationStates.delete(verificationStateKey(stateId));
+}
+
 function validateVerificationCode(stateId, code, expectedPurpose = 'admin-login') {
   pruneVerificationStates();
   const key = verificationStateKey(stateId);
@@ -705,6 +710,7 @@ module.exports = {
   finishRegistration,
   getAuthenticatedUser,
   hasVerificationState,
+  invalidateVerificationState,
   isAdminAuthenticated,
   login,
   replaceAdminPasswordHash,
