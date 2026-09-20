@@ -4604,44 +4604,6 @@ body {
   color: #ffffff;
 }
 
-.sidebar-health-v4 {
-  margin-top: auto;
-  padding: 16px 14px 12px;
-  border-top: 1px solid #edf2f7;
-}
-
-.sidebar-health-v4 > div {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  min-height: 25px;
-  color: #63758f;
-  font-size: 10px;
-}
-
-.sidebar-health-v4 strong {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: #079b60;
-  font-size: 10px;
-  font-weight: 600;
-}
-
-.sidebar-health-v4 strong i {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #16a56e;
-  box-shadow: 0 0 0 4px rgba(22, 165, 110, 0.08);
-}
-
-.sidebar-health-v4 strong i.issue {
-  background: #dc5260;
-  box-shadow: 0 0 0 4px rgba(220, 82, 96, 0.08);
-}
-
 .admin-app .sidebar-bottom {
   margin-top: 0;
   gap: 10px;
@@ -5708,7 +5670,6 @@ body {
     margin-left: 0;
   }
 
-  .sidebar-health-v4,
   .admin-app .sidebar-bottom {
     display: none;
   }
