@@ -121,6 +121,82 @@ const sessions = new Map();
 const pendingChallenges = new Map();
 const verificationStates = new Map();
 
+function normalizeTrustedBrowserId(value) {
+  const browserId = String(value || '').trim();
+  return /^[A-Za-z0-9_-]{16,128}$/.test(browserId) ? browserId : '';
+}
+
+function trustedBrowserAgentHash(req) {
+  return crypto
+    .createHmac('sha256', SESSION_SECRET)
+    .update(String(req?.headers?.['user-agent'] || 'unknown'))
+    .digest('base64url');
+}
+
+function trustedBrowserPasswordVersion() {
+  return crypto
+    .createHmac('sha256', SESSION_SECRET)
+    .update(adminPasswordHash)
+    .digest('base64url');
+}
+
+function signTrustedBrowserPayload(encodedPayload) {
+  return crypto
+    .createHmac('sha256', SESSION_SECRET)
+    .update(encodedPayload)
+    .digest('base64url');
+}
+
+function createTrustedBrowserToken(req, browserId) {
+  const normalizedBrowserId = normalizeTrustedBrowserId(browserId);
+  if (!normalizedBrowserId) return '';
+
+  const payload = {
+    v: 1,
+    browserId: normalizedBrowserId,
+    agentHash: trustedBrowserAgentHash(req),
+    passwordVersion: trustedBrowserPasswordVersion(),
+    issuedAt: Date.now(),
+  };
+  const encodedPayload = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
+  return `${encodedPayload}.${signTrustedBrowserPayload(encodedPayload)}`;
+}
+
+function isTrustedAdminBrowser(req, browserId, token) {
+  const normalizedBrowserId = normalizeTrustedBrowserId(browserId);
+  const value = String(token || '').trim();
+  if (!normalizedBrowserId || !value) return false;
+
+  const [encodedPayload, submittedSignature, ...extra] = value.split('.');
+  if (!encodedPayload || !submittedSignature || extra.length) return false;
+
+  const expectedSignature = signTrustedBrowserPayload(encodedPayload);
+  if (
+    submittedSignature.length !== expectedSignature.length ||
+    !crypto.timingSafeEqual(
+      Buffer.from(submittedSignature),
+      Buffer.from(expectedSignature),
+    )
+  ) {
+    return false;
+  }
+
+  let payload;
+  try {
+    payload = JSON.parse(Buffer.from(encodedPayload, 'base64url').toString('utf8'));
+  } catch {
+    return false;
+  }
+
+  return Boolean(
+    payload &&
+      payload.v === 1 &&
+      payload.browserId === normalizedBrowserId &&
+      payload.agentHash === trustedBrowserAgentHash(req) &&
+      payload.passwordVersion === trustedBrowserPasswordVersion()
+  );
+}
+
 function pruneVerificationStates() {
   const now = Date.now();
   for (const [key, state] of verificationStates) {
@@ -703,6 +779,7 @@ module.exports = {
   clearSessionCookie,
   createPasswordResetState,
   createSession,
+  createTrustedBrowserToken,
   createVerificationState,
   destroyAllSessions,
   destroySession,
@@ -712,6 +789,7 @@ module.exports = {
   hasVerificationState,
   invalidateVerificationState,
   isAdminAuthenticated,
+  isTrustedAdminBrowser,
   login,
   replaceAdminPasswordHash,
   requireAdmin,
