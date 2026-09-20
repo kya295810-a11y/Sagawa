@@ -15,6 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useFocusEffect, useRouter } from 'expo-router';
 
+import { trackContentEvent } from '@/services/analytics/content-analytics';
 import { useAppTheme } from '@/theme/provider';
 import { useSettingsStore } from '@/store/settings-store';
 import { useAuthStore } from '@/store/auth-store';
@@ -572,7 +573,10 @@ export default function HomeScreen() {
             news.map((item) => (
               <Pressable
                 key={String(item.id)}
-                onPress={() => router.push('/news')}
+                onPress={() => {
+                  void trackContentEvent('news', item.id, 'click');
+                  router.push({ pathname: '/news/[id]', params: { id: String(item.id) } });
+                }}
                 style={({ pressed }) => [
                   styles.newsCard,
                   pressed && styles.cardPressed,
