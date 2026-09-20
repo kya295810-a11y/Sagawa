@@ -321,8 +321,8 @@ function LoginScreen({ onAuthenticated }: LoginScreenProps) {
     <main className="login-shell">
       <section className="login-panel">
         <div className="brand login-brand">
-          <div className="brand-mark">MM</div>
-          <div><strong>Sagawa</strong><span>Admin</span></div>
+          <div className="brand-mark">S</div>
+          <div><strong>Sagawa</strong><span>Control Center</span></div>
         </div>
         <span className="eyebrow">SECURE ADMIN ACCESS</span>
         <h1>{title}</h1>
@@ -333,7 +333,7 @@ function LoginScreen({ onAuthenticated }: LoginScreenProps) {
   );
 
   if (step === 'credentials') {
-    return renderLoginShell('Welcome back', 'Sign in to manage Malay MM content.', (
+    return renderLoginShell('Welcome back', 'Sign in to manage Sagawa content and operations.', (
       <>
         <form onSubmit={handlePasswordLogin} noValidate>
           <label htmlFor="admin-email">Email</label>
@@ -1747,154 +1747,96 @@ function App() {
 
   const renderDashboard = () => (
     <>
-      <div className="page-heading">
+      <div className="page-heading admin-hero">
         <div>
-          <span className="eyebrow">
-            MALAY MM ADMIN
-          </span>
-
+          <span className="eyebrow">SAGAWA CONTROL CENTER</span>
           <p className="welcome-message">
-            Welcome, {currentUser.name || 'Admin'}
+            Welcome back, {currentUser.name || 'Administrator'}
           </p>
-
-          <h1>Dashboard</h1>
-
+          <h1>Overview</h1>
           <p>
-            Manage your mobile app content
-            from one secure place.
+            Monitor Sagawa content, publishing status and operational health from one secure workspace.
           </p>
         </div>
 
-        <div className="admin-avatar">
-          A
+        <div className="admin-avatar" aria-label="Administrator">
+          {(currentUser.name || 'A').slice(0, 1).toUpperCase()}
         </div>
       </div>
 
-      <div className="stats-grid">
-        <button
-          className="stat-card"
-          onClick={() =>
-            setActivePage('news')
-          }
-        >
+      <div className="stats-grid admin-stats-grid">
+        <button className="stat-card" onClick={() => setActivePage('news')}>
           <div className="stat-top">
-            <div className="stat-icon blue">
-              📰
-            </div>
-
-            <span className="stat-arrow">
-              →
-            </span>
+            <div className="stat-icon blue">📰</div>
+            <span className="stat-arrow">→</span>
           </div>
-
-          <strong>News</strong>
-
-          <span>
-            Manage news content
-          </span>
-
-          <b>{news.length}</b>
+          <strong>Published News</strong>
+          <span>Live information in the mobile app</span>
+          <b>{news.filter((item) => item.published).length}</b>
+          <small>{news.filter((item) => !item.published).length} draft{news.filter((item) => !item.published).length === 1 ? '' : 's'}</small>
         </button>
 
-        <button
-          className="stat-card"
-          onClick={() =>
-            setActivePage('services')
-          }
-        >
+        <button className="stat-card" onClick={() => setActivePage('services')}>
           <div className="stat-top">
-            <div className="stat-icon green">
-              🛠️
-            </div>
-
-            <span className="stat-arrow">
-              →
-            </span>
+            <div className="stat-icon green">🧭</div>
+            <span className="stat-arrow">→</span>
           </div>
-
           <strong>Services</strong>
-
-          <span>
-            Manage community services
-          </span>
-
-          <b>{services.length}/25</b>
+          <span>Community information directory</span>
+          <b>{services.filter((item) => item.published).length}</b>
+          <small>{services.length}/25 configured</small>
         </button>
 
-        <button
-          className="stat-card"
-          onClick={() =>
-            setActivePage('exchange')
-          }
-        >
+        <button className="stat-card" onClick={() => setActivePage('exchange')}>
           <div className="stat-top">
-            <div className="stat-icon purple">
-              💱
-            </div>
+            <div className="stat-icon purple">💱</div>
+            <span className="stat-arrow">→</span>
+          </div>
+          <strong>Exchange Rate</strong>
+          <span>Current MYR → MMK reference rate</span>
+          <b>{exchangeRate.rate ? exchangeRate.rate : 'Not set'}</b>
+          <small>{exchangeRate.rate ? 'MMK per MYR' : 'Needs an update'}</small>
+        </button>
 
-            <span className="stat-arrow">
-              →
+        <div className="stat-card system-stat-card" role="status" aria-live="polite">
+          <div className="stat-top">
+            <div className={apiError ? 'stat-icon red' : 'stat-icon green'}>
+              {apiError ? '!' : '✓'}
+            </div>
+            <span className={apiError ? 'health-label issue' : 'health-label healthy'}>
+              {apiError ? 'Attention' : 'Healthy'}
             </span>
           </div>
-
-          <strong>Exchange Rate</strong>
-
-          <span>
-            Manage current rates
-          </span>
-
-          <b>{exchangeRate.rate ? 'Live' : 'Not set'}</b>
-        </button>
+          <strong>Admin API</strong>
+          <span>Content connection and sync status</span>
+          <b>{apiLoading ? 'Syncing' : apiError ? 'Issue' : 'Online'}</b>
+          <small>{API_BASE ? 'Environment configured' : 'API URL missing'}</small>
+        </div>
       </div>
 
-      <div className="overview-card">
+      <div className="overview-card overview-summary-card">
         <div>
-          <span className="eyebrow">
-            CONTENT STATUS
-          </span>
-
-          <h2>
-            Current overview
-          </h2>
+          <span className="eyebrow">CONTENT STATUS</span>
+          <h2>Publishing overview</h2>
+          <p>See what is live in Sagawa before making changes.</p>
         </div>
 
         <div className="overview-list">
           <div>
-            <span>
-              Published News
-            </span>
-
-            <strong>
-              {
-                news.filter(
-                  (item) => item.published
-                ).length
-              }
-            </strong>
+            <span>Published news</span>
+            <strong>{news.filter((item) => item.published).length}</strong>
           </div>
-
           <div>
-            <span>
-              Published Services
-            </span>
-
-            <strong>
-              {
-                services.filter(
-                  (item) => item.published
-                ).length
-              }
-            </strong>
+            <span>Draft news</span>
+            <strong>{news.filter((item) => !item.published).length}</strong>
           </div>
-
           <div>
-            <span>
-              Current MYR → MMK
-            </span>
-
-            <strong>
-              {exchangeRate.rate || 'Not set'}
-            </strong>
+            <span>Published services</span>
+            <strong>{services.filter((item) => item.published).length}</strong>
+          </div>
+          <div>
+            <span>Current MYR → MMK</span>
+            <strong>{exchangeRate.rate || 'Not set'}</strong>
           </div>
         </div>
       </div>
@@ -1904,6 +1846,7 @@ function App() {
           <div>
             <span className="eyebrow">RECENT CONTENT</span>
             <h2>Latest updates</h2>
+            <p>Recently managed content across News and Services.</p>
           </div>
           <div className="dashboard-recent-list">
             {[...news.slice(0, 2), ...services.slice(0, 2)].slice(0, 4).map((item) => (
@@ -1913,19 +1856,62 @@ function App() {
                 <small>{item.published ? 'Published' : 'Draft'}</small>
               </div>
             ))}
-            {news.length === 0 && services.length === 0 && <p>No content has been added yet.</p>}
+            {news.length === 0 && services.length === 0 && (
+              <div className="dashboard-empty">
+                <strong>No content yet</strong>
+                <span>Create your first News or Service item from Quick Actions.</span>
+              </div>
+            )}
           </div>
         </section>
 
         <section className="overview-card dashboard-actions-card">
           <div>
             <span className="eyebrow">QUICK ACTIONS</span>
-            <h2>Create or update</h2>
+            <h2>Publish faster</h2>
+            <p>Jump directly into the most common admin tasks.</p>
           </div>
           <div className="dashboard-actions">
-            <button type="button" onClick={openAddNews}>+ Add news</button>
-            <button type="button" onClick={openAddService}>+ Add service</button>
-            <button type="button" onClick={() => setActivePage('exchange')}>Update exchange rate</button>
+            <button type="button" onClick={openAddNews}><span>＋</span>Add news</button>
+            <button type="button" onClick={openAddService}><span>＋</span>Add service</button>
+            <button type="button" onClick={() => setActivePage('exchange')}><span>↻</span>Update exchange rate</button>
+          </div>
+        </section>
+      </div>
+
+      <div className="operations-grid">
+        <section className="overview-card operations-card">
+          <div>
+            <span className="eyebrow">SYSTEM HEALTH</span>
+            <h2>Operational readiness</h2>
+            <p>Fast checks for the services this dashboard depends on.</p>
+          </div>
+          <div className="health-list">
+            <div>
+              <span><i className={apiError ? 'health-dot issue' : 'health-dot healthy'} />Admin API</span>
+              <strong>{apiError ? 'Needs attention' : 'Operational'}</strong>
+            </div>
+            <div>
+              <span><i className="health-dot healthy" />Secure session</span>
+              <strong>Authenticated</strong>
+            </div>
+            <div>
+              <span><i className={apiLoading ? 'health-dot syncing' : 'health-dot healthy'} />Content sync</span>
+              <strong>{apiLoading ? 'In progress' : 'Ready'}</strong>
+            </div>
+          </div>
+        </section>
+
+        <section className="overview-card operations-card">
+          <div>
+            <span className="eyebrow">WORKSPACE</span>
+            <h2>Admin account</h2>
+            <p>This workspace is restricted to authenticated Sagawa administrators.</p>
+          </div>
+          <div className="workspace-details">
+            <div><span>Name</span><strong>{currentUser.name || 'Administrator'}</strong></div>
+            <div><span>Email</span><strong>{currentUser.email || 'Not provided'}</strong></div>
+            <div><span>Role</span><strong>Administrator</strong></div>
           </div>
         </section>
       </div>
@@ -1947,8 +1933,7 @@ function App() {
           <h1>News</h1>
 
           <p>
-            Create, preview and manage
-            mobile news.
+            Create, review and publish trusted information for the Sagawa community.
           </p>
         </div>
 
@@ -2130,8 +2115,7 @@ function App() {
           <h1>Services</h1>
 
           <p>
-            Manage up to 25 services shown
-            in the mobile app.
+            Manage useful community services and keep their information accurate and up to date.
           </p>
         </div>
 
@@ -2184,7 +2168,7 @@ function App() {
             </strong>
 
             <span>
-              No categories — simple content
+              Review publishing status, contact details and service information.
             </span>
           </div>
 
@@ -2306,8 +2290,7 @@ function App() {
           <h1>Exchange Rate</h1>
 
           <p>
-            Manage the current MYR to MMK exchange
-            rate shown in the mobile app.
+            Review and publish the MYR to MMK reference rate displayed throughout Sagawa.
           </p>
         </div>
 
@@ -3479,7 +3462,7 @@ function App() {
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-mark">
-            MM
+            S
           </div>
 
           <div>
@@ -3488,14 +3471,14 @@ function App() {
             </strong>
 
             <span>
-              Admin
+              Control Center
             </span>
           </div>
         </div>
 
         <nav className="navigation">
           <span className="nav-label">
-            MANAGEMENT
+            CONTENT
           </span>
 
           {menuItems.map((item) => (
@@ -3538,16 +3521,16 @@ function App() {
 
           <div className="admin-user">
             <div className="user-avatar">
-              A
+              {(currentUser.name || 'A').slice(0, 1).toUpperCase()}
             </div>
 
             <div>
               <strong>
-                Administrator
+                {currentUser.name || 'Administrator'}
               </strong>
 
               <span>
-                Admin account
+                Secure admin account
               </span>
             </div>
           </div>
@@ -3567,11 +3550,11 @@ function App() {
         <header className="topbar">
           <div>
             <span className="topbar-label">
-              MALAY MM PROJECT
+              SAGAWA CONTROL CENTER
             </span>
 
-            <span className="system-status">
-              ● System ready
+            <span className={apiError ? 'system-status issue' : 'system-status'}>
+              ● {apiError ? 'API needs attention' : apiLoading ? 'Syncing data' : 'Systems operational'}
             </span>
           </div>
 
@@ -3585,29 +3568,22 @@ function App() {
             </button>
 
             <button
-              className="icon-button"
-              type="button"
-              aria-label="Notifications"
-            >
-              🔔
-            </button>
-
-            <button
               className="profile-button"
               type="button"
               onClick={logout}
-              aria-label="Log out"
+              aria-label="Sign out of Sagawa Admin"
+              title="Sign out"
             >
               <span className="profile-avatar">
-                A
+                {(currentUser.name || 'A').slice(0, 1).toUpperCase()}
               </span>
 
               <span>
-                Admin
+                {currentUser.name || 'Admin'}
               </span>
 
-              <span>
-                ⌄
+              <span className="profile-signout">
+                Sign out
               </span>
             </button>
           </div>
@@ -3626,7 +3602,7 @@ function App() {
               <span>!</span>
 
               <div>
-                <strong>Local API connection issue</strong>
+                <strong>Admin API connection issue</strong>
                 <small>{apiError}</small>
               </div>
             </div>
@@ -3640,7 +3616,7 @@ function App() {
                 fontSize: 13,
               }}
             >
-              Saving / loading content…
+              Syncing Sagawa admin data…
             </div>
           )}
 
