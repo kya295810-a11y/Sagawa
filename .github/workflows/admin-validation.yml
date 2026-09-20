@@ -1,0 +1,57 @@
+name: Admin validation
+
+on:
+  pull_request:
+    paths:
+      - 'malay-mm-admin/**'
+      - '.github/workflows/admin-validation.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'malay-mm-admin/**'
+      - '.github/workflows/admin-validation.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  admin-frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: malay-mm-admin
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: malay-mm-admin/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Lint
+        run: npm run lint
+
+  admin-backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: malay-mm-admin/server
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: malay-mm-admin/server/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Tests
+        run: npm test
