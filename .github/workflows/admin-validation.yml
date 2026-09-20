@@ -1,0 +1,87 @@
+name: Admin validation
+
+on:
+  pull_request:
+    paths:
+      - 'malay-mm-admin/**'
+      - '.github/workflows/admin-validation.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'malay-mm-admin/**'
+      - '.github/workflows/admin-validation.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  admin-frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: malay-mm-admin
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: malay-mm-admin/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Lint
+        run: npm run lint
+
+  admin-backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: sagawa
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: sagawa_ci_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d sagawa"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DB_HOST: localhost
+      DB_PORT: 5432
+      DB_NAME: sagawa
+      DB_USER: postgres
+      DB_PASSWORD: sagawa_ci_password
+      ADMIN_EMAIL: admin-ci@sagawa.test
+      ADMIN_NAME: Sagawa CI Admin
+      SESSION_SECRET: sagawa-ci-session-secret-32-characters-minimum
+      ADMIN_ORIGIN: http://localhost:5173
+      CORS_ORIGIN: http://localhost:5173
+      WEBAUTHN_RP_ID: localhost
+      GOOGLE_SHEETS_SYNC_ENABLED: 'false'
+      NODE_ENV: test
+    defaults:
+      run:
+        working-directory: malay-mm-admin/server
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: malay-mm-admin/server/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Configure CI admin password
+        run: echo "ADMIN_PASSWORD_HASH=$(node -e "console.log(require('bcryptjs').hashSync('AdminPass123!', 12))")" >> "$GITHUB_ENV"
+      - name: Tests
+        run: npm test
