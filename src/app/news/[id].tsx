@@ -16,6 +16,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { NewsArticle } from '@/features/news/types';
+import { trackContentEvent } from '@/services/analytics/content-analytics';
 import { fetchNewsById } from '@/services/news/news-service';
 import { useAppTheme } from '@/theme/provider';
 import type { ThemeColors } from '@/theme/types';
@@ -86,7 +87,10 @@ export default function NewsDetailScreen() {
 
       try {
         const response = await fetchNewsById(newsId, signal);
-        if (isActive()) setArticle(response);
+        if (isActive()) {
+          setArticle(response);
+          void trackContentEvent('news', newsId, 'view');
+        }
       } catch (requestError) {
         if (requestError instanceof Error && requestError.name === 'AbortError') return;
         console.error('News detail API error:', requestError);
