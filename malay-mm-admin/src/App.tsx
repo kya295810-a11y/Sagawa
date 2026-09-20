@@ -230,7 +230,13 @@ function LoginScreen({ onAuthenticated }: LoginScreenProps) {
 
   const emailIsValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
   const passwordIsPresent = password.length > 0;
-  const submitDisabled = loading || !emailIsValid || !passwordIsPresent;
+  const noCredentials = !email.trim() && !password;
+  const credentialsReady = emailIsValid && passwordIsPresent;
+  const submitDisabled =
+    loading ||
+    (noCredentials
+      ? passkeyChecking || !passkeyAvailable
+      : !credentialsReady);
 
   const handlePasswordLogin = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -322,6 +328,17 @@ function LoginScreen({ onAuthenticated }: LoginScreenProps) {
       setLoading(false);
       setActiveAuth(null);
     }
+  };
+
+  const handleLogin = async (event: React.FormEvent) => {
+    event.preventDefault();
+
+    if (noCredentials) {
+      await handlePasskeyLogin();
+      return;
+    }
+
+    await handlePasswordLogin(event);
   };
 
   const handleEmailVerification = async (event: React.FormEvent) => {
@@ -531,40 +548,7 @@ function LoginScreen({ onAuthenticated }: LoginScreenProps) {
       '',
       (
         <>
-          <div className="passkey-primary-block">
-            <button
-              className="passkey-primary-button"
-              type="button"
-              onClick={handlePasskeyLogin}
-              disabled={loading || passkeyChecking || !passkeyAvailable}
-            >
-              <span className="passkey-fingerprint" aria-hidden="true">
-                <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-                  <path d="M12 11a2 2 0 0 0-2 2c0 3.6-1.2 5.8-2.5 7" />
-                  <path d="M14.8 19.5c.8-1.7 1.2-3.9 1.2-6.5a4 4 0 0 0-8 0c0 1.7-.2 3-.7 4.3" />
-                  <path d="M18.6 18.1c.3-1.5.4-3.2.4-5.1a7 7 0 0 0-14 0c0 .8 0 1.5-.1 2.2" />
-                  <path d="M20.8 9.5A9.2 9.2 0 0 0 4 7.2" />
-                  <path d="M12 3a9.5 9.5 0 0 1 9 6.5" />
-                </svg>
-              </span>
-              <span>
-                <strong>
-                  {activeAuth === 'passkey'
-                    ? 'Waiting for Touch ID…'
-                    : passkeyChecking
-                      ? 'Checking Touch ID…'
-                      : passkeyAvailable
-                        ? 'Touch ID'
-                        : 'Touch ID unavailable'}
-                </strong>
-              </span>
-              <span className="passkey-arrow" aria-hidden="true">→</span>
-            </button>
-          </div>
-
-          <div className="login-divider"><span>or use admin password</span></div>
-
-          <form className="login-form-v3" onSubmit={handlePasswordLogin} noValidate autoComplete="off">
+          <form className="login-form-v3" onSubmit={handleLogin} noValidate autoComplete="off">
             <div className="login-field">
               <label htmlFor="admin-email">Email</label>
               <input
@@ -644,7 +628,11 @@ function LoginScreen({ onAuthenticated }: LoginScreenProps) {
             {error && <div className="login-error login-error-v3" role="alert">{error}</div>}
 
             <button className="primary-button login-button login-submit-v3" type="submit" disabled={submitDisabled}>
-              {activeAuth === 'password' ? 'Signing in…' : 'Sign in securely'}
+              {activeAuth === 'passkey'
+                ? 'Waiting for Touch ID…'
+                : activeAuth === 'password'
+                  ? 'Signing in…'
+                  : 'Login'}
               <span aria-hidden="true">→</span>
             </button>
           </form>
