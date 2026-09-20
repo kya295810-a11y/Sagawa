@@ -305,6 +305,83 @@ const newsUploadMiddleware = (req, res, next) => {
   });
 };
 
+
+function normalizeAnalyticsContentType(value) {
+  const type = String(value || '').trim().toLowerCase();
+  return type === 'news' || type === 'service' ? type : '';
+}
+
+function analyticsViewerHash(viewerId) {
+  const normalized = String(viewerId || '').trim();
+  if (!/^[A-Za-z0-9_-]{16,160}$/.test(normalized)) return '';
+  return crypto.createHmac('sha256', process.env.SESSION_SECRET || 'sagawa-analytics')
+    .update(normalized)
+    .digest('hex');
+}
+
+async function analyticsContentExists(contentType, contentId) {
+  const table = contentType === 'news' ? 'news' : 'services';
+  const result = await db.query(
+    `SELECT 1 FROM ${table} WHERE id = $1 AND published = TRUE LIMIT 1`,
+    [String(contentId)],
+  );
+  return result.rows.length > 0;
+}
+
+async function recordAnalyticsEvent({ contentType, contentId, eventType, viewerId }) {
+  if (!await analyticsContentExists(contentType, contentId)) {
+    const error = new Error('Published content not found.');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const viewerHash = analyticsViewerHash(viewerId);
+  let reachIncrement = 0;
+
+  if (eventType === 'view' && viewerHash) {
+    const reachResult = await db.query(
+      `INSERT INTO content_reach
+        (content_type, content_id, viewer_hash, first_seen_at, last_seen_at)
+       VALUES ($1, $2, $3, NOW(), NOW())
+       ON CONFLICT (content_type, content_id, viewer_hash)
+       DO UPDATE SET last_seen_at = NOW()
+       RETURNING (xmax = 0) AS inserted`,
+      [contentType, String(contentId), viewerHash],
+    );
+    reachIncrement = reachResult.rows[0]?.inserted === true ? 1 : 0;
+  }
+
+  const viewIncrement = eventType === 'view' ? 1 : 0;
+  const clickIncrement = eventType === 'click' ? 1 : 0;
+
+  const result = await db.query(
+    `INSERT INTO content_analytics
+      (content_type, content_id, views, clicks, reach, updated_at)
+     VALUES ($1, $2, $3, $4, $5, NOW())
+     ON CONFLICT (content_type, content_id)
+     DO UPDATE SET
+       views = content_analytics.views + EXCLUDED.views,
+       clicks = content_analytics.clicks + EXCLUDED.clicks,
+       reach = content_analytics.reach + EXCLUDED.reach,
+       updated_at = NOW()
+     RETURNING views, clicks, reach, updated_at AS "updatedAt"`,
+    [contentType, String(contentId), viewIncrement, clickIncrement, reachIncrement],
+  );
+
+  return result.rows[0];
+}
+
+async function deleteAnalyticsForContent(contentType, contentId) {
+  await db.query(
+    'DELETE FROM content_reach WHERE content_type = $1 AND content_id = $2',
+    [contentType, String(contentId)],
+  );
+  await db.query(
+    'DELETE FROM content_analytics WHERE content_type = $1 AND content_id = $2',
+    [contentType, String(contentId)],
+  );
+}
+
 function parseBoolean(value, fallback) {
   if (value === undefined) return fallback;
   if (typeof value === 'boolean') return value;
@@ -335,6 +412,9 @@ function mapNewsRow(row) {
     thumbnailUrl,
     published: row.published,
     date: row.date,
+    views: Number(row.views || 0),
+    clicks: Number(row.clicks || 0),
+    reach: Number(row.reach || 0),
     // Transitional aliases for older app builds.
     image: mediaType === 'video' ? thumbnailUrl : imageUrl,
     video: videoUrl,
@@ -1292,11 +1372,104 @@ app.post('/api/auth/passkey/registration', requireRecentAdminAuth, async (req, r
   }
 });
 
+
+app.post('/api/analytics/event', async (req, res) => {
+  try {
+    const contentType = normalizeAnalyticsContentType(req.body?.contentType);
+    const contentId = String(req.body?.contentId || '').trim();
+    const eventType = String(req.body?.eventType || '').trim().toLowerCase();
+    const viewerId = String(req.body?.viewerId || '').trim();
+
+    if (!contentType || !contentId || !['view', 'click'].includes(eventType)) {
+      return res.status(400).json({
+        success: false,
+        message: 'A valid content type, content ID, and analytics event are required.',
+      });
+    }
+
+    const data = await recordAnalyticsEvent({
+      contentType,
+      contentId,
+      eventType,
+      viewerId,
+    });
+
+    return res.status(202).json({ success: true, data });
+  } catch (error) {
+    const status = Number(error.statusCode) || 500;
+    if (status >= 500) console.error('[Analytics] Event failed:', error.message);
+    return res.status(status).json({
+      success: false,
+      message: status === 404 ? 'Published content not found.' : 'Could not record analytics.',
+    });
+  }
+});
+
+app.get('/api/admin/analytics', requireAdmin, async (_req, res) => {
+  try {
+    const summaryResult = await db.query(`
+      SELECT
+        COALESCE(SUM(views), 0)::bigint AS views,
+        COALESCE(SUM(clicks), 0)::bigint AS clicks,
+        COALESCE(SUM(reach), 0)::bigint AS reach
+      FROM content_analytics
+    `);
+
+    const itemsResult = await db.query(`
+      SELECT
+        ca.content_type AS "contentType",
+        ca.content_id AS "contentId",
+        CASE
+          WHEN ca.content_type = 'news' THEN n.title
+          ELSE s.title
+        END AS title,
+        CASE
+          WHEN ca.content_type = 'news' THEN n.published
+          ELSE s.published
+        END AS published,
+        ca.views::bigint AS views,
+        ca.clicks::bigint AS clicks,
+        ca.reach::bigint AS reach,
+        ca.updated_at AS "updatedAt"
+      FROM content_analytics ca
+      LEFT JOIN news n
+        ON ca.content_type = 'news' AND n.id = ca.content_id
+      LEFT JOIN services s
+        ON ca.content_type = 'service' AND s.id = ca.content_id
+      WHERE (ca.content_type = 'news' AND n.id IS NOT NULL)
+         OR (ca.content_type = 'service' AND s.id IS NOT NULL)
+      ORDER BY ca.views DESC, ca.clicks DESC, ca.updated_at DESC
+    `);
+
+    const summary = summaryResult.rows[0] || {};
+    return res.json({
+      success: true,
+      data: {
+        summary: {
+          views: Number(summary.views || 0),
+          clicks: Number(summary.clicks || 0),
+          reach: Number(summary.reach || 0),
+        },
+        items: itemsResult.rows.map((row) => ({
+          ...row,
+          views: Number(row.views || 0),
+          clicks: Number(row.clicks || 0),
+          reach: Number(row.reach || 0),
+        })),
+      },
+    });
+  } catch (error) {
+    console.error('[Analytics] Admin report failed:', error.message);
+    return res.status(500).json({ success: false, message: 'Could not load analytics.' });
+  }
+});
+
 // Public GETs are consumed by the mobile app. All admin mutations require a session.
 app.use('/api', (req, res, next) => {
   if (req.path.startsWith('/auth/') || req.path === '/auth/me') return next();
   if (req.path === '/profile' || req.path.startsWith('/profile/')) return next();
   if (req.path === '/support' && req.method === 'POST') return next();
+  if (req.path === '/analytics/event' && req.method === 'POST') return next();
   if (req.method === 'GET') return next();
   return requireAdmin(req, res, next);
 });
@@ -1409,11 +1582,17 @@ app.get('/api/news', async (req, res) => {
         image_name,
         video_url,
         thumbnail_url,
-        published,
-        date
+        news.published,
+        news.date,
+        COALESCE(content_analytics.views, 0) AS views,
+        COALESCE(content_analytics.clicks, 0) AS clicks,
+        COALESCE(content_analytics.reach, 0) AS reach
       FROM news
-      ${isAdminAuthenticated(req) ? '' : 'WHERE published = TRUE'}
-      ORDER BY created_at DESC
+      LEFT JOIN content_analytics
+        ON content_analytics.content_type = 'news'
+       AND content_analytics.content_id = news.id
+      ${isAdminAuthenticated(req) ? '' : 'WHERE news.published = TRUE'}
+      ORDER BY news.created_at DESC
     `);
 
     res.json({
@@ -1441,11 +1620,17 @@ app.get('/api/news/:id', async (req, res) => {
         image_name,
         video_url,
         thumbnail_url,
-        published,
-        date
+        news.published,
+        news.date,
+        COALESCE(content_analytics.views, 0) AS views,
+        COALESCE(content_analytics.clicks, 0) AS clicks,
+        COALESCE(content_analytics.reach, 0) AS reach
        FROM news
-       WHERE id = $1
-         ${isAdminAuthenticated(req) ? '' : 'AND published = TRUE'}`,
+       LEFT JOIN content_analytics
+         ON content_analytics.content_type = 'news'
+        AND content_analytics.content_id = news.id
+       WHERE news.id = $1
+         ${isAdminAuthenticated(req) ? '' : 'AND news.published = TRUE'}`,
       [String(req.params.id)],
     );
 
@@ -1688,6 +1873,7 @@ app.delete('/api/news/:id', async (req, res) => {
       result.rows[0].video_url,
       result.rows[0].thumbnail_url,
     );
+    await deleteAnalyticsForContent('news', result.rows[0].id);
 
     res.json({
       success: true,
@@ -1721,10 +1907,16 @@ app.get('/api/services', async (req, res) => {
           image_name AS image,
           phone,
           created_at AS "createdAt",
-          updated_at AS "updatedAt"
+          services.updated_at AS "updatedAt",
+          COALESCE(content_analytics.views, 0) AS views,
+          COALESCE(content_analytics.clicks, 0) AS clicks,
+          COALESCE(content_analytics.reach, 0) AS reach
         FROM services
-        ${isAdminAuthenticated(req) ? '' : 'WHERE published = TRUE'}
-        ORDER BY created_at DESC
+        LEFT JOIN content_analytics
+          ON content_analytics.content_type = 'service'
+         AND content_analytics.content_id = services.id
+        ${isAdminAuthenticated(req) ? '' : 'WHERE services.published = TRUE'}
+        ORDER BY services.created_at DESC
       `);
 
     res.json({
@@ -1916,6 +2108,8 @@ app.delete('/api/services/:id', async (req, res) => {
         message: 'Service not found.',
       });
     }
+
+    await deleteAnalyticsForContent('service', result.rows[0].id);
 
     res.json({
       success: true,
