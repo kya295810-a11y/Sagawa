@@ -160,11 +160,10 @@ function LoginScreen({ onAuthenticated }: LoginScreenProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [passkeyAvailable] = useState(
-    () => typeof window !== 'undefined' && 'PublicKeyCredential' in window,
-  );
+  const [passkeyAvailable, setPasskeyAvailable] = useState(false);
+  const [passkeyChecking, setPasskeyChecking] = useState(true);
+  const [activeAuth, setActiveAuth] = useState<'password' | 'passkey' | null>(null);
 
-  // Forgot password step state
   const [forgotEmail, setForgotEmail] = useState('');
   const [resetCode, setResetCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -172,6 +171,40 @@ function LoginScreen({ onAuthenticated }: LoginScreenProps) {
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [resetStep, setResetStep] = useState<'request' | 'verify' | 'newpassword'>('request');
+
+  useEffect(() => {
+    setEmail('');
+    setPassword('');
+
+    let active = true;
+    const detectPlatformPasskey = async () => {
+      if (typeof window === 'undefined' || !('PublicKeyCredential' in window)) {
+        if (active) {
+          setPasskeyAvailable(false);
+          setPasskeyChecking(false);
+        }
+        return;
+      }
+
+      try {
+        const available =
+          typeof PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable === 'function'
+            ? await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()
+            : true;
+
+        if (active) setPasskeyAvailable(Boolean(available));
+      } catch {
+        if (active) setPasskeyAvailable(false);
+      } finally {
+        if (active) setPasskeyChecking(false);
+      }
+    };
+
+    void detectPlatformPasskey();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const emailIsValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
   const passwordIsPresent = password.length > 0;
@@ -181,39 +214,40 @@ function LoginScreen({ onAuthenticated }: LoginScreenProps) {
     event.preventDefault();
 
     if (!emailIsValid || !passwordIsPresent) {
-      setError('Please enter a valid email and password.');
+      setError('Enter your admin email and password.');
       return;
     }
 
     setLoading(true);
+    setActiveAuth('password');
     setError('');
 
-   try {
-     const result = await readApiResponse<{
-       authenticated?: boolean;
-       user?: Partial<CurrentUser> | null;
-     }>(await fetch(apiUrl('/api/auth/login'), {
-       method: 'POST',
-       credentials: 'include',
-       headers: { 'Content-Type': 'application/json' },
-       body: JSON.stringify({ email, password }),
-     }));
+    try {
+      const result = await readApiResponse<{
+        authenticated?: boolean;
+        user?: Partial<CurrentUser> | null;
+      }>(await fetch(apiUrl('/api/auth/login'), {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim(), password }),
+      }));
 
-     setError('');
-     onAuthenticated(result.data?.user ?? null);
-   } catch (_err) {
-     setError('Invalid email or password. Please try again.');
-   } finally {
-     setLoading(false);
-   }
- };
+      setError('');
+      onAuthenticated(result.data?.user ?? null);
+    } catch (_err) {
+      setError('Invalid email or password. Please try again.');
+    } finally {
+      setLoading(false);
+      setActiveAuth(null);
+    }
+  };
 
   const handlePasskeyLogin = async () => {
-    if (loading) {
-      return;
-    }
+    if (loading || !passkeyAvailable) return;
 
     setLoading(true);
+    setActiveAuth('passkey');
     setError('');
 
     try {
@@ -221,9 +255,15 @@ function LoginScreen({ onAuthenticated }: LoginScreenProps) {
         apiUrl('/api/auth/passkey/authentication-options'),
         { method: 'POST', credentials: 'include' },
       ));
+
+      if (!optionsResult.data || typeof optionsResult.data.challenge !== 'string') {
+        throw new Error('Invalid passkey authentication options.');
+      }
+
       const response = await startAuthentication({
         optionsJSON: optionsResult.data as any,
       });
+
       const result = await readApiResponse<{
         authenticated?: boolean;
         user?: Partial<CurrentUser> | null;
@@ -233,11 +273,17 @@ function LoginScreen({ onAuthenticated }: LoginScreenProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(response),
       }));
+
+      setError('');
       onAuthenticated(result.data?.user ?? null);
-    } catch {
-      setError('Unable to sign in with passkey. Please try again.');
+    } catch (passkeyError) {
+      console.error('[Admin Auth] Touch ID / passkey sign-in failed:', passkeyError);
+      setError(
+        'Touch ID / passkey sign-in was not completed. If this Mac is not registered yet, sign in with your password once and register Touch ID from the Admin panel.',
+      );
     } finally {
       setLoading(false);
+      setActiveAuth(null);
     }
   };
 
@@ -257,7 +303,7 @@ function LoginScreen({ onAuthenticated }: LoginScreenProps) {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: forgotEmail }),
+        body: JSON.stringify({ email: forgotEmail.trim() }),
       }));
       setResetStep('verify');
       setError('');
@@ -276,10 +322,8 @@ function LoginScreen({ onAuthenticated }: LoginScreenProps) {
       return;
     }
 
-    setLoading(true);
     setError('');
     setResetStep('newpassword');
-    setLoading(false);
   };
 
   const handleResetPasswordSubmit = async (event: React.FormEvent) => {
@@ -324,7 +368,6 @@ function LoginScreen({ onAuthenticated }: LoginScreenProps) {
       setConfirmPassword('');
       setResetStep('request');
       setError('');
-      alert('Password reset successful. Please sign in with your new password.');
     } catch (_err) {
       setError('Failed to reset password. Please try again.');
     } finally {
@@ -332,304 +375,387 @@ function LoginScreen({ onAuthenticated }: LoginScreenProps) {
     }
   };
 
+  const goBackToCredentials = () => {
+    setStep('credentials');
+    setForgotEmail('');
+    setResetCode('');
+    setNewPassword('');
+    setConfirmPassword('');
+    setResetStep('request');
+    setError('');
+  };
+
   const renderLoginShell = (title: string, subtitle: string, children: React.ReactNode) => (
-    <main className="login-shell">
-      <section className="login-panel">
-        <div className="brand login-brand">
-          <div className="brand-mark" aria-label="Sagawa"><span aria-hidden="true">✿</span></div>
-          <div><strong>Sagawa</strong><span>Control Center</span></div>
-        </div>
-        <span className="eyebrow">SECURE ADMIN ACCESS</span>
-        <h1>{title}</h1>
-        <p>{subtitle}</p>
-        {children}
+    <main className="login-shell login-shell-v3">
+      <div className="login-ambient login-ambient-one" aria-hidden="true" />
+      <div className="login-ambient login-ambient-two" aria-hidden="true" />
+
+      <section className="login-stage">
+        <aside className="login-visual">
+          <div className="login-visual-brand">
+            <div className="login-logo-frame">
+              <img src="/sagawa-flower-logo.svg" alt="Sagawa" className="login-logo-image" />
+            </div>
+            <div>
+              <strong>Sagawa</strong>
+              <span>Control Center</span>
+            </div>
+          </div>
+
+          <div className="login-visual-copy">
+            <span className="login-kicker">PRIVATE OPERATIONS WORKSPACE</span>
+            <h2>Run Sagawa with clarity.</h2>
+            <p>
+              Publish trusted content, monitor system health and manage day-to-day operations from one secure workspace.
+            </p>
+          </div>
+
+          <div className="login-trust-list">
+            <div>
+              <span className="login-trust-icon">01</span>
+              <div><strong>Touch ID ready</strong><small>WebAuthn passkeys keep private keys on your device.</small></div>
+            </div>
+            <div>
+              <span className="login-trust-icon">02</span>
+              <div><strong>Protected sessions</strong><small>Admin actions stay behind authenticated server sessions.</small></div>
+            </div>
+            <div>
+              <span className="login-trust-icon">03</span>
+              <div><strong>Operational visibility</strong><small>Runtime, API and backend health are visible after sign-in.</small></div>
+            </div>
+          </div>
+
+          <div className="login-visual-foot">
+            Sagawa Admin · Secure operations
+          </div>
+        </aside>
+
+        <section className="login-panel login-panel-v3">
+          <div className="login-mobile-brand">
+            <img src="/sagawa-flower-logo.svg" alt="" aria-hidden="true" />
+            <div><strong>Sagawa</strong><span>Control Center</span></div>
+          </div>
+
+          <span className="login-step-label">SECURE ADMIN ACCESS</span>
+          <h1>{title}</h1>
+          <p className="login-subtitle">{subtitle}</p>
+          {children}
+        </section>
       </section>
     </main>
   );
 
   if (step === 'credentials') {
-    return renderLoginShell('Welcome back', 'Sign in to manage Sagawa content and operations.', (
-      <>
-        <form onSubmit={handlePasswordLogin} noValidate>
-          <label htmlFor="admin-email">Email</label>
-          <input
-            id="admin-email"
-            type="email"
-            autoComplete="username"
-            inputMode="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            required
-            aria-invalid={email.length > 0 && !emailIsValid}
-            disabled={loading}
-            placeholder="admin@example.com"
-          />
-
-          <label htmlFor="admin-password">Password</label>
-          <div className="password-input-container">
-            <input
-              id="admin-password"
-              type={showPassword ? 'text' : 'password'}
-              autoComplete="current-password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              required
-              disabled={loading}
-              placeholder="••••••••"
-              spellCheck="false"
-              className="password-input-field"
-            />
+    return renderLoginShell(
+      'Welcome back',
+      'Use Touch ID on this Mac, or sign in with your admin credentials.',
+      (
+        <>
+          <div className="passkey-primary-block">
             <button
-              className="password-input-button"
+              className="passkey-primary-button"
               type="button"
-              onClick={() => setShowPassword((current) => !current)}
-              aria-label={showPassword ? 'Hide password' : 'Show password'}
-              disabled={loading}
-              tabIndex={-1}
+              onClick={handlePasskeyLogin}
+              disabled={loading || passkeyChecking || !passkeyAvailable}
             >
-              {showPassword ? (
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                  <circle cx="12" cy="12" r="3" />
+              <span className="passkey-fingerprint" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                  <path d="M12 11a2 2 0 0 0-2 2c0 3.6-1.2 5.8-2.5 7" />
+                  <path d="M14.8 19.5c.8-1.7 1.2-3.9 1.2-6.5a4 4 0 0 0-8 0c0 1.7-.2 3-.7 4.3" />
+                  <path d="M18.6 18.1c.3-1.5.4-3.2.4-5.1a7 7 0 0 0-14 0c0 .8 0 1.5-.1 2.2" />
+                  <path d="M20.8 9.5A9.2 9.2 0 0 0 4 7.2" />
+                  <path d="M12 3a9.5 9.5 0 0 1 9 6.5" />
                 </svg>
-              ) : (
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
-                  <line x1="1" y1="1" x2="23" y2="23" />
-                </svg>
-              )}
+              </span>
+              <span>
+                <strong>
+                  {activeAuth === 'passkey'
+                    ? 'Waiting for Touch ID…'
+                    : passkeyChecking
+                      ? 'Checking Touch ID…'
+                      : passkeyAvailable
+                        ? 'Continue with Touch ID'
+                        : 'Touch ID unavailable on this Mac'}
+                </strong>
+                <small>{passkeyAvailable ? 'Fast, passwordless admin sign-in' : 'Use your admin password below'}</small>
+              </span>
+              <span className="passkey-arrow" aria-hidden="true">→</span>
             </button>
           </div>
 
-          {error && <div className="login-error" role="alert">{error}</div>}
+          <div className="login-divider"><span>or use admin password</span></div>
 
-          <button className="primary-button login-button" type="submit" disabled={submitDisabled}>
-            {loading ? 'Signing in...' : 'Sign in'}
-          </button>
-        </form>
+          <form className="login-form-v3" onSubmit={handlePasswordLogin} noValidate autoComplete="off">
+            <div className="login-field">
+              <label htmlFor="admin-email">Email</label>
+              <input
+                id="admin-email"
+                name="sagawa-admin-email-entry"
+                type="email"
+                autoComplete="off"
+                inputMode="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                required
+                aria-invalid={email.length > 0 && !emailIsValid}
+                disabled={loading}
+                placeholder=""
+                spellCheck={false}
+              />
+            </div>
 
-        <button
-          className="secondary-button passkey-button"
-          type="button"
-          onClick={handlePasskeyLogin}
-          disabled={loading || !passkeyAvailable}
-        >
-          {passkeyAvailable ? 'Sign in with Fingerprint / Touch ID' : 'Passkeys not supported on this device'}
-        </button>
+            <div className="login-field">
+              <div className="login-field-heading">
+                <label htmlFor="admin-password">Password</label>
+                <button
+                  type="button"
+                  className="login-inline-link"
+                  onClick={() => {
+                    setStep('forgotPassword');
+                    setForgotEmail('');
+                    setResetCode('');
+                    setNewPassword('');
+                    setConfirmPassword('');
+                    setResetStep('request');
+                    setError('');
+                  }}
+                  disabled={loading}
+                >
+                  Forgot password?
+                </button>
+              </div>
 
-        <button
-          className="secondary-button reset-button"
-          type="button"
-          onClick={() => {
-            setStep('forgotPassword');
-            setForgotEmail('');
-            setResetCode('');
-            setNewPassword('');
-            setConfirmPassword('');
-            setResetStep('request');
-            setError('');
-          }}
-          disabled={loading}
-        >
-          Forgot password?
-        </button>
-      </>
-    ));
+              <div className="password-input-container">
+                <input
+                  id="admin-password"
+                  name="sagawa-admin-password-entry"
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete="new-password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  required
+                  disabled={loading}
+                  placeholder=""
+                  spellCheck="false"
+                  className="password-input-field"
+                />
+                <button
+                  className="password-input-button"
+                  type="button"
+                  onClick={() => setShowPassword((current) => !current)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  disabled={loading}
+                  tabIndex={-1}
+                >
+                  {showPassword ? (
+                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                      <circle cx="12" cy="12" r="3" />
+                    </svg>
+                  ) : (
+                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                      <line x1="1" y1="1" x2="23" y2="23" />
+                    </svg>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {error && <div className="login-error login-error-v3" role="alert">{error}</div>}
+
+            <button className="primary-button login-button login-submit-v3" type="submit" disabled={submitDisabled}>
+              {activeAuth === 'password' ? 'Signing in…' : 'Sign in securely'}
+              <span aria-hidden="true">→</span>
+            </button>
+          </form>
+
+          <p className="login-security-note">
+            Sagawa does not pre-fill your admin email or password. Saved credentials are controlled by your browser or password manager.
+          </p>
+        </>
+      ),
+    );
   }
 
   if (step === 'forgotPassword') {
     if (resetStep === 'request') {
-      return renderLoginShell('Reset password', 'Enter your email address to receive a password reset code.', (
-        <>
-          <form onSubmit={handleForgotPasswordRequest} noValidate>
-            <label htmlFor="forgot-email">Email</label>
-            <input
-              id="forgot-email"
-              type="email"
-              autoComplete="email"
-              inputMode="email"
-              value={forgotEmail}
-              onChange={(event) => setForgotEmail(event.target.value)}
-              required
-              disabled={loading}
-              placeholder="admin@example.com"
-            />
+      return renderLoginShell(
+        'Reset password',
+        'Enter the admin email address. We will send a one-time verification code.',
+        (
+          <>
+            <form className="login-form-v3" onSubmit={handleForgotPasswordRequest} noValidate autoComplete="off">
+              <div className="login-field">
+                <label htmlFor="forgot-email">Email</label>
+                <input
+                  id="forgot-email"
+                  type="email"
+                  autoComplete="off"
+                  inputMode="email"
+                  value={forgotEmail}
+                  onChange={(event) => setForgotEmail(event.target.value)}
+                  required
+                  disabled={loading}
+                  placeholder=""
+                  spellCheck={false}
+                />
+              </div>
 
-            {error && <div className="login-error" role="alert">{error}</div>}
+              {error && <div className="login-error login-error-v3" role="alert">{error}</div>}
 
-            <button className="primary-button login-button" type="submit" disabled={loading || !forgotEmail}>
-              {loading ? 'Sending...' : 'Send reset code'}
+              <button className="primary-button login-button login-submit-v3" type="submit" disabled={loading || !forgotEmail}>
+                {loading ? 'Sending code…' : 'Send reset code'}
+                <span aria-hidden="true">→</span>
+              </button>
+            </form>
+
+            <button className="login-back-button" type="button" onClick={goBackToCredentials} disabled={loading}>
+              ← Back to sign in
             </button>
-          </form>
-
-          <button
-            className="secondary-button reset-button"
-            type="button"
-            onClick={() => {
-              setStep('credentials');
-              setForgotEmail('');
-              setError('');
-            }}
-            disabled={loading}
-          >
-            Back to sign in
-          </button>
-        </>
-      ));
+          </>
+        ),
+      );
     }
 
     if (resetStep === 'verify') {
-      return renderLoginShell('Verify reset code', 'Enter the code sent to your email.', (
-        <>
-          <form onSubmit={handleResetPasswordVerify} noValidate>
-            <label htmlFor="reset-code">6-Digit Code</label>
-            <input
-              id="reset-code"
-              type="text"
-              inputMode="numeric"
-              maxLength={6}
-              value={resetCode}
-              onChange={(event) => setResetCode(event.target.value.replace(/\D/g, ''))}
-              required
-              disabled={loading}
-              placeholder="000000"
-              autoComplete="one-time-code"
-            />
+      return renderLoginShell(
+        'Verify reset code',
+        'Enter the six-digit code sent to your admin email.',
+        (
+          <>
+            <form className="login-form-v3" onSubmit={handleResetPasswordVerify} noValidate>
+              <div className="login-field">
+                <label htmlFor="reset-code">6-digit code</label>
+                <input
+                  id="reset-code"
+                  className="verification-code-input"
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={6}
+                  value={resetCode}
+                  onChange={(event) => setResetCode(event.target.value.replace(/\D/g, ''))}
+                  required
+                  disabled={loading}
+                  placeholder=""
+                  autoComplete="one-time-code"
+                />
+              </div>
 
-            {error && <div className="login-error" role="alert">{error}</div>}
+              {error && <div className="login-error login-error-v3" role="alert">{error}</div>}
+
+              <button className="primary-button login-button login-submit-v3" type="submit" disabled={loading || resetCode.length !== 6}>
+                Continue
+                <span aria-hidden="true">→</span>
+              </button>
+            </form>
 
             <button
-              className="primary-button login-button"
-              type="submit"
-              disabled={loading || resetCode.length !== 6}
+              className="login-back-button"
+              type="button"
+              onClick={() => {
+                setResetStep('request');
+                setResetCode('');
+                setError('');
+              }}
+              disabled={loading}
             >
-              {loading ? 'Verifying...' : 'Continue'}
+              ← Request a new code
             </button>
-          </form>
-
-          <button
-            className="secondary-button reset-button"
-            type="button"
-            onClick={() => {
-              setResetStep('request');
-              setResetCode('');
-              setError('');
-            }}
-            disabled={loading}
-          >
-            Back to request code
-          </button>
-        </>
-      ));
+          </>
+        ),
+      );
     }
 
     if (resetStep === 'newpassword') {
-      return renderLoginShell('Create new password', 'Set a strong new password for your account.', (
-        <>
-          <form onSubmit={handleResetPasswordSubmit} noValidate>
-            <label htmlFor="new-password">New Password</label>
-            <div className="password-input-container">
-              <input
-                id="new-password"
-                type={showNewPassword ? 'text' : 'password'}
-                value={newPassword}
-                onChange={(event) => setNewPassword(event.target.value)}
-                required
-                disabled={loading}
-                placeholder="••••••••"
-                spellCheck="false"
-                className="password-input-field"
-              />
+      return renderLoginShell(
+        'Create new password',
+        'Choose a strong password for the Sagawa administrator account.',
+        (
+          <>
+            <form className="login-form-v3" onSubmit={handleResetPasswordSubmit} noValidate autoComplete="off">
+              <div className="login-field">
+                <label htmlFor="new-password">New password</label>
+                <div className="password-input-container">
+                  <input
+                    id="new-password"
+                    type={showNewPassword ? 'text' : 'password'}
+                    autoComplete="new-password"
+                    value={newPassword}
+                    onChange={(event) => setNewPassword(event.target.value)}
+                    required
+                    disabled={loading}
+                    placeholder=""
+                    spellCheck="false"
+                    className="password-input-field"
+                  />
+                  <button
+                    className="password-input-button"
+                    type="button"
+                    onClick={() => setShowNewPassword((current) => !current)}
+                    aria-label={showNewPassword ? 'Hide password' : 'Show password'}
+                    disabled={loading}
+                    tabIndex={-1}
+                  >
+                    {showNewPassword ? 'Hide' : 'Show'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="login-field">
+                <label htmlFor="confirm-password">Confirm password</label>
+                <div className="password-input-container">
+                  <input
+                    id="confirm-password"
+                    type={showConfirmPassword ? 'text' : 'password'}
+                    autoComplete="new-password"
+                    value={confirmPassword}
+                    onChange={(event) => setConfirmPassword(event.target.value)}
+                    required
+                    disabled={loading}
+                    placeholder=""
+                    spellCheck="false"
+                    className="password-input-field"
+                  />
+                  <button
+                    className="password-input-button"
+                    type="button"
+                    onClick={() => setShowConfirmPassword((current) => !current)}
+                    aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
+                    disabled={loading}
+                    tabIndex={-1}
+                  >
+                    {showConfirmPassword ? 'Hide' : 'Show'}
+                  </button>
+                </div>
+              </div>
+
+              <ul className="password-policy-list password-policy-v3">
+                <li className={newPassword.length >= 12 ? 'met' : ''}>12+ characters</li>
+                <li className={/[a-z]/.test(newPassword) ? 'met' : ''}>Lowercase</li>
+                <li className={/[A-Z]/.test(newPassword) ? 'met' : ''}>Uppercase</li>
+                <li className={/\d/.test(newPassword) ? 'met' : ''}>Number</li>
+                <li className={/[^A-Za-z0-9]/.test(newPassword) ? 'met' : ''}>Special character</li>
+              </ul>
+
+              {error && <div className="login-error login-error-v3" role="alert">{error}</div>}
+
               <button
-                className="password-input-button"
-                type="button"
-                onClick={() => setShowNewPassword((current) => !current)}
-                aria-label={showNewPassword ? 'Hide password' : 'Show password'}
-                disabled={loading}
-                tabIndex={-1}
+                className="primary-button login-button login-submit-v3"
+                type="submit"
+                disabled={loading || newPassword !== confirmPassword || newPassword.length < 12}
               >
-                {showNewPassword ? (
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                    <circle cx="12" cy="12" r="3" />
-                  </svg>
-                ) : (
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
-                    <line x1="1" y1="1" x2="23" y2="23" />
-                  </svg>
-                )}
+                {loading ? 'Updating password…' : 'Update password'}
+                <span aria-hidden="true">→</span>
               </button>
-            </div>
+            </form>
 
-            <label htmlFor="confirm-password">Confirm Password</label>
-            <div className="password-input-container">
-              <input
-                id="confirm-password"
-                type={showConfirmPassword ? 'text' : 'password'}
-                value={confirmPassword}
-                onChange={(event) => setConfirmPassword(event.target.value)}
-                required
-                disabled={loading}
-                placeholder="••••••••"
-                spellCheck="false"
-                className="password-input-field"
-              />
-              <button
-                className="password-input-button"
-                type="button"
-                onClick={() => setShowConfirmPassword((current) => !current)}
-                aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
-                disabled={loading}
-                tabIndex={-1}
-              >
-                {showConfirmPassword ? (
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                    <circle cx="12" cy="12" r="3" />
-                  </svg>
-                ) : (
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
-                    <line x1="1" y1="1" x2="23" y2="23" />
-                  </svg>
-                )}
-              </button>
-            </div>
-
-            <ul className="password-policy-list">
-              <li style={{ color: newPassword.length >= 12 ? '#16a34a' : '#667085' }}>At least 12 characters</li>
-              <li style={{ color: /[a-z]/.test(newPassword) ? '#16a34a' : '#667085' }}>One lowercase letter</li>
-              <li style={{ color: /[A-Z]/.test(newPassword) ? '#16a34a' : '#667085' }}>One uppercase letter</li>
-              <li style={{ color: /\d/.test(newPassword) ? '#16a34a' : '#667085' }}>One number</li>
-              <li style={{ color: /[^A-Za-z0-9]/.test(newPassword) ? '#16a34a' : '#667085' }}>One special character</li>
-            </ul>
-
-            {error && <div className="login-error" role="alert">{error}</div>}
-
-            <button className="primary-button login-button" type="submit" disabled={loading || newPassword !== confirmPassword || newPassword.length < 12}>
-              {loading ? 'Resetting...' : 'Reset password'}
+            <button className="login-back-button" type="button" onClick={goBackToCredentials} disabled={loading}>
+              ← Back to sign in
             </button>
-          </form>
-
-          <button
-            className="secondary-button reset-button"
-            type="button"
-            onClick={() => {
-              setStep('credentials');
-              setForgotEmail('');
-              setResetCode('');
-              setNewPassword('');
-              setConfirmPassword('');
-              setResetStep('request');
-              setError('');
-            }}
-            disabled={loading}
-          >
-            Back to sign in
-          </button>
-        </>
-      ));
+          </>
+        ),
+      );
     }
   }
 
@@ -3649,9 +3775,11 @@ function App() {
 
       <aside className="sidebar">
         <div className="brand">
-          <div className="brand-mark" aria-label="Sagawa">
-            <span aria-hidden="true">✿</span>
-          </div>
+          <img
+            src="/sagawa-flower-logo.svg"
+            alt="Sagawa"
+            className="brand-logo-image"
+          />
 
           <div>
             <strong>
