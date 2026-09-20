@@ -22,6 +22,7 @@ const {
   createSession,
   createVerificationState,
   hasVerificationState,
+  invalidateVerificationState,
   createPasswordResetState,
   validateResetCode,
   destroyAllSessions,
@@ -733,6 +734,7 @@ app.post('/api/auth/admin/resend-verification', resendLimiter, async (req, res) 
     });
   }
 
+  invalidateVerificationState(previousId);
   const verification = createVerificationState();
 
   try {
