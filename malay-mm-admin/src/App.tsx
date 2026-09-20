@@ -1876,6 +1876,10 @@ function App() {
             year: 'numeric',
           }
         ),
+
+      views: existingNews?.views ?? 0,
+      clicks: existingNews?.clicks ?? 0,
+      reach: existingNews?.reach ?? 0,
     };
 
     setPreviewNews(draft);
