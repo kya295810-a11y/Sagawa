@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const bcrypt = require('bcryptjs');
+const db = require('./db');
 const {
   generateAuthenticationOptions,
   generateRegistrationOptions,
@@ -111,29 +112,57 @@ let adminPasswordHash = loadAdminPasswordHash();
 
 const sessions = new Map();
 const pendingChallenges = new Map();
-let credentials = [];
-const credentialsFile = path.join(__dirname, 'data', 'passkeys.json');
+async function loadPasskeys() {
+  const result = await db.query(
+    'SELECT id, public_key, counter, transports FROM passkeys ORDER BY id',
+  );
 
-function loadCredentials() {
-  try {
-    const raw = fs.readFileSync(credentialsFile, 'utf8');
-    if (!raw.trim()) {
-      return [];
-    }
+  return result.rows.map((row) => ({
+    id: String(row.id),
+    publicKey: Buffer.from(String(row.public_key), 'base64url'),
+    counter: Number(row.counter || 0),
+    transports: Array.isArray(row.transports) ? row.transports : [],
+  }));
+}
 
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) {
-      throw new Error('Passkey data is not a JSON array.');
-    }
+async function findPasskey(id) {
+  const result = await db.query(
+    'SELECT id, public_key, counter, transports FROM passkeys WHERE id = $1 LIMIT 1',
+    [String(id || '')],
+  );
+  const row = result.rows[0];
+  if (!row) return null;
 
-    return parsed;
-  } catch (error) {
-    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
-      return [];
-    }
+  return {
+    id: String(row.id),
+    publicKey: Buffer.from(String(row.public_key), 'base64url'),
+    counter: Number(row.counter || 0),
+    transports: Array.isArray(row.transports) ? row.transports : [],
+  };
+}
 
-    throw error;
-  }
+async function savePasskey(credential, transports = []) {
+  await db.query(
+    `INSERT INTO passkeys (id, public_key, counter, transports)
+     VALUES ($1, $2, $3, $4::jsonb)
+     ON CONFLICT (id) DO UPDATE
+     SET public_key = EXCLUDED.public_key,
+         counter = EXCLUDED.counter,
+         transports = EXCLUDED.transports`,
+    [
+      credential.id,
+      Buffer.from(credential.publicKey).toString('base64url'),
+      Number(credential.counter || 0),
+      JSON.stringify(Array.isArray(transports) ? transports : []),
+    ],
+  );
+}
+
+async function updatePasskeyCounter(id, counter) {
+  await db.query(
+    'UPDATE passkeys SET counter = $2 WHERE id = $1',
+    [String(id), Number(counter || 0)],
+  );
 }
 
 function writeJsonAtomically(filePath, data) {
@@ -251,7 +280,6 @@ function parseCookies(header = '') {
   return cookies;
 }
 
-credentials = loadCredentials();
 
 function createChallenge(type) {
   const now = Date.now();
@@ -423,26 +451,15 @@ async function login(email, password) {
   return normalizedEmail === ADMIN_EMAIL && passwordMatches;
 }
 
-function saveCredentials(nextCredentials) {
-  const normalized = nextCredentials.map((credential) => ({
-    id: credential.id,
-    publicKey: Buffer.from(credential.publicKey).toString('base64url'),
-    counter: credential.counter,
-    transports: credential.transports || [],
-  }));
-
-  writeJsonAtomically(credentialsFile, normalized);
-  credentials = normalized;
-}
-
-function beginRegistration(req) {
+async function beginRegistration(req) {
   const session = getSession(req);
   if (!session) {
     throw new Error('Authentication required.');
   }
 
+  const credentials = await loadPasskeys();
   const challenge = createChallenge('webauthn.create');
-  const options = generateRegistrationOptions({
+  return generateRegistrationOptions({
     rpName: RP_NAME,
     rpID: RP_ID,
     userName: ADMIN_EMAIL,
@@ -459,8 +476,6 @@ function beginRegistration(req) {
       userVerification: 'required',
     },
   });
-
-  return options;
 }
 
 async function finishRegistration(req, response) {
@@ -484,18 +499,15 @@ async function finishRegistration(req, response) {
   }
 
   const credential = verification.registrationInfo.credential;
-  const nextCredentials = credentials.filter((entry) => entry.id !== credential.id);
-  nextCredentials.push({
-    id: credential.id,
-    publicKey: credential.publicKey,
-    counter: credential.counter,
-    transports: response.response?.transports || [],
-  });
-  saveCredentials(nextCredentials);
+  await savePasskey(
+    credential,
+    response.response?.transports || [],
+  );
   return true;
 }
 
-function beginAuthentication() {
+async function beginAuthentication() {
+  const credentials = await loadPasskeys();
   const challenge = createChallenge('webauthn.get');
   return generateAuthenticationOptions({
     rpID: RP_ID,
@@ -509,7 +521,7 @@ function beginAuthentication() {
 }
 
 async function finishAuthentication(response) {
-  const credential = credentials.find((entry) => entry.id === response?.id);
+  const credential = await findPasskey(response?.id);
   if (!credential) {
     throw new Error('Passkey not found.');
   }
@@ -534,8 +546,10 @@ async function finishAuthentication(response) {
     throw new Error('Passkey authentication verification failed.');
   }
 
-  credential.counter = verification.authenticationInfo.newCounter;
-  saveCredentials(credentials);
+  await updatePasskeyCounter(
+    credential.id,
+    verification.authenticationInfo.newCounter,
+  );
   return true;
 }
 
