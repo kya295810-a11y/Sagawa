@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   startAuthentication,
   startRegistration,
@@ -68,6 +68,21 @@ type ExchangeItem = {
   currency: 'MYR → MMK';
   rate: string;
   updatedAt?: string;
+};
+
+type DiagnosticEntry = {
+  id: string;
+  level: 'error' | 'warning' | 'info';
+  source: 'Frontend' | 'Admin API' | 'Authentication' | 'Backend';
+  message: string;
+  detail?: string;
+  createdAt: string;
+};
+
+const formatRate = (value: string | number | null | undefined) => {
+  if (value === null || value === undefined || value === '') return '';
+  const numeric = Number(String(value).replace(/,/g, ''));
+  return Number.isFinite(numeric) ? numeric.toFixed(2) : String(value);
 };
 
 const initialNews: NewsItem[] = [];
@@ -321,7 +336,7 @@ function LoginScreen({ onAuthenticated }: LoginScreenProps) {
     <main className="login-shell">
       <section className="login-panel">
         <div className="brand login-brand">
-          <div className="brand-mark">S</div>
+          <div className="brand-mark" aria-label="Sagawa"><span aria-hidden="true">✿</span></div>
           <div><strong>Sagawa</strong><span>Control Center</span></div>
         </div>
         <span className="eyebrow">SECURE ADMIN ACCESS</span>
@@ -744,6 +759,10 @@ function App() {
 
   const [apiLoading, setApiLoading] = useState(false);
   const [apiError, setApiError] = useState('');
+  const [backendHealth, setBackendHealth] = useState<'checking' | 'healthy' | 'error'>('checking');
+  const [diagnostics, setDiagnostics] = useState<DiagnosticEntry[]>([]);
+  const [passkeyBusy, setPasskeyBusy] = useState(false);
+  const [passkeyMessage, setPasskeyMessage] = useState('');
   const [showPasswordChange, setShowPasswordChange] = useState(false);
   const [passwordChangeForm, setPasswordChangeForm] = useState({
     currentPassword: '',
@@ -757,6 +776,79 @@ function App() {
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
+  const recordDiagnostic = useCallback((
+    entry: Omit<DiagnosticEntry, 'id' | 'createdAt'>,
+  ) => {
+    setDiagnostics((current) => [
+      {
+        ...entry,
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        createdAt: new Date().toLocaleTimeString(),
+      },
+      ...current,
+    ].slice(0, 12));
+  }, []);
+
+  const runHealthCheck = useCallback(async () => {
+    setBackendHealth('checking');
+    try {
+      const response = await adminFetch(apiUrl('/health'));
+      if (!response.ok) {
+        throw new Error(`Health endpoint returned HTTP ${response.status}`);
+      }
+
+      const payload = await response.json();
+      if (payload?.status !== 'ok') {
+        throw new Error(`Unexpected health response: ${JSON.stringify(payload)}`);
+      }
+
+      setBackendHealth('healthy');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setBackendHealth('error');
+      recordDiagnostic({
+        level: 'error',
+        source: 'Backend',
+        message,
+        detail: `GET ${apiUrl('/health')}`,
+      });
+    }
+  }, [recordDiagnostic]);
+
+  useEffect(() => {
+    if (authenticated === true) {
+      void runHealthCheck();
+    }
+  }, [authenticated, runHealthCheck]);
+
+  useEffect(() => {
+    const handleWindowError = (event: ErrorEvent) => {
+      recordDiagnostic({
+        level: 'error',
+        source: 'Frontend',
+        message: event.error instanceof Error ? event.error.message : event.message || 'Unknown browser error',
+        detail: [event.filename, event.lineno ? `line ${event.lineno}` : ''].filter(Boolean).join(' • '),
+      });
+    };
+
+    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      const reason = event.reason;
+      recordDiagnostic({
+        level: 'error',
+        source: 'Frontend',
+        message: reason instanceof Error ? reason.message : String(reason ?? 'Unhandled promise rejection'),
+        detail: reason instanceof Error && reason.stack ? reason.stack.split('\n').slice(0, 3).join(' | ') : undefined,
+      });
+    };
+
+    window.addEventListener('error', handleWindowError);
+    window.addEventListener('unhandledrejection', handleUnhandledRejection);
+    return () => {
+      window.removeEventListener('error', handleWindowError);
+      window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+    };
+  }, [recordDiagnostic]);
+
   useEffect(() => {
     void adminFetch(apiUrl('/api/auth/me'))
       .then((response) => readApiResponse<{ authenticated?: boolean; user?: Partial<CurrentUser> | null }>(response))
@@ -767,10 +859,16 @@ function App() {
       })
       .catch((error) => {
         console.error('[Admin Auth] Session check failed:', error);
+        recordDiagnostic({
+          level: 'error',
+          source: 'Authentication',
+          message: error instanceof Error ? error.message : String(error),
+          detail: 'GET /api/auth/me',
+        });
         setCurrentUser({ name: 'Admin', email: '' });
         setAuthenticated(false);
       });
-  }, []);
+  }, [recordDiagnostic]);
 
   const logout = async () => {
     try {
@@ -839,23 +937,49 @@ function App() {
   };
 
   const registerPasskey = async () => {
+    if (passkeyBusy) return;
+
+    setPasskeyBusy(true);
+    setPasskeyMessage('');
     try {
       const optionsResult = await readApiResponse<PublicKeyCredentialCreationOptionsJSON>(await adminFetch(
         apiUrl('/api/auth/passkey/registration-options'),
         { method: 'POST' },
       ));
+
+      if (!optionsResult.data || typeof optionsResult.data.challenge !== 'string') {
+        throw new Error('Passkey registration options are invalid or incomplete.');
+      }
+
       const response = await startRegistration({
         optionsJSON: optionsResult.data as any,
       });
+
       await readApiResponse(await adminFetch(apiUrl('/api/auth/passkey/registration'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(response),
       }));
-      alert('Passkey registered successfully.');
+
+      setPasskeyMessage('Passkey registered. You can use Touch ID or your device passkey next time.');
+      recordDiagnostic({
+        level: 'info',
+        source: 'Authentication',
+        message: 'Passkey registration completed successfully.',
+        detail: window.location.hostname,
+      });
     } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not register passkey.';
       console.error('[Admin Auth] Passkey registration failed:', error);
-      alert(error instanceof Error ? error.message : 'Could not register passkey.');
+      setPasskeyMessage(message);
+      recordDiagnostic({
+        level: 'error',
+        source: 'Authentication',
+        message,
+        detail: 'POST /api/auth/passkey/registration-options → WebAuthn → /api/auth/passkey/registration',
+      });
+    } finally {
+      setPasskeyBusy(false);
     }
   };
 
@@ -922,7 +1046,7 @@ function App() {
         typeof rawExchange?.rate === 'string' ||
         typeof rawExchange?.rate === 'number'
       ) {
-        loadedRate = String(rawExchange.rate);
+        loadedRate = formatRate(rawExchange.rate);
       } else if (Array.isArray(rawExchange?.rates)) {
         const myrRate = rawExchange.rates.find(
           (item: Partial<ExchangeItem> & {
@@ -931,7 +1055,7 @@ function App() {
           }) => item.currency === 'MYR → MMK',
         );
 
-        loadedRate = String(
+        loadedRate = formatRate(
           myrRate?.rate ??
             myrRate?.buy ??
             myrRate?.sell ??
@@ -945,7 +1069,7 @@ function App() {
           }) => item.currency === 'MYR → MMK',
         );
 
-        loadedRate = String(
+        loadedRate = formatRate(
           myrRate?.rate ??
             myrRate?.buy ??
             myrRate?.sell ??
@@ -986,6 +1110,14 @@ function App() {
             ? 'Could not connect to the API. Check the backend URL and server logs.'
             : 'Admin API URL is not configured. Set VITE_API_URL and restart the admin panel.',
         );
+        recordDiagnostic({
+          level: 'error',
+          source: 'Admin API',
+          message,
+          detail: API_BASE
+            ? `GET news/services/exchange • ${API_BASE}`
+            : 'VITE_API_URL is missing',
+        });
       }
     } finally {
       if (!cancelled) {
@@ -999,7 +1131,7 @@ function App() {
   return () => {
     cancelled = true;
   };
-}, [authenticated]);
+}, [authenticated, recordDiagnostic]);
 
   /* =========================================================
      MENU
@@ -1710,8 +1842,8 @@ function App() {
       const returnedRate =
         typeof result?.data?.rate === 'string' ||
         typeof result?.data?.rate === 'number'
-          ? String(result.data.rate)
-          : rate;
+          ? formatRate(result.data.rate)
+          : formatRate(rate);
 
       const savedExchange: ExchangeItem = {
         currency: 'MYR → MMK',
@@ -1733,6 +1865,12 @@ function App() {
       setApiError(
         'Could not save exchange rate. Check the API URL and backend logs.',
       );
+      recordDiagnostic({
+        level: 'error',
+        source: 'Admin API',
+        message: error instanceof Error ? error.message : String(error),
+        detail: 'PUT /api/exchange-rate',
+      });
       alert(
         'Could not save exchange rate. Please check the Local API.',
       );
@@ -1794,7 +1932,7 @@ function App() {
           </div>
           <strong>Exchange Rate</strong>
           <span>Current MYR → MMK reference rate</span>
-          <b>{exchangeRate.rate ? exchangeRate.rate : 'Not set'}</b>
+          <b>{exchangeRate.rate ? formatRate(exchangeRate.rate) : 'Not set'}</b>
           <small>{exchangeRate.rate ? 'MMK per MYR' : 'Needs an update'}</small>
         </button>
 
@@ -1836,7 +1974,7 @@ function App() {
           </div>
           <div>
             <span>Current MYR → MMK</span>
-            <strong>{exchangeRate.rate || 'Not set'}</strong>
+            <strong>{exchangeRate.rate ? formatRate(exchangeRate.rate) : 'Not set'}</strong>
           </div>
         </div>
       </div>
@@ -1892,6 +2030,10 @@ function App() {
               <strong>{apiError ? 'Needs attention' : 'Operational'}</strong>
             </div>
             <div>
+              <span><i className={backendHealth === 'error' ? 'health-dot issue' : backendHealth === 'checking' ? 'health-dot syncing' : 'health-dot healthy'} />Database / backend</span>
+              <strong>{backendHealth === 'error' ? 'Error' : backendHealth === 'checking' ? 'Checking' : 'Healthy'}</strong>
+            </div>
+            <div>
               <span><i className="health-dot healthy" />Secure session</span>
               <strong>Authenticated</strong>
             </div>
@@ -1915,6 +2057,52 @@ function App() {
           </div>
         </section>
       </div>
+
+      <section className={`diagnostics-console ${diagnostics.some((item) => item.level === 'error') ? 'has-error' : ''}`}>
+        <div className="diagnostics-header">
+          <div>
+            <span className="eyebrow">DIAGNOSTICS</span>
+            <h2>Runtime & API console</h2>
+            <p>Exact errors from this admin session appear here so they are easier to diagnose.</p>
+          </div>
+          <button className="secondary-button" type="button" onClick={() => void runHealthCheck()}>
+            Run check
+          </button>
+        </div>
+
+        <div className="diagnostic-summary">
+          <div><span>Frontend</span><strong>Loaded</strong></div>
+          <div><span>Admin API</span><strong>{apiError ? 'Error' : 'Connected'}</strong></div>
+          <div><span>Backend / DB</span><strong>{backendHealth === 'healthy' ? 'Healthy' : backendHealth === 'error' ? 'Error' : 'Checking'}</strong></div>
+          <div><span>Session</span><strong>Authenticated</strong></div>
+        </div>
+
+        {passkeyMessage && (
+          <div className={passkeyMessage.startsWith('Passkey registered') ? 'diagnostic-notice success' : 'diagnostic-notice error'}>
+            <strong>Passkey</strong>
+            <span>{passkeyMessage}</span>
+          </div>
+        )}
+
+        <div className="diagnostic-log">
+          {diagnostics.length === 0 ? (
+            <div className="diagnostic-empty">
+              <span className="console-prompt">✓</span>
+              <div>
+                <strong>No runtime errors captured</strong>
+                <small>If the frontend, API, authentication or backend fails, the exact message will appear here.</small>
+              </div>
+            </div>
+          ) : diagnostics.slice(0, 6).map((item) => (
+            <div className={`diagnostic-row ${item.level}`} key={item.id}>
+              <span className="diagnostic-time">{item.createdAt}</span>
+              <span className="diagnostic-source">{item.source}</span>
+              <code>{item.message}</code>
+              {item.detail && <small>{item.detail}</small>}
+            </div>
+          ))}
+        </div>
+      </section>
     </>
   );
 
@@ -3461,8 +3649,8 @@ function App() {
 
       <aside className="sidebar">
         <div className="brand">
-          <div className="brand-mark">
-            S
+          <div className="brand-mark" aria-label="Sagawa">
+            <span aria-hidden="true">✿</span>
           </div>
 
           <div>
@@ -3563,8 +3751,9 @@ function App() {
               className="secondary-button topbar-passkey-button"
               type="button"
               onClick={registerPasskey}
+              disabled={passkeyBusy}
             >
-              Register Passkey
+              {passkeyBusy ? 'Registering…' : 'Register Passkey'}
             </button>
 
             <button
@@ -3591,20 +3780,13 @@ function App() {
 
         <section className="content">
           {apiError && (
-            <div
-              className="review-banner"
-              style={{
-                marginBottom: 16,
-                borderColor: '#f1c4c4',
-                background: '#fff7f7',
-              }}
-            >
-              <span>!</span>
-
+            <div className="admin-warning-banner" role="alert">
+              <span className="warning-symbol">!</span>
               <div>
-                <strong>Admin API connection issue</strong>
+                <strong>Admin API needs attention</strong>
                 <small>{apiError}</small>
               </div>
+              <button type="button" onClick={() => setActivePage('dashboard')}>Open diagnostics</button>
             </div>
           )}
 
