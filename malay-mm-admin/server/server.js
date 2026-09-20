@@ -648,6 +648,7 @@ app.post('/api/auth/login', async (req, res) => {
       success: true,
       data: {
         authenticated: true,
+        sessionToken,
         user,
       },
     });
@@ -1015,12 +1016,14 @@ app.post('/api/auth/passkey/authentication-options', async (req, res) => {
 app.post('/api/auth/passkey/authentication', async (req, res) => {
   try {
     await finishAuthentication(req.body);
-    setSessionCookie(res, createSession());
+    const sessionToken = createSession();
+    setSessionCookie(res, sessionToken);
     console.log('[Auth] Passkey login succeeded.');
     return res.json({
       success: true,
       data: {
         authenticated: true,
+        sessionToken,
         user: {
           name: ADMIN_NAME || 'Admin',
           email: ADMIN_EMAIL,
