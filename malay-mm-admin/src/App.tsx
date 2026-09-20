@@ -336,7 +336,7 @@ function LoginScreen({ onAuthenticated }: LoginScreenProps) {
     <main className="login-shell">
       <section className="login-panel">
         <div className="brand login-brand">
-          <div className="brand-mark">S</div>
+          <div className="brand-mark" aria-label="Sagawa"><span aria-hidden="true">✿</span></div>
           <div><strong>Sagawa</strong><span>Control Center</span></div>
         </div>
         <span className="eyebrow">SECURE ADMIN ACCESS</span>
@@ -814,6 +814,12 @@ function App() {
       });
     }
   }, [recordDiagnostic]);
+
+  useEffect(() => {
+    if (authenticated === true) {
+      void runHealthCheck();
+    }
+  }, [authenticated, runHealthCheck]);
 
   useEffect(() => {
     const handleWindowError = (event: ErrorEvent) => {
