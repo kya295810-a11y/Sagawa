@@ -1000,9 +1000,10 @@ app.post('/api/auth/reset-password', async (req, res) => {
   }
 });
 
-app.post('/api/auth/passkey/authentication-options', (req, res) => {
+app.post('/api/auth/passkey/authentication-options', async (req, res) => {
   try {
-    return res.json({ success: true, data: beginAuthentication() });
+    const options = await beginAuthentication();
+    return res.json({ success: true, data: options });
   } catch (error) {
     console.error('[Auth] Passkey options failed:', error.message);
     return res
@@ -1032,9 +1033,10 @@ app.post('/api/auth/passkey/authentication', async (req, res) => {
   }
 });
 
-app.post('/api/auth/passkey/registration-options', requireAdmin, (req, res) => {
+app.post('/api/auth/passkey/registration-options', requireAdmin, async (req, res) => {
   try {
-    return res.json({ success: true, data: beginRegistration(req) });
+    const options = await beginRegistration(req);
+    return res.json({ success: true, data: options });
   } catch (error) {
     console.error('[Auth] Passkey registration options failed:', error.message);
     return res
