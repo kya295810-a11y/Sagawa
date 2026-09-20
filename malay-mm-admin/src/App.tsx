@@ -135,6 +135,22 @@ type ApiResult<T> = {
   data: T;
 };
 
+const ADMIN_SESSION_KEY = 'sagawa_admin_session_token';
+
+const getAdminSessionToken = () => {
+  if (typeof window === 'undefined') return '';
+  return window.sessionStorage.getItem(ADMIN_SESSION_KEY) || '';
+};
+
+const storeAdminSessionToken = (token?: string | null) => {
+  if (typeof window === 'undefined') return;
+  if (token) {
+    window.sessionStorage.setItem(ADMIN_SESSION_KEY, token);
+  } else {
+    window.sessionStorage.removeItem(ADMIN_SESSION_KEY);
+  }
+};
+
 async function readApiResponse<T>(response: Response): Promise<ApiResult<T>> {
   let result: Partial<ApiResult<T>> & { message?: string };
 
@@ -225,6 +241,7 @@ function LoginScreen({ onAuthenticated }: LoginScreenProps) {
     try {
       const result = await readApiResponse<{
         authenticated?: boolean;
+        sessionToken?: string;
         user?: Partial<CurrentUser> | null;
       }>(await fetch(apiUrl('/api/auth/login'), {
         method: 'POST',
@@ -233,6 +250,7 @@ function LoginScreen({ onAuthenticated }: LoginScreenProps) {
         body: JSON.stringify({ email: email.trim(), password }),
       }));
 
+      storeAdminSessionToken(result.data?.sessionToken);
       setError('');
       onAuthenticated(result.data?.user ?? null);
     } catch (_err) {
@@ -266,6 +284,7 @@ function LoginScreen({ onAuthenticated }: LoginScreenProps) {
 
       const result = await readApiResponse<{
         authenticated?: boolean;
+        sessionToken?: string;
         user?: Partial<CurrentUser> | null;
       }>(await fetch(apiUrl('/api/auth/passkey/authentication'), {
         method: 'POST',
@@ -274,6 +293,7 @@ function LoginScreen({ onAuthenticated }: LoginScreenProps) {
         body: JSON.stringify(response),
       }));
 
+      storeAdminSessionToken(result.data?.sessionToken);
       setError('');
       onAuthenticated(result.data?.user ?? null);
     } catch (passkeyError) {
@@ -762,8 +782,20 @@ function LoginScreen({ onAuthenticated }: LoginScreenProps) {
   return null;
 }
 
-const adminFetch = (input: RequestInfo | URL, init: RequestInit = {}) =>
-  fetch(input, { ...init, credentials: 'include' });
+const adminFetch = (input: RequestInfo | URL, init: RequestInit = {}) => {
+  const token = getAdminSessionToken();
+  const headers = new Headers(init.headers || undefined);
+
+  if (token && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+
+  return fetch(input, {
+    ...init,
+    headers,
+    credentials: 'include',
+  });
+};
 
 function App() {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
@@ -979,9 +1011,11 @@ function App() {
     void adminFetch(apiUrl('/api/auth/me'))
       .then((response) => readApiResponse<{ authenticated?: boolean; user?: Partial<CurrentUser> | null }>(response))
       .then((result) => {
+        const nextAuthenticated = Boolean(result.data?.authenticated);
+        if (!nextAuthenticated) storeAdminSessionToken(null);
         const nextUser = normalizeCurrentUser(result.data?.user ?? null);
         setCurrentUser(nextUser);
-        setAuthenticated(Boolean(result.data?.authenticated));
+        setAuthenticated(nextAuthenticated);
       })
       .catch((error) => {
         console.error('[Admin Auth] Session check failed:', error);
@@ -1000,6 +1034,7 @@ function App() {
     try {
       await adminFetch(apiUrl('/api/auth/logout'), { method: 'POST' });
     } finally {
+      storeAdminSessionToken(null);
       setCurrentUser({ name: 'Admin', email: '' });
       setAuthenticated(false);
       setShowPasswordChange(false);
