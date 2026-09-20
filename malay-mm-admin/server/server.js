@@ -32,9 +32,11 @@ const {
   isAdminAuthenticated,
   login,
   requireAdmin,
+  requireRecentAdminAuth,
   replaceAdminPasswordHash,
   setSessionCookie,
   validatePasswordPolicy,
+  validateVerificationCode,
   verifyPassword,
 } = require('./auth');
 const {
@@ -634,22 +636,36 @@ app.post('/api/auth/login', async (req, res) => {
       });
     }
 
-    const user = {
-      name: ADMIN_NAME || 'Admin',
-      email: ADMIN_EMAIL,
-    };
+    if (!isEmailConfigured()) {
+      console.error('[Auth] Admin two-step verification unavailable: email service is not configured.');
+      return res.status(503).json({
+        success: false,
+        message: 'Admin email verification is temporarily unavailable.',
+      });
+    }
 
-    const sessionToken = createSession();
-    setSessionCookie(res, sessionToken);
+    const verification = createVerificationState();
 
-    console.log('[Auth] Admin login succeeded.');
+    try {
+      await sendVerificationCode(ADMIN_EMAIL, verification.code);
+    } catch (emailError) {
+      console.error('[Auth] Failed to send admin login verification code:', emailError.message);
+      return res.status(503).json({
+        success: false,
+        message: 'Could not send the admin verification code. Please try again.',
+      });
+    }
+
+    console.log('[Auth] Admin password verified; email verification required.');
 
     return res.json({
       success: true,
       data: {
-        authenticated: true,
-        sessionToken,
-        user,
+        authenticated: false,
+        verificationRequired: true,
+        verificationId: verification.stateId,
+        verificationExpiresAt: new Date(verification.expiresAt).toISOString(),
+        emailHint: ADMIN_EMAIL.replace(/^(.{1,2}).*(@.*)$/, '$1•••$2'),
       },
     });
   } catch (error) {
@@ -660,6 +676,84 @@ app.post('/api/auth/login', async (req, res) => {
       message: 'Authentication service unavailable.',
     });
   }
+});
+
+app.post('/api/auth/admin/verify-email', async (req, res) => {
+  const verificationId = String(req.body?.verificationId || '').trim();
+  const code = String(req.body?.code || '').trim();
+
+  if (!verificationId || !/^\d{6}$/.test(code)) {
+    return res.status(400).json({
+      success: false,
+      message: 'A valid verification code is required.',
+    });
+  }
+
+  const validation = validateVerificationCode(verificationId, code, 'admin-login');
+  if (!validation.valid) {
+    console.warn('[Auth] Admin email verification failed:', validation.reason);
+    return res.status(401).json({
+      success: false,
+      message: validation.reason === 'too_many_attempts'
+        ? 'Too many incorrect attempts. Sign in again to request a new code.'
+        : 'The verification code is invalid or expired.',
+    });
+  }
+
+  const user = {
+    name: ADMIN_NAME || 'Admin',
+    email: ADMIN_EMAIL,
+  };
+
+  const sessionToken = createSession({
+    authMethod: 'password+email',
+    strongAuthAt: Date.now(),
+  });
+  setSessionCookie(res, sessionToken);
+
+  console.log('[Auth] Admin two-step verification succeeded.');
+
+  return res.json({
+    success: true,
+    data: {
+      authenticated: true,
+      sessionToken,
+      user,
+    },
+  });
+});
+
+app.post('/api/auth/admin/resend-verification', resendLimiter, async (req, res) => {
+  const previousId = String(req.body?.verificationId || '').trim();
+
+  if (!previousId || !hasVerificationState(previousId, 'admin-login')) {
+    return res.status(401).json({
+      success: false,
+      message: 'This verification request is no longer valid. Sign in again.',
+    });
+  }
+
+  const verification = createVerificationState();
+
+  try {
+    await sendVerificationCode(ADMIN_EMAIL, verification.code);
+  } catch (error) {
+    console.error('[Auth] Admin verification resend failed:', error.message);
+    return res.status(503).json({
+      success: false,
+      message: 'Could not resend the verification code. Please try again.',
+    });
+  }
+
+  return res.json({
+    success: true,
+    data: {
+      verificationRequired: true,
+      verificationId: verification.stateId,
+      verificationExpiresAt: new Date(verification.expiresAt).toISOString(),
+      emailHint: ADMIN_EMAIL.replace(/^(.{1,2}).*(@.*)$/, '$1•••$2'),
+    },
+  });
 });
 
 app.post('/api/auth/refresh', async (req, res) => {
@@ -1016,7 +1110,10 @@ app.post('/api/auth/passkey/authentication-options', async (req, res) => {
 app.post('/api/auth/passkey/authentication', async (req, res) => {
   try {
     await finishAuthentication(req.body);
-    const sessionToken = createSession();
+    const sessionToken = createSession({
+      authMethod: 'passkey',
+      strongAuthAt: Date.now(),
+    });
     setSessionCookie(res, sessionToken);
     console.log('[Auth] Passkey login succeeded.');
     return res.json({
@@ -1036,7 +1133,7 @@ app.post('/api/auth/passkey/authentication', async (req, res) => {
   }
 });
 
-app.post('/api/auth/passkey/registration-options', requireAdmin, async (req, res) => {
+app.post('/api/auth/passkey/registration-options', requireRecentAdminAuth, async (req, res) => {
   try {
     const options = await beginRegistration(req);
     return res.json({ success: true, data: options });
@@ -1048,7 +1145,7 @@ app.post('/api/auth/passkey/registration-options', requireAdmin, async (req, res
   }
 });
 
-app.post('/api/auth/passkey/registration', requireAdmin, async (req, res) => {
+app.post('/api/auth/passkey/registration', requireRecentAdminAuth, async (req, res) => {
   try {
     await finishRegistration(req, req.body);
     console.log('[Auth] Passkey registration succeeded.');
