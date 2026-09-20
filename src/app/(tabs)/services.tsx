@@ -18,6 +18,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { trackContentEvent } from '@/services/analytics/content-analytics';
 import { apiRequest } from '@/services/api/client';
 import { useAppTheme } from '@/theme/provider';
 import type { ThemeColors } from '@/theme/types';
@@ -170,7 +171,10 @@ export default function ServicesScreen() {
   const renderServiceCard = ({ item }: { item: ServiceItem }) => (
     <Pressable
       style={({ pressed }) => [styles.serviceCard, pressed && styles.cardPressed]}
-      onPress={() => router.push({ pathname: '/services/[id]', params: { id: item.id } })}
+      onPress={() => {
+        void trackContentEvent('service', item.id, 'click');
+        router.push({ pathname: '/services/[id]', params: { id: item.id } });
+      }}
     >
       <View style={[styles.imageContainer, { height: imageHeight }]}>
         {getMediaUrl(item.image) ? (
