@@ -167,7 +167,7 @@ async function readApiResponse<T>(response: Response): Promise<ApiResult<T>> {
   return result as ApiResult<T>;
 }
 
-type LoginStep = 'credentials' | 'forgotPassword' | 'resetPassword';
+type LoginStep = 'credentials' | 'emailVerification' | 'forgotPassword' | 'resetPassword';
 
 function LoginScreen({ onAuthenticated }: LoginScreenProps) {
   const [step, setStep] = useState<LoginStep>('credentials');
@@ -178,7 +178,12 @@ function LoginScreen({ onAuthenticated }: LoginScreenProps) {
   const [error, setError] = useState('');
   const [passkeyAvailable, setPasskeyAvailable] = useState(false);
   const [passkeyChecking, setPasskeyChecking] = useState(true);
-  const [activeAuth, setActiveAuth] = useState<'password' | 'passkey' | null>(null);
+  const [activeAuth, setActiveAuth] = useState<'password' | 'passkey' | 'email' | null>(null);
+  const [loginVerificationId, setLoginVerificationId] = useState('');
+  const [loginVerificationCode, setLoginVerificationCode] = useState('');
+  const [loginEmailHint, setLoginEmailHint] = useState('');
+  const [loginVerificationExpiresAt, setLoginVerificationExpiresAt] = useState('');
+  const [resendBusy, setResendBusy] = useState(false);
 
   const [forgotEmail, setForgotEmail] = useState('');
   const [resetCode, setResetCode] = useState('');
@@ -241,8 +246,10 @@ function LoginScreen({ onAuthenticated }: LoginScreenProps) {
     try {
       const result = await readApiResponse<{
         authenticated?: boolean;
-        sessionToken?: string;
-        user?: Partial<CurrentUser> | null;
+        verificationRequired?: boolean;
+        verificationId?: string;
+        verificationExpiresAt?: string;
+        emailHint?: string;
       }>(await fetch(apiUrl('/api/auth/login'), {
         method: 'POST',
         credentials: 'include',
@@ -250,9 +257,18 @@ function LoginScreen({ onAuthenticated }: LoginScreenProps) {
         body: JSON.stringify({ email: email.trim(), password }),
       }));
 
-      storeAdminSessionToken(result.data?.sessionToken);
+      if (!result.data?.verificationRequired || !result.data?.verificationId) {
+        throw new Error('Email verification was not started.');
+      }
+
+      storeAdminSessionToken(null);
+      setLoginVerificationId(result.data.verificationId);
+      setLoginVerificationCode('');
+      setLoginEmailHint(result.data.emailHint || 'your admin email');
+      setLoginVerificationExpiresAt(result.data.verificationExpiresAt || '');
+      setPassword('');
       setError('');
-      onAuthenticated(result.data?.user ?? null);
+      setStep('emailVerification');
     } catch (_err) {
       setError('Invalid email or password. Please try again.');
     } finally {
@@ -304,6 +320,89 @@ function LoginScreen({ onAuthenticated }: LoginScreenProps) {
     } finally {
       setLoading(false);
       setActiveAuth(null);
+    }
+  };
+
+  const handleEmailVerification = async (event: React.FormEvent) => {
+    event.preventDefault();
+
+    if (!loginVerificationId || !/^\d{6}$/.test(loginVerificationCode)) {
+      setError('Enter the 6-digit code sent to your admin email.');
+      return;
+    }
+
+    setLoading(true);
+    setActiveAuth('email');
+    setError('');
+
+    try {
+      const result = await readApiResponse<{
+        authenticated?: boolean;
+        sessionToken?: string;
+        user?: Partial<CurrentUser> | null;
+      }>(await fetch(apiUrl('/api/auth/admin/verify-email'), {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          verificationId: loginVerificationId,
+          code: loginVerificationCode,
+        }),
+      }));
+
+      storeAdminSessionToken(result.data?.sessionToken);
+      setLoginVerificationId('');
+      setLoginVerificationCode('');
+      setLoginVerificationExpiresAt('');
+      setError('');
+      onAuthenticated(result.data?.user ?? null);
+    } catch (verificationError) {
+      setError(
+        verificationError instanceof Error
+          ? verificationError.message
+          : 'Email verification failed. Please try again.',
+      );
+    } finally {
+      setLoading(false);
+      setActiveAuth(null);
+    }
+  };
+
+  const handleResendLoginVerification = async () => {
+    if (!loginVerificationId || resendBusy || loading) return;
+
+    setResendBusy(true);
+    setError('');
+
+    try {
+      const result = await readApiResponse<{
+        verificationRequired?: boolean;
+        verificationId?: string;
+        verificationExpiresAt?: string;
+        emailHint?: string;
+      }>(await fetch(apiUrl('/api/auth/admin/resend-verification'), {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ verificationId: loginVerificationId }),
+      }));
+
+      if (!result.data?.verificationId) {
+        throw new Error('A new verification code could not be created.');
+      }
+
+      setLoginVerificationId(result.data.verificationId);
+      setLoginVerificationCode('');
+      setLoginEmailHint(result.data.emailHint || loginEmailHint);
+      setLoginVerificationExpiresAt(result.data.verificationExpiresAt || '');
+    } catch (resendError) {
+      setError(
+        resendError instanceof Error
+          ? resendError.message
+          : 'Could not resend the verification code.',
+      );
+    } finally {
+      setResendBusy(false);
     }
   };
 
@@ -397,6 +496,10 @@ function LoginScreen({ onAuthenticated }: LoginScreenProps) {
 
   const goBackToCredentials = () => {
     setStep('credentials');
+    setLoginVerificationId('');
+    setLoginVerificationCode('');
+    setLoginEmailHint('');
+    setLoginVerificationExpiresAt('');
     setForgotEmail('');
     setResetCode('');
     setNewPassword('');
@@ -593,6 +696,76 @@ function LoginScreen({ onAuthenticated }: LoginScreenProps) {
           <p className="login-security-note">
             Sagawa does not pre-fill your admin email or password. Saved credentials are controlled by your browser or password manager.
           </p>
+        </>
+      ),
+    );
+  }
+
+  if (step === 'emailVerification') {
+    const expiryLabel = loginVerificationExpiresAt
+      ? new Date(loginVerificationExpiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      : '';
+
+    return renderLoginShell(
+      'Verify this sign-in',
+      `We sent a one-time code to ${loginEmailHint || 'your admin email'}. Password sign-in is not complete until this step succeeds.`,
+      (
+        <>
+          <div className="two-step-security-card">
+            <div className="two-step-security-icon" aria-hidden="true">2</div>
+            <div>
+              <strong>Two-step verification</strong>
+              <span>New or password-based admin access requires email confirmation.</span>
+            </div>
+          </div>
+
+          <form className="login-form-v3" onSubmit={handleEmailVerification} noValidate>
+            <div className="login-field">
+              <label htmlFor="admin-login-code">6-digit verification code</label>
+              <input
+                id="admin-login-code"
+                className="verification-code-input"
+                type="text"
+                inputMode="numeric"
+                maxLength={6}
+                autoComplete="one-time-code"
+                value={loginVerificationCode}
+                onChange={(event) => setLoginVerificationCode(event.target.value.replace(/\D/g, ''))}
+                autoFocus
+                required
+                disabled={loading}
+                placeholder=""
+              />
+              <small className="login-field-note">
+                {expiryLabel ? `Code expires around ${expiryLabel}.` : 'The code expires after a few minutes.'}
+              </small>
+            </div>
+
+            {error && <div className="login-error login-error-v3" role="alert">{error}</div>}
+
+            <button
+              className="primary-button login-button login-submit-v3"
+              type="submit"
+              disabled={loading || loginVerificationCode.length !== 6}
+            >
+              {activeAuth === 'email' ? 'Verifying…' : 'Verify and open Admin'}
+              <span aria-hidden="true">→</span>
+            </button>
+          </form>
+
+          <div className="two-step-actions">
+            <button
+              className="login-back-button"
+              type="button"
+              onClick={handleResendLoginVerification}
+              disabled={loading || resendBusy}
+            >
+              {resendBusy ? 'Sending new code…' : 'Resend code'}
+            </button>
+            <button className="login-back-button" type="button" onClick={goBackToCredentials} disabled={loading}>
+              ← Use another sign-in method
+            </button>
+          </div>
         </>
       ),
     );

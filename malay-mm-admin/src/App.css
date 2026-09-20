@@ -4095,3 +4095,81 @@ body {
     font-size: 9px !important;
   }
 }
+
+
+/* =========================================================
+   ADMIN 3.1 — TWO-STEP SECURITY
+========================================================= */
+
+.two-step-security-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 13px;
+  align-items: center;
+  margin: 30px 0 22px;
+  padding: 14px 15px;
+  border: 1px solid #dce5ee;
+  border-radius: 15px;
+  background: linear-gradient(135deg, #f8fbfe 0%, #f4f8fc 100%);
+}
+
+.two-step-security-icon {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 13px;
+  background: #142033;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 850;
+  box-shadow: 0 8px 18px rgba(20, 32, 51, 0.12);
+}
+
+.two-step-security-card strong {
+  display: block;
+  color: #182230;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.two-step-security-card span {
+  display: block;
+  margin-top: 4px;
+  color: #718096;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.login-field-note {
+  color: #8a95a4;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.two-step-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.two-step-actions .login-back-button {
+  margin-top: 0;
+  min-height: 38px;
+  border: 1px solid #e3e8ee;
+  border-radius: 11px;
+  background: #fafbfd;
+}
+
+.two-step-actions .login-back-button:hover:not(:disabled) {
+  border-color: #cfd8e2;
+  background: #f4f7fa;
+  color: #344054;
+}
+
+@media (max-width: 560px) {
+  .two-step-actions {
+    grid-template-columns: 1fr;
+  }
+}

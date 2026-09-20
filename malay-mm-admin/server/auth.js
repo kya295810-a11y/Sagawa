@@ -24,6 +24,13 @@ const SESSION_TTL_MS = readPositiveDuration('SESSION_TTL_MS', process.env.SESSIO
 const CHALLENGE_TTL_MS = readPositiveDuration('WEBAUTHN_CHALLENGE_TTL_MS', process.env.WEBAUTHN_CHALLENGE_TTL_MS, 5 * 60 * 1000, MAX_CHALLENGE_TTL_MS);
 const VERIFICATION_CODE_TTL_MS = readPositiveDuration('VERIFICATION_CODE_TTL_MS', process.env.VERIFICATION_CODE_TTL_MS, 5 * 60 * 1000, MAX_VERIFICATION_CODE_TTL_MS);
 const VERIFICATION_CODE_MAX_ATTEMPTS = 5;
+const MAX_RECENT_AUTH_TTL_MS = 60 * 60 * 1000;
+const RECENT_AUTH_TTL_MS = readPositiveDuration(
+  'ADMIN_RECENT_AUTH_TTL_MS',
+  process.env.ADMIN_RECENT_AUTH_TTL_MS,
+  15 * 60 * 1000,
+  MAX_RECENT_AUTH_TTL_MS,
+);
 const COOKIE_NAME = 'sagawa_admin_session';
 const VERIFICATION_CODE_COOKIE_NAME = 'sagawa_admin_verification';
 const USER_ID = crypto.createHash('sha256').update(ADMIN_EMAIL).digest('base64url');
@@ -112,6 +119,108 @@ let adminPasswordHash = loadAdminPasswordHash();
 
 const sessions = new Map();
 const pendingChallenges = new Map();
+const verificationStates = new Map();
+
+function pruneVerificationStates() {
+  const now = Date.now();
+  for (const [key, state] of verificationStates) {
+    if (state.expiresAt <= now) verificationStates.delete(key);
+  }
+}
+
+function verificationStateKey(stateId) {
+  return crypto.createHmac('sha256', SESSION_SECRET).update(String(stateId || '')).digest('hex');
+}
+
+function verificationCodeHash(stateId, code) {
+  return crypto
+    .createHmac('sha256', SESSION_SECRET)
+    .update(`${String(stateId || '')}:${String(code || '')}`)
+    .digest('hex');
+}
+
+function createCodeState(purpose) {
+  pruneVerificationStates();
+
+  if (verificationStates.size >= 100) {
+    const oldestKey = verificationStates.keys().next().value;
+    if (oldestKey) verificationStates.delete(oldestKey);
+  }
+
+  const stateId = crypto.randomBytes(32).toString('base64url');
+  const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
+  verificationStates.set(verificationStateKey(stateId), {
+    purpose,
+    codeHash: verificationCodeHash(stateId, code),
+    expiresAt: Date.now() + VERIFICATION_CODE_TTL_MS,
+    attempts: 0,
+  });
+
+  return {
+    stateId,
+    code,
+    expiresAt: Date.now() + VERIFICATION_CODE_TTL_MS,
+  };
+}
+
+function createVerificationState() {
+  return createCodeState('admin-login');
+}
+
+function createPasswordResetState() {
+  return createCodeState('password-reset');
+}
+
+function hasVerificationState(stateId, expectedPurpose = null) {
+  pruneVerificationStates();
+  const state = verificationStates.get(verificationStateKey(stateId));
+  if (!state) return false;
+  return expectedPurpose ? state.purpose === expectedPurpose : true;
+}
+
+function invalidateVerificationState(stateId) {
+  if (!stateId) return false;
+  return verificationStates.delete(verificationStateKey(stateId));
+}
+
+function validateVerificationCode(stateId, code, expectedPurpose = 'admin-login') {
+  pruneVerificationStates();
+  const key = verificationStateKey(stateId);
+  const state = verificationStates.get(key);
+
+  if (!state || state.purpose !== expectedPurpose) {
+    return { valid: false, reason: 'invalid_state' };
+  }
+
+  if (state.expiresAt <= Date.now()) {
+    verificationStates.delete(key);
+    return { valid: false, reason: 'expired' };
+  }
+
+  state.attempts += 1;
+  if (state.attempts > VERIFICATION_CODE_MAX_ATTEMPTS) {
+    verificationStates.delete(key);
+    return { valid: false, reason: 'too_many_attempts' };
+  }
+
+  const submittedHash = verificationCodeHash(stateId, String(code || '').trim());
+  const expectedHash = state.codeHash;
+  const matches =
+    submittedHash.length === expectedHash.length &&
+    crypto.timingSafeEqual(Buffer.from(submittedHash), Buffer.from(expectedHash));
+
+  if (!matches) {
+    return { valid: false, reason: 'invalid_code' };
+  }
+
+  verificationStates.delete(key);
+  return { valid: true };
+}
+
+function validateResetCode(stateId, code) {
+  return validateVerificationCode(stateId, code, 'password-reset');
+}
+
 async function loadPasskeys() {
   const result = await db.query(
     'SELECT id, public_key, counter, transports FROM passkeys ORDER BY id',
@@ -351,11 +460,14 @@ function extractChallengeFromClientData(response, expectedType) {
   return clientData.challenge;
 }
 
-function createSession() {
+function createSession(options = {}) {
+  const now = Date.now();
   const token = crypto.randomBytes(32).toString('hex');
   sessions.set(sessionKey(token), {
-    expiresAt: Date.now() + SESSION_TTL_MS,
-    createdAt: Date.now(),
+    expiresAt: now + SESSION_TTL_MS,
+    createdAt: now,
+    strongAuthAt: Number(options.strongAuthAt || now),
+    authMethod: String(options.authMethod || 'admin'),
   });
   return token;
 }
@@ -415,6 +527,30 @@ function requireAdmin(req, res, next) {
   if (!getSession(req)) {
     console.warn('[Auth] Unauthorized request.');
     return res.status(401).json({ success: false, message: 'Authentication required.' });
+  }
+
+  return next();
+}
+
+function requireRecentAdminAuth(req, res, next) {
+  const current = getSession(req);
+  if (!current) {
+    console.warn('[Auth] Recent-auth request rejected: no admin session.');
+    return res.status(401).json({
+      success: false,
+      code: 'authentication_required',
+      message: 'Authentication required.',
+    });
+  }
+
+  const strongAuthAt = Number(current.session.strongAuthAt || 0);
+  if (!strongAuthAt || Date.now() - strongAuthAt > RECENT_AUTH_TTL_MS) {
+    console.warn('[Auth] Recent-auth request rejected: verification expired.');
+    return res.status(403).json({
+      success: false,
+      code: 'recent_auth_required',
+      message: 'Please verify your identity again before changing security settings.',
+    });
   }
 
   return next();
@@ -556,6 +692,7 @@ async function finishAuthentication(response) {
 module.exports = {
   ADMIN_EMAIL,
   ADMIN_NAME,
+  ADMIN_ORIGIN,
   COOKIE_NAME,
   VERIFICATION_CODE_COOKIE_NAME,
   SESSION_TTL_MS,
@@ -564,17 +701,24 @@ module.exports = {
   beginAuthentication,
   beginRegistration,
   clearSessionCookie,
+  createPasswordResetState,
   createSession,
+  createVerificationState,
   destroyAllSessions,
   destroySession,
   finishAuthentication,
   finishRegistration,
   getAuthenticatedUser,
+  hasVerificationState,
+  invalidateVerificationState,
   isAdminAuthenticated,
   login,
   replaceAdminPasswordHash,
   requireAdmin,
+  requireRecentAdminAuth,
   setSessionCookie,
   validatePasswordPolicy,
+  validateResetCode,
+  validateVerificationCode,
   verifyPassword,
 };
