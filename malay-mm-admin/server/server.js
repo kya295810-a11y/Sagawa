@@ -20,6 +20,7 @@ const {
   beginRegistration,
   clearSessionCookie,
   createSession,
+  createTrustedBrowserToken,
   createVerificationState,
   hasVerificationState,
   invalidateVerificationState,
@@ -31,6 +32,7 @@ const {
   finishRegistration,
   getAuthenticatedUser,
   isAdminAuthenticated,
+  isTrustedAdminBrowser,
   login,
   requireAdmin,
   requireRecentAdminAuth,
@@ -375,7 +377,7 @@ if (!allowedCorsOrigins.length || !allowedCorsOrigins.every(Boolean)) {
 const corsOptions = {
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Sagawa-Browser-Id', 'X-Sagawa-Trusted-Browser'],
   origin(origin, callback) {
     if (!origin || allowedCorsOrigins.includes(origin)) {
       return callback(null, true);
@@ -681,6 +683,32 @@ app.post('/api/auth/login', async (req, res) => {
       });
     }
 
+    const browserId = String(req.headers['x-sagawa-browser-id'] || '').trim();
+    const trustedBrowserToken = String(req.headers['x-sagawa-trusted-browser'] || '').trim();
+
+    if (isTrustedAdminBrowser(req, browserId, trustedBrowserToken)) {
+      const sessionToken = createSession({
+        authMethod: 'password+trusted-browser',
+        strongAuthAt: Date.now(),
+      });
+      setSessionCookie(res, sessionToken);
+
+      console.log('[Auth] Admin password login succeeded from trusted browser.');
+
+      return res.json({
+        success: true,
+        data: {
+          authenticated: true,
+          verificationRequired: false,
+          sessionToken,
+          user: {
+            name: ADMIN_NAME || 'Admin',
+            email: ADMIN_EMAIL,
+          },
+        },
+      });
+    }
+
     if (!isEmailConfigured()) {
       console.error('[Auth] Admin two-step verification unavailable: email service is not configured.');
       return res.status(503).json({
@@ -756,6 +784,9 @@ app.post('/api/auth/admin/verify-email', async (req, res) => {
   });
   setSessionCookie(res, sessionToken);
 
+  const browserId = String(req.headers['x-sagawa-browser-id'] || '').trim();
+  const trustedBrowserToken = createTrustedBrowserToken(req, browserId);
+
   console.log('[Auth] Admin two-step verification succeeded.');
 
   return res.json({
@@ -763,6 +794,7 @@ app.post('/api/auth/admin/verify-email', async (req, res) => {
     data: {
       authenticated: true,
       sessionToken,
+      trustedBrowserToken: trustedBrowserToken || undefined,
       user,
     },
   });
