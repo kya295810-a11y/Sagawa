@@ -63,6 +63,7 @@ jobs:
       ADMIN_NAME: Sagawa CI Admin
       SESSION_SECRET: sagawa-ci-session-secret-32-characters-minimum
       ADMIN_ORIGIN: http://localhost:5173
+      CORS_ORIGIN: http://localhost:5173
       WEBAUTHN_RP_ID: localhost
       GOOGLE_SHEETS_SYNC_ENABLED: 'false'
       NODE_ENV: test
