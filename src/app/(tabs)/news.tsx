@@ -20,6 +20,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { NewsArticle } from '@/features/news/types';
 import { fetchNews } from '@/services/news/news-service';
+import { trackContentEvent } from '@/services/analytics/content-analytics';
 import { registerPushToken } from '@/services/notifications/push-token';
 import { useAppTheme } from '@/theme/provider';
 import type { ThemeColors } from '@/theme/types';
@@ -115,6 +116,7 @@ export default function NewsScreen() {
         return;
       }
 
+      void trackContentEvent('news', id, 'click');
       router.push({
         pathname: '/news/[id]',
         params: { id: String(id) },
