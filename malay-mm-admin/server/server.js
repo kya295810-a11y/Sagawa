@@ -175,6 +175,50 @@ const profileUploadMiddleware = (req, res, next) => {
   });
 };
 
+const adminProfileUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 2 * 1024 * 1024, files: 1, fields: 4 },
+  fileFilter: (_req, file, cb) => {
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype)) {
+      return cb(new Error('Admin photo must be JPEG, PNG, or WebP.'));
+    }
+    cb(null, true);
+  },
+});
+
+function adminAvatarMatchesMime(buffer, mimetype) {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 12) return false;
+  const isJpeg = buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+  const isPng = buffer.subarray(0, 8).equals(Buffer.from([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a]));
+  const isWebp =
+    buffer.subarray(0, 4).toString('ascii') === 'RIFF' &&
+    buffer.subarray(8, 12).toString('ascii') === 'WEBP';
+
+  return (
+    (mimetype === 'image/jpeg' && isJpeg) ||
+    (mimetype === 'image/png' && isPng) ||
+    (mimetype === 'image/webp' && isWebp)
+  );
+}
+
+function adminAvatarDataUrl(row) {
+  if (!row?.avatar_data || !row?.avatar_mime) return '';
+  return `data:${row.avatar_mime};base64,${Buffer.from(row.avatar_data).toString('base64')}`;
+}
+
+async function readAdminProfile() {
+  const result = await db.query(
+    'SELECT name, avatar_data, avatar_mime, updated_at FROM admin_profile WHERE id = 1',
+  );
+  const row = result.rows[0] || {};
+  return {
+    name: String(row.name || ADMIN_NAME || 'Admin').trim() || 'Admin',
+    email: ADMIN_EMAIL,
+    avatarUrl: adminAvatarDataUrl(row),
+    updatedAt: row.updated_at || null,
+  };
+}
+
 const defaultContentUploadDir = path.join(__dirname, 'uploads', 'content');
 const newsUploadDir = path.resolve(
   process.env.NEWS_UPLOAD_DIR || path.join(defaultContentUploadDir, 'news'),
@@ -873,6 +917,64 @@ app.get('/api/auth/me', async (req, res) => {
     },
   });
 });
+
+app.get('/api/admin/profile', requireAdmin, async (req, res) => {
+  try {
+    return res.json({ success: true, data: await readAdminProfile() });
+  } catch (error) {
+    console.error('[AdminProfile] GET failed:', error.message);
+    return res.status(500).json({ success: false, message: 'Could not load admin profile.' });
+  }
+});
+
+app.put(
+  '/api/admin/profile',
+  requireAdmin,
+  adminProfileUpload.single('avatar'),
+  async (req, res) => {
+    try {
+      const name = boundedText(req.body?.name, 80, 'Admin name');
+      if (!name) {
+        return res.status(400).json({ success: false, message: 'Admin name is required.' });
+      }
+
+      if (req.file && !adminAvatarMatchesMime(req.file.buffer, req.file.mimetype)) {
+        return res.status(422).json({
+          success: false,
+          message: 'Uploaded admin photo does not match its file type.',
+        });
+      }
+
+      if (req.file) {
+        await db.query(
+          `UPDATE admin_profile
+             SET name = $1,
+                 avatar_data = $2,
+                 avatar_mime = $3,
+                 updated_at = NOW()
+           WHERE id = 1`,
+          [name, req.file.buffer, req.file.mimetype],
+        );
+      } else {
+        await db.query(
+          'UPDATE admin_profile SET name = $1, updated_at = NOW() WHERE id = 1',
+          [name],
+        );
+      }
+
+      return res.json({ success: true, data: await readAdminProfile() });
+    } catch (error) {
+      if (error?.code === 'LIMIT_FILE_SIZE') {
+        return res.status(413).json({ success: false, message: 'Admin photo must be 2 MB or smaller.' });
+      }
+      console.error('[AdminProfile] PUT failed:', error.message);
+      return res.status(error.statusCode || 500).json({
+        success: false,
+        message: error.statusCode ? error.message : 'Could not update admin profile.',
+      });
+    }
+  },
+);
 
 app.post('/api/auth/change-password', requireAdmin, async (req, res) => {
   const currentPassword =
