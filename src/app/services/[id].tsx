@@ -13,6 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { MediaViewer } from '@/components/media/media-viewer';
+import { trackContentEvent } from '@/services/analytics/content-analytics';
 import { apiRequest } from '@/services/api/client';
 import { useAppTheme } from '@/theme/provider';
 import type { ThemeColors } from '@/theme/types';
@@ -110,6 +111,7 @@ export default function ServiceDetailScreen() {
         if (active) {
           setService(result);
           setImageFailed(false);
+          void trackContentEvent('service', serviceId, 'view');
         }
       })
       .catch((requestError) => {
