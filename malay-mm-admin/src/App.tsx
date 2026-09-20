@@ -952,7 +952,7 @@ function App() {
       }
 
       const response = await startRegistration({
-        optionsJSON: optionsResult.data,
+        optionsJSON: optionsResult.data as any,
       });
 
       await readApiResponse(await adminFetch(apiUrl('/api/auth/passkey/registration'), {
