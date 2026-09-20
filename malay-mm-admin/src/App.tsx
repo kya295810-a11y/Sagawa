@@ -2242,228 +2242,371 @@ function App() {
      DASHBOARD
   ========================================================= */
 
-  const renderDashboard = () => (
-    <>
-      <div className="page-heading admin-hero">
-        <div>
-          <span className="eyebrow">SAGAWA CONTROL CENTER</span>
-          <p className="welcome-message">
-            Welcome back, {currentUser.name || 'Administrator'}
-          </p>
-          <h1>Overview</h1>
-          <p>
-            Monitor Sagawa content, publishing status and operational health from one secure workspace.
-          </p>
-        </div>
+  const renderDashboard = () => {
+    const publishedNews = news.filter((item) => item.published);
+    const draftNews = news.filter((item) => !item.published);
+    const publishedServices = services.filter((item) => item.published);
 
-        <div className="admin-avatar" aria-label="Administrator">
-          {(currentUser.name || 'A').slice(0, 1).toUpperCase()}
-        </div>
-      </div>
+    const today = new Date();
+    const activityDays = Array.from({ length: 7 }, (_, index) => {
+      const date = new Date(today);
+      date.setHours(0, 0, 0, 0);
+      date.setDate(today.getDate() - (6 - index));
 
-      <div className="stats-grid admin-stats-grid">
-        <button className="stat-card" onClick={() => setActivePage('news')}>
-          <div className="stat-top">
-            <div className="stat-icon blue">📰</div>
-            <span className="stat-arrow">→</span>
+      const nextDate = new Date(date);
+      nextDate.setDate(date.getDate() + 1);
+
+      const count = publishedNews.filter((item) => {
+        const itemDate = new Date(item.date);
+        return (
+          !Number.isNaN(itemDate.getTime()) &&
+          itemDate >= date &&
+          itemDate < nextDate
+        );
+      }).length;
+
+      return {
+        count,
+        label: date.toLocaleDateString('en-GB', {
+          month: 'short',
+          day: 'numeric',
+        }),
+      };
+    });
+
+    const maxActivity = Math.max(1, ...activityDays.map((day) => day.count));
+    const chartPoints = activityDays
+      .map((day, index) => {
+        const x = index * (700 / 6);
+        const y = 132 - (day.count / maxActivity) * 96;
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+      })
+      .join(' ');
+    const chartAreaPoints = `0,144 ${chartPoints} 700,144`;
+
+    return (
+      <div className="dashboard-v4">
+        <section className="dashboard-hero-v4">
+          <div>
+            <span className="dashboard-kicker-v4">SAGAWA CONTROL CENTER</span>
+            <h1>
+              Welcome back, {currentUser.name || 'Administrator'} <span aria-hidden="true">👋</span>
+            </h1>
+            <p>
+              Monitor Sagawa content, publishing status and operational health from one secure workspace.
+            </p>
           </div>
-          <strong>Published News</strong>
-          <span>Live information in the mobile app</span>
-          <b>{news.filter((item) => item.published).length}</b>
-          <small>{news.filter((item) => !item.published).length} draft{news.filter((item) => !item.published).length === 1 ? '' : 's'}</small>
-        </button>
 
-        <button className="stat-card" onClick={() => setActivePage('services')}>
-          <div className="stat-top">
-            <div className="stat-icon green">🧭</div>
-            <span className="stat-arrow">→</span>
-          </div>
-          <strong>Services</strong>
-          <span>Community information directory</span>
-          <b>{services.filter((item) => item.published).length}</b>
-          <small>{services.length}/25 configured</small>
-        </button>
-
-        <button className="stat-card" onClick={() => setActivePage('exchange')}>
-          <div className="stat-top">
-            <div className="stat-icon purple">💱</div>
-            <span className="stat-arrow">→</span>
-          </div>
-          <strong>Exchange Rate</strong>
-          <span>Current MYR → MMK reference rate</span>
-          <b>{exchangeRate.rate ? formatRate(exchangeRate.rate) : 'Not set'}</b>
-          <small>{exchangeRate.rate ? 'MMK per MYR' : 'Needs an update'}</small>
-        </button>
-
-        <div className="stat-card system-stat-card" role="status" aria-live="polite">
-          <div className="stat-top">
-            <div className={apiError ? 'stat-icon red' : 'stat-icon green'}>
-              {apiError ? '!' : '✓'}
+          <div className="dashboard-hero-meta-v4">
+            <div className="dashboard-tagline-v4">
+              Better Information
+              <span>Stronger Community</span>
             </div>
-            <span className={apiError ? 'health-label issue' : 'health-label healthy'}>
-              {apiError ? 'Attention' : 'Healthy'}
+            <div className="dashboard-date-v4">
+              <span>
+                {today.toLocaleDateString('en-GB', { weekday: 'long' })}
+              </span>
+              <strong>
+                {today.toLocaleDateString('en-GB', {
+                  day: '2-digit',
+                  month: 'short',
+                  year: 'numeric',
+                })}
+              </strong>
+              <small>Secure production workspace</small>
+            </div>
+          </div>
+        </section>
+
+        <section className="dashboard-stats-v4">
+          <button className="dashboard-stat-v4" type="button" onClick={() => setActivePage('news')}>
+            <span className="dashboard-stat-icon-v4 blue" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M6 3.8h10.8a2 2 0 0 1 2 2v12.4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5.8a2 2 0 0 1 2-2Z"/><path d="M8 8h7.5M8 11.5h7.5M8 15h5"/></svg>
             </span>
-          </div>
-          <strong>Admin API</strong>
-          <span>Content connection and sync status</span>
-          <b>{apiLoading ? 'Syncing' : apiError ? 'Issue' : 'Online'}</b>
-          <small>{API_BASE ? 'Environment configured' : 'API URL missing'}</small>
-        </div>
-      </div>
+            <span className="dashboard-stat-copy-v4">
+              <strong>Published News</strong>
+              <small>Live in mobile app</small>
+            </span>
+            <span className="dashboard-stat-value-v4">{publishedNews.length}</span>
+            <span className="dashboard-stat-arrow-v4" aria-hidden="true">›</span>
+          </button>
 
-      <div className="overview-card overview-summary-card">
-        <div>
-          <span className="eyebrow">CONTENT STATUS</span>
-          <h2>Publishing overview</h2>
-          <p>See what is live in Sagawa before making changes.</p>
-        </div>
+          <button className="dashboard-stat-v4" type="button" onClick={() => setActivePage('services')}>
+            <span className="dashboard-stat-icon-v4 green" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></svg>
+            </span>
+            <span className="dashboard-stat-copy-v4">
+              <strong>Services</strong>
+              <small>Community directory</small>
+            </span>
+            <span className="dashboard-stat-value-v4">{publishedServices.length}</span>
+            <span className="dashboard-stat-arrow-v4" aria-hidden="true">›</span>
+          </button>
 
-        <div className="overview-list">
-          <div>
-            <span>Published news</span>
-            <strong>{news.filter((item) => item.published).length}</strong>
-          </div>
-          <div>
-            <span>Draft news</span>
-            <strong>{news.filter((item) => !item.published).length}</strong>
-          </div>
-          <div>
-            <span>Published services</span>
-            <strong>{services.filter((item) => item.published).length}</strong>
-          </div>
-          <div>
-            <span>Current MYR → MMK</span>
-            <strong>{exchangeRate.rate ? formatRate(exchangeRate.rate) : 'Not set'}</strong>
-          </div>
-        </div>
-      </div>
+          <button className="dashboard-stat-v4" type="button" onClick={() => setActivePage('exchange')}>
+            <span className="dashboard-stat-icon-v4 violet" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M5 8h13M15 5l3 3-3 3M19 16H6M9 13l-3 3 3 3"/></svg>
+            </span>
+            <span className="dashboard-stat-copy-v4">
+              <strong>Exchange Rate</strong>
+              <small>MYR → MMK reference</small>
+            </span>
+            <span className="dashboard-stat-value-v4 rate">
+              {exchangeRate.rate ? formatRate(exchangeRate.rate) : 'Not set'}
+            </span>
+            <span className="dashboard-stat-arrow-v4" aria-hidden="true">›</span>
+          </button>
 
-      <div className="dashboard-detail-grid">
-        <section className="overview-card dashboard-list-card">
-          <div>
-            <span className="eyebrow">RECENT CONTENT</span>
-            <h2>Latest updates</h2>
-            <p>Recently managed content across News and Services.</p>
-          </div>
-          <div className="dashboard-recent-list">
-            {[...news.slice(0, 2), ...services.slice(0, 2)].slice(0, 4).map((item) => (
-              <div key={`${'date' in item ? 'news' : 'service'}-${item.id}`}>
-                <span>{'date' in item ? 'News' : 'Service'}</span>
-                <strong>{item.title}</strong>
-                <small>{item.published ? 'Published' : 'Draft'}</small>
+          <button
+            className="dashboard-stat-v4"
+            type="button"
+            onClick={() => void runHealthCheck()}
+          >
+            <span className={apiError ? 'dashboard-stat-icon-v4 red' : 'dashboard-stat-icon-v4 green'} aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M5 12.5l4 4L19 7"/></svg>
+            </span>
+            <span className="dashboard-stat-copy-v4">
+              <strong>Admin API</strong>
+              <small>Environment status</small>
+            </span>
+            <span className={apiError ? 'dashboard-health-pill-v4 issue' : 'dashboard-health-pill-v4'}>
+              {apiError ? 'Attention' : 'Online'}
+            </span>
+            <span className="dashboard-stat-arrow-v4" aria-hidden="true">›</span>
+          </button>
+        </section>
+
+        <section className="dashboard-middle-v4">
+          <div className="dashboard-panel-v4 dashboard-chart-v4">
+            <div className="dashboard-panel-header-v4">
+              <div>
+                <div className="dashboard-panel-title-v4">
+                  <span className="panel-symbol-v4 blue" aria-hidden="true">▥</span>
+                  <h2>Content Overview</h2>
+                </div>
+                <p>Published news activity over the last 7 days</p>
               </div>
-            ))}
-            {news.length === 0 && services.length === 0 && (
-              <div className="dashboard-empty">
-                <strong>No content yet</strong>
-                <span>Create your first News or Service item from Quick Actions.</span>
+              <span className="dashboard-range-v4">Last 7 days</span>
+            </div>
+
+            <div className="dashboard-chart-wrap-v4">
+              <div className="dashboard-chart-y-v4" aria-hidden="true">
+                <span>{maxActivity}</span>
+                <span>{Math.max(1, Math.ceil(maxActivity / 2))}</span>
+                <span>0</span>
+              </div>
+              <div className="dashboard-chart-canvas-v4">
+                <svg viewBox="0 0 700 150" preserveAspectRatio="none" role="img" aria-label="Published news activity during the last seven days">
+                  <defs>
+                    <linearGradient id="dashboardActivityFill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#268cff" stopOpacity="0.22" />
+                      <stop offset="100%" stopColor="#268cff" stopOpacity="0.02" />
+                    </linearGradient>
+                  </defs>
+                  <line x1="0" x2="700" y1="36" y2="36" className="dashboard-grid-line-v4" />
+                  <line x1="0" x2="700" y1="84" y2="84" className="dashboard-grid-line-v4" />
+                  <line x1="0" x2="700" y1="132" y2="132" className="dashboard-grid-line-v4" />
+                  <polygon points={chartAreaPoints} fill="url(#dashboardActivityFill)" />
+                  <polyline points={chartPoints} className="dashboard-chart-line-v4" />
+                  {activityDays.map((day, index) => {
+                    const x = index * (700 / 6);
+                    const y = 132 - (day.count / maxActivity) * 96;
+                    return (
+                      <circle
+                        key={day.label}
+                        cx={x}
+                        cy={y}
+                        r="4"
+                        className="dashboard-chart-point-v4"
+                      />
+                    );
+                  })}
+                </svg>
+                <div className="dashboard-chart-labels-v4">
+                  {activityDays.map((day) => <span key={day.label}>{day.label}</span>)}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="dashboard-panel-v4 dashboard-system-v4">
+            <div className="dashboard-panel-header-v4">
+              <div className="dashboard-panel-title-v4">
+                <span className="panel-symbol-v4 green" aria-hidden="true">⌁</span>
+                <h2>System Status</h2>
+              </div>
+              <button className="dashboard-text-button-v4" type="button" onClick={() => void runHealthCheck()}>
+                Run check →
+              </button>
+            </div>
+
+            <div className="dashboard-status-list-v4">
+              <div><span><i className={apiError ? 'issue' : ''} />API Server</span><strong>{apiError ? 'Attention' : 'Online'}</strong></div>
+              <div><span><i className={backendHealth === 'error' ? 'issue' : backendHealth === 'checking' ? 'syncing' : ''} />Database / Backend</span><strong>{backendHealth === 'error' ? 'Error' : backendHealth === 'checking' ? 'Checking' : 'Connected'}</strong></div>
+              <div><span><i />Secure Session</span><strong>Authenticated</strong></div>
+              <div><span><i className={apiLoading ? 'syncing' : ''} />Content Sync</span><strong>{apiLoading ? 'Syncing' : 'Ready'}</strong></div>
+              <div><span><i className={API_BASE ? '' : 'issue'} />Environment</span><strong>{API_BASE ? 'Configured' : 'Missing URL'}</strong></div>
+            </div>
+          </div>
+        </section>
+
+        <section className="dashboard-bottom-v4">
+          <div className="dashboard-panel-v4 dashboard-latest-v4">
+            <div className="dashboard-panel-header-v4">
+              <div>
+                <div className="dashboard-panel-title-v4">
+                  <span className="panel-symbol-v4 blue" aria-hidden="true">▤</span>
+                  <h2>Latest News</h2>
+                </div>
+                <p>Recently managed news across the platform</p>
+              </div>
+              <button className="dashboard-outline-button-v4" type="button" onClick={() => setActivePage('news')}>
+                View All →
+              </button>
+            </div>
+
+            <div className="dashboard-news-list-v4">
+              {news.slice(0, 2).map((item) => {
+                const previewImage = item.mediaType === 'video'
+                  ? item.thumbnailUrl || item.imageUrl
+                  : item.imageUrl;
+                return (
+                  <article className="dashboard-news-row-v4" key={item.id}>
+                    <div className="dashboard-news-thumb-v4">
+                      {previewImage ? (
+                        <img src={mediaUrl(previewImage)} alt="" />
+                      ) : (
+                        <span aria-hidden="true">▤</span>
+                      )}
+                    </div>
+                    <div className="dashboard-news-copy-v4">
+                      <div>
+                        <strong>{item.title}</strong>
+                        <span className={item.published ? 'published' : 'draft'}>
+                          {item.published ? 'Published' : 'Draft'}
+                        </span>
+                      </div>
+                      <p>{item.description || 'No description added yet.'}</p>
+                      <small>{item.date || 'Date not set'}</small>
+                    </div>
+                    <button className="dashboard-edit-button-v4" type="button" onClick={() => openEditNews(item)}>
+                      Edit
+                    </button>
+                  </article>
+                );
+              })}
+              {news.length === 0 && (
+                <div className="dashboard-empty-v4">
+                  <span aria-hidden="true">▤</span>
+                  <div>
+                    <strong>No news yet</strong>
+                    <p>Create your first news item to see it here.</p>
+                  </div>
+                  <button type="button" onClick={openAddNews}>Add News</button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="dashboard-panel-v4 dashboard-quick-v4">
+            <div className="dashboard-panel-header-v4">
+              <div>
+                <div className="dashboard-panel-title-v4">
+                  <span className="panel-symbol-v4 violet" aria-hidden="true">ϟ</span>
+                  <h2>Quick Actions</h2>
+                </div>
+                <p>Jump directly into common admin tasks</p>
+              </div>
+            </div>
+
+            <div className="dashboard-quick-grid-v4">
+              <button className="blue" type="button" onClick={openAddNews}><span>＋</span>Add News</button>
+              <button className="green" type="button" onClick={openAddService}><span>＋</span>Add Service</button>
+              <button className="violet" type="button" onClick={() => setActivePage('exchange')}><span>↻</span>Update Rate</button>
+              <button className="orange" type="button" onClick={() => setShowPasswordChange(true)}><span>⚙</span>Password</button>
+              <button className="red" type="button" onClick={registerPasskey} disabled={passkeyBusy}><span>◎</span>{passkeyBusy ? 'Registering…' : 'Passkey'}</button>
+              <button className="cyan" type="button" onClick={openAdminProfile}><span>◉</span>Profile</button>
+            </div>
+          </div>
+
+          <div className="dashboard-panel-v4 dashboard-rate-v4">
+            <div className="dashboard-panel-header-v4">
+              <div className="dashboard-panel-title-v4">
+                <span className="panel-symbol-v4 violet" aria-hidden="true">↔</span>
+                <h2>Exchange Rate</h2>
+              </div>
+              <button className="dashboard-outline-button-v4" type="button" onClick={() => setActivePage('exchange')}>
+                View All →
+              </button>
+            </div>
+
+            <div className="dashboard-rate-card-v4">
+              <div className="dashboard-rate-flags-v4">
+                <span aria-hidden="true">🇲🇾</span>
+                <span aria-hidden="true">🇲🇲</span>
+                <strong>MYR → MMK</strong>
+                <button type="button" onClick={() => setActivePage('exchange')} aria-label="Update exchange rate">↻</button>
+              </div>
+              <strong className="dashboard-rate-value-v4">
+                {exchangeRate.rate ? formatRate(exchangeRate.rate) : 'Not set'}
+              </strong>
+              <small>Last updated: {exchangeRate.updatedAt || 'Not available'}</small>
+            </div>
+
+            <div className="dashboard-rate-note-v4">
+              <span aria-hidden="true">i</span>
+              <p>This is a reference rate for information and educational purposes only.</p>
+            </div>
+          </div>
+        </section>
+
+        <details className="dashboard-diagnostics-v4" open={Boolean(apiError)}>
+          <summary>
+            <span>
+              <strong>Runtime & API diagnostics</strong>
+              <small>{diagnostics.length ? `${diagnostics.length} event${diagnostics.length === 1 ? '' : 's'} captured` : 'No runtime errors captured'}</small>
+            </span>
+            <span aria-hidden="true">⌄</span>
+          </summary>
+
+          <div className="dashboard-diagnostics-body-v4">
+            <div className="diagnostic-summary">
+              <div><span>Frontend</span><strong>Loaded</strong></div>
+              <div><span>Admin API</span><strong>{apiError ? 'Error' : 'Connected'}</strong></div>
+              <div><span>Backend / DB</span><strong>{backendHealth === 'healthy' ? 'Healthy' : backendHealth === 'error' ? 'Error' : 'Checking'}</strong></div>
+              <div><span>Session</span><strong>Authenticated</strong></div>
+            </div>
+
+            {passkeyMessage && (
+              <div className={passkeyMessage.startsWith('Passkey registered') ? 'diagnostic-notice success' : 'diagnostic-notice error'}>
+                <strong>Passkey</strong>
+                <span>{passkeyMessage}</span>
               </div>
             )}
-          </div>
-        </section>
 
-        <section className="overview-card dashboard-actions-card">
-          <div>
-            <span className="eyebrow">QUICK ACTIONS</span>
-            <h2>Publish faster</h2>
-            <p>Jump directly into the most common admin tasks.</p>
+            <div className="diagnostic-log">
+              {diagnostics.length === 0 ? (
+                <div className="diagnostic-empty">
+                  <span className="console-prompt">✓</span>
+                  <div>
+                    <strong>No runtime errors captured</strong>
+                    <small>If the frontend, API, authentication or backend fails, the exact message will appear here.</small>
+                  </div>
+                </div>
+              ) : diagnostics.slice(0, 6).map((item) => (
+                <div className={`diagnostic-row ${item.level}`} key={item.id}>
+                  <span className="diagnostic-time">{item.createdAt}</span>
+                  <span className="diagnostic-source">{item.source}</span>
+                  <code>{item.message}</code>
+                  {item.detail && <small>{item.detail}</small>}
+                </div>
+              ))}
+            </div>
           </div>
-          <div className="dashboard-actions">
-            <button type="button" onClick={openAddNews}><span>＋</span>Add news</button>
-            <button type="button" onClick={openAddService}><span>＋</span>Add service</button>
-            <button type="button" onClick={() => setActivePage('exchange')}><span>↻</span>Update exchange rate</button>
-          </div>
-        </section>
+        </details>
       </div>
-
-      <div className="operations-grid">
-        <section className="overview-card operations-card">
-          <div>
-            <span className="eyebrow">SYSTEM HEALTH</span>
-            <h2>Operational readiness</h2>
-            <p>Fast checks for the services this dashboard depends on.</p>
-          </div>
-          <div className="health-list">
-            <div>
-              <span><i className={apiError ? 'health-dot issue' : 'health-dot healthy'} />Admin API</span>
-              <strong>{apiError ? 'Needs attention' : 'Operational'}</strong>
-            </div>
-            <div>
-              <span><i className={backendHealth === 'error' ? 'health-dot issue' : backendHealth === 'checking' ? 'health-dot syncing' : 'health-dot healthy'} />Database / backend</span>
-              <strong>{backendHealth === 'error' ? 'Error' : backendHealth === 'checking' ? 'Checking' : 'Healthy'}</strong>
-            </div>
-            <div>
-              <span><i className="health-dot healthy" />Secure session</span>
-              <strong>Authenticated</strong>
-            </div>
-            <div>
-              <span><i className={apiLoading ? 'health-dot syncing' : 'health-dot healthy'} />Content sync</span>
-              <strong>{apiLoading ? 'In progress' : 'Ready'}</strong>
-            </div>
-          </div>
-        </section>
-
-        <section className="overview-card operations-card">
-          <div>
-            <span className="eyebrow">WORKSPACE</span>
-            <h2>Admin account</h2>
-            <p>This workspace is restricted to authenticated Sagawa administrators.</p>
-          </div>
-          <div className="workspace-details">
-            <div><span>Name</span><strong>{currentUser.name || 'Administrator'}</strong></div>
-            <div><span>Email</span><strong>{currentUser.email || 'Not provided'}</strong></div>
-            <div><span>Role</span><strong>Administrator</strong></div>
-          </div>
-        </section>
-      </div>
-
-      <section className={`diagnostics-console ${diagnostics.some((item) => item.level === 'error') ? 'has-error' : ''}`}>
-        <div className="diagnostics-header">
-          <div>
-            <span className="eyebrow">DIAGNOSTICS</span>
-            <h2>Runtime & API console</h2>
-            <p>Exact errors from this admin session appear here so they are easier to diagnose.</p>
-          </div>
-          <button className="secondary-button" type="button" onClick={() => void runHealthCheck()}>
-            Run check
-          </button>
-        </div>
-
-        <div className="diagnostic-summary">
-          <div><span>Frontend</span><strong>Loaded</strong></div>
-          <div><span>Admin API</span><strong>{apiError ? 'Error' : 'Connected'}</strong></div>
-          <div><span>Backend / DB</span><strong>{backendHealth === 'healthy' ? 'Healthy' : backendHealth === 'error' ? 'Error' : 'Checking'}</strong></div>
-          <div><span>Session</span><strong>Authenticated</strong></div>
-        </div>
-
-        {passkeyMessage && (
-          <div className={passkeyMessage.startsWith('Passkey registered') ? 'diagnostic-notice success' : 'diagnostic-notice error'}>
-            <strong>Passkey</strong>
-            <span>{passkeyMessage}</span>
-          </div>
-        )}
-
-        <div className="diagnostic-log">
-          {diagnostics.length === 0 ? (
-            <div className="diagnostic-empty">
-              <span className="console-prompt">✓</span>
-              <div>
-                <strong>No runtime errors captured</strong>
-                <small>If the frontend, API, authentication or backend fails, the exact message will appear here.</small>
-              </div>
-            </div>
-          ) : diagnostics.slice(0, 6).map((item) => (
-            <div className={`diagnostic-row ${item.level}`} key={item.id}>
-              <span className="diagnostic-time">{item.createdAt}</span>
-              <span className="diagnostic-source">{item.source}</span>
-              <code>{item.message}</code>
-              {item.detail && <small>{item.detail}</small>}
-            </div>
-          ))}
-        </div>
-      </section>
-    </>
-  );
+    );
+  };
 
   /* =========================================================
      NEWS PAGE
@@ -4111,6 +4254,13 @@ function App() {
           ))}
         </nav>
 
+        <div className="sidebar-health-v4" aria-label="System status">
+          <div><span>System</span><strong><i className={apiError ? 'issue' : ''} />{apiError ? 'Attention' : 'Online'}</strong></div>
+          <div><span>API Status</span><strong>{apiLoading ? 'Syncing' : apiError ? 'Issue' : 'Online'}</strong></div>
+          <div><span>Database</span><strong>{backendHealth === 'healthy' ? 'Connected' : backendHealth === 'checking' ? 'Checking' : 'Error'}</strong></div>
+          <div><span>Environment</span><strong>{API_BASE ? 'Production' : 'Not configured'}</strong></div>
+        </div>
+
         <div className="sidebar-bottom">
           <button
             className="nav-item"
@@ -4159,23 +4309,46 @@ function App() {
 
       <main className="main">
         <header className="topbar">
-          <div>
-            <span className="topbar-label">
-              SAGAWA CONTROL CENTER
-            </span>
-
-            <span className={apiError ? 'system-status issue' : 'system-status'}>
-              ● {apiError ? 'API needs attention' : apiLoading ? 'Syncing data' : 'Systems operational'}
-            </span>
+          <div className="admin-global-search-v4">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="11" cy="11" r="6.5" />
+              <path d="m16 16 4 4" />
+            </svg>
+            <input
+              aria-label="Search Sagawa content"
+              placeholder="Search news and services..."
+              value={activePage === 'services' ? searchServices : activePage === 'news' ? searchNews : ''}
+              onChange={(event) => {
+                const value = event.target.value;
+                if (activePage === 'services') {
+                  setSearchServices(value);
+                } else {
+                  setSearchNews(value);
+                  if (activePage !== 'news') setActivePage('news');
+                }
+              }}
+            />
+            <span>⌘ K</span>
           </div>
 
           <div className="topbar-actions">
+            <span className={apiError ? 'topbar-health-v4 issue' : 'topbar-health-v4'}>
+              <i />
+              {apiError ? 'Needs attention' : apiLoading ? 'Syncing' : 'Operational'}
+            </span>
+
             <button
               className="secondary-button topbar-passkey-button"
               type="button"
               onClick={registerPasskey}
               disabled={passkeyBusy}
             >
+              <svg className="topbar-fingerprint-v4" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 11a2 2 0 0 0-2 2c0 3.6-1.2 5.8-2.5 7" />
+                <path d="M14.8 19.5c.8-1.7 1.2-3.9 1.2-6.5a4 4 0 0 0-8 0c0 1.7-.2 3-.7 4.3" />
+                <path d="M18.6 18.1c.3-1.5.4-3.2.4-5.1a7 7 0 0 0-14 0c0 .8 0 1.5-.1 2.2" />
+                <path d="M20.8 9.5A9.2 9.2 0 0 0 4 7.2" />
+              </svg>
               {passkeyBusy ? 'Registering…' : 'Register Passkey'}
             </button>
 
@@ -4194,11 +4367,12 @@ function App() {
                 )}
               </span>
 
-              <span>
-                {currentUser.name || 'Admin'}
+              <span className="topbar-profile-copy-v4">
+                <strong>{currentUser.name || 'Admin'}</strong>
+                <small>Admin</small>
               </span>
 
-              <span className="profile-signout">Profile</span>
+              <span className="profile-signout">⌄</span>
             </button>
           </div>
         </header>
@@ -4229,6 +4403,17 @@ function App() {
 
           {renderPage()}
         </section>
+
+        <footer className="admin-footer-v4">
+          <span>© 2026 Sagawa Control Center. All rights reserved.</span>
+          <div>
+            <span>Privacy</span>
+            <i />
+            <span>Terms</span>
+            <i />
+            <span>Support</span>
+          </div>
+        </footer>
       </main>
 
       {modal === 'newsForm' &&
