@@ -1,5 +1,4 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -147,66 +146,6 @@ export default function NewsScreen() {
       Alert.alert('Notifications Error', 'Unable to register for push notifications right now.');
     }
   }, []);
-
-  useEffect(() => {
-    // Never load expo-notifications remote-push code inside Expo Go.
-    // Android remote push requires a development or production build.
-    if (Constants.executionEnvironment === 'storeClient') {
-      return;
-    }
-
-    let isMounted = true;
-    let subscription: { remove: () => void } | undefined;
-
-    const setupNotifications = async () => {
-      try {
-        const Notifications = await import('expo-notifications');
-
-        const handleNotificationResponse = (
-          response: import('expo-notifications').NotificationResponse,
-        ) => {
-          try {
-            const data = response.notification.request.content.data as
-              Record<string, unknown> | undefined;
-
-            const candidateId =
-              data?.newsId ??
-              data?.news_id ??
-              data?.id ??
-              data?.articleId ??
-              data?.article_id ??
-              data?.postId ??
-              data?.post_id;
-
-            if (typeof candidateId === 'string' || typeof candidateId === 'number') {
-              openNewsDetail(candidateId);
-            }
-          } catch (notificationError) {
-            console.error('Notification tap handling error:', notificationError);
-          }
-        };
-
-        subscription = Notifications.addNotificationResponseReceivedListener(
-          handleNotificationResponse,
-        );
-
-        const response = await Notifications.getLastNotificationResponseAsync();
-
-        if (isMounted && response) {
-          handleNotificationResponse(response);
-        }
-      } catch (error) {
-        console.log('Notification listeners unavailable in this environment:', error);
-      }
-    };
-
-    void setupNotifications();
-
-    return () => {
-      isMounted = false;
-      subscription?.remove();
-    };
-  }, [openNewsDetail]);
 
   /* ==========================================================
      RESPONSIVE IMAGE HEIGHT
