@@ -86,8 +86,8 @@ export default function CompleteProfileScreen() {
       Alert.alert('Check your name', 'Enter a name up to 100 characters.');
       return;
     }
-    if (!/^\d{1,3}$/.test(age) || !Number.isInteger(numericAge) || numericAge < 13 || numericAge > 120) {
-      Alert.alert('Check your age', 'Enter a whole number between 13 and 120.');
+    if (!/^\d{1,3}$/.test(age) || !Number.isInteger(numericAge) || numericAge < 18 || numericAge > 120) {
+      Alert.alert('Age requirement', 'You must be 18 or older to create and use a Sagawa account.');
       return;
     }
     if (!gender) {
@@ -133,7 +133,7 @@ export default function CompleteProfileScreen() {
                 keyboardType="number-pad"
                 maxLength={3}
                 onChangeText={(value) => setAge(value.replace(/\D/g, ''))}
-                placeholder="Your age"
+                placeholder="Your age (18+)"
                 placeholderTextColor={theme.colors.textMuted}
                 style={styles.input}
                 value={age}
