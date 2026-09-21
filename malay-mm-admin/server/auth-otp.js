@@ -20,25 +20,13 @@ function validateEmail(email) {
 }
 
 function normalizePhone(value, countryValue) {
-  const country = String(countryValue || '').trim().toUpperCase();
+  const country = String(countryValue || 'MY').trim().toUpperCase();
+  if (country !== 'MY') return null;
+
   let raw = String(value || '').trim().replace(/[\s().-]/g, '');
   if (raw.startsWith('00')) raw = `+${raw.slice(2)}`;
-
-  if (country === 'MY') {
-    if (/^01\d{8,9}$/.test(raw)) raw = `+60${raw.slice(1)}`;
-    if (!/^\+601\d{8,9}$/.test(raw)) return null;
-    return raw;
-  }
-
-  if (country === 'MM') {
-    if (/^09\d{7,9}$/.test(raw)) raw = `+95${raw.slice(1)}`;
-    if (!/^\+959\d{7,9}$/.test(raw)) return null;
-    return raw;
-  }
-
-  if (/^\+601\d{8,9}$/.test(raw)) return raw;
-  if (/^\+959\d{7,9}$/.test(raw)) return raw;
-  return null;
+  if (/^01\d{8,9}$/.test(raw)) raw = `+60${raw.slice(1)}`;
+  return /^\+601\d{8,9}$/.test(raw) ? raw : null;
 }
 
 function normalizeIdentifier(value, channelValue, country) {
@@ -161,7 +149,7 @@ async function requestSignupVerification({ nameValue, ageValue, identifierValue,
   if (!normalized) {
     const error = new Error(
       String(channelValue).toLowerCase() === 'phone'
-        ? 'Enter a valid Malaysia (+60) or Myanmar (+95) mobile number.'
+        ? 'Enter a valid Malaysia (+60) mobile number.'
         : 'Enter a valid email address.',
     );
     error.statusCode = 400;
@@ -197,7 +185,7 @@ async function requestLoginVerification({ identifierValue, channelValue, country
   if (!normalized) {
     const error = new Error(
       String(channelValue).toLowerCase() === 'phone'
-        ? 'Enter a valid Malaysia (+60) or Myanmar (+95) mobile number.'
+        ? 'Enter a valid Malaysia (+60) mobile number.'
         : 'Enter a valid email address.',
     );
     error.statusCode = 400;
@@ -369,7 +357,7 @@ function authCapabilities() {
       String(process.env.RESEND_API_KEY || '').trim() && String(process.env.EMAIL_FROM || '').trim(),
     ),
     phoneVerification: isSmsConfigured(),
-    phoneCountries: ['MY', 'MM'],
+    phoneCountries: ['MY'],
     codeLength: 6,
   };
 }
