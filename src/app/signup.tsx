@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -10,46 +10,43 @@ import {
   Text,
   TextInput,
   View,
-} from "react-native";
-import { router, type Href } from "expo-router";
+} from 'react-native';
+import { router, type Href } from 'expo-router';
+
+import SagawaFlowerLogo from '../../assets/images/sagawa-flower-logo.svg';
 import { apiRequest } from '@/services/api/client';
 import { useAuthStore } from '@/store/auth-store';
 
-const ANDROID_EXTRA_BOLD = Platform.OS === "android" ? "700" : "800";
-const ANDROID_INPUT_TEXT_FIX = Platform.select({
-  android: {
-    paddingVertical: 0,
-    textAlignVertical: "center" as const,
-  },
-  default: {},
-});
+const ANDROID_EXTRA_BOLD = Platform.OS === 'android' ? '700' : '800';
 
 export default function SignupScreen() {
-  const [email, setEmail] = useState("");
-  const [age, setAge] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
+  const [name, setName] = useState('');
+  const [age, setAge] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [agree, setAgree] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const handleSignup = async () => {
+    const trimmedName = name.trim().replace(/\s+/g, ' ');
     const normalizedEmail = email.trim().toLowerCase();
-    if (!normalizedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
-      Alert.alert('Check your email', 'Enter a valid email address.');
+    const numericAge = Number(age);
+
+    if (!trimmedName || trimmedName.length > 100) {
+      Alert.alert('Check your name', 'Enter your name using 100 characters or fewer.');
       return;
     }
-    const numericAge = Number(age);
     if (!/^\d{1,3}$/.test(age) || !Number.isInteger(numericAge) || numericAge < 18 || numericAge > 120) {
       Alert.alert('Age requirement', 'You must be 18 or older to create a Sagawa account.');
       return;
     }
-    if (password.length < 8 || password.length > 128) {
-      Alert.alert('Check your password', 'Use between 8 and 128 characters.');
+    if (!normalizedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      Alert.alert('Check your email', 'Enter a valid email address.');
       return;
     }
-    if (password !== confirmPassword) {
-      Alert.alert('Passwords do not match', 'Enter the same password in both fields.');
+    if (password.length < 6 || password.length > 128) {
+      Alert.alert('Check your password', 'Use at least 6 characters.');
       return;
     }
     if (!agree) {
@@ -65,16 +62,24 @@ export default function SignupScreen() {
           accessToken: string;
           refreshToken: string;
           expiresAt: string;
+          profileCompleted: boolean;
           user: { id: string; email: string };
         };
       }>('/api/auth/register', {
         method: 'POST',
-        body: JSON.stringify({ email: normalizedEmail, password, age: numericAge, platform: Platform.OS }),
+        body: JSON.stringify({
+          name: trimmedName,
+          age: numericAge,
+          email: normalizedEmail,
+          password,
+          platform: Platform.OS,
+        }),
       });
+
       await useAuthStore.getState().setSession(
         {
           expiresAt: response.data.expiresAt,
-          profileCompleted: false,
+          profileCompleted: true,
           user: response.data.user,
         },
         {
@@ -82,7 +87,8 @@ export default function SignupScreen() {
           refreshToken: response.data.refreshToken,
         },
       );
-      router.replace('/complete-profile' as Href);
+
+      router.replace('/(tabs)' as Href);
     } catch (error) {
       Alert.alert('Account creation failed', error instanceof Error ? error.message : 'Please try again.');
     } finally {
@@ -90,70 +96,67 @@ export default function SignupScreen() {
     }
   };
 
-  const handleBack = () => {
-    if (router.canGoBack()) {
-      router.back();
-      return;
-    }
-
-    router.replace("/login");
-  };
-
   return (
     <SafeAreaView style={styles.safeArea}>
-      <KeyboardAvoidingView
-        style={styles.keyboardView}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
+      <KeyboardAvoidingView style={styles.keyboardView} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView
           contentContainerStyle={styles.container}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {/* Back button */}
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Back to login"
-            onPress={handleBack}
-            style={({ pressed }) => [
-              styles.backButton,
-              pressed && styles.backPressed,
-            ]}
+            onPress={() => (router.canGoBack() ? router.back() : router.replace('/login'))}
+            style={styles.backButton}
             hitSlop={8}
           >
             <Text style={styles.backIcon}>‹</Text>
             <Text style={styles.backText}>Back</Text>
           </Pressable>
 
-          {/* Brand */}
           <View style={styles.brandSection}>
-            <View style={styles.logo}>
-              <Text style={styles.logoText}>M</Text>
-            </View>
-
+            <SagawaFlowerLogo width={64} height={64} accessibilityLabel="Sagawa flower logo" />
             <Text style={styles.brandName}>Sagawa</Text>
           </View>
 
-          {/* Header */}
-          <View style={styles.header}>
+          <View style={styles.card}>
             <Text style={styles.title}>Create your account</Text>
+            <Text style={styles.subtitle}>Enter your details once. You can update your profile later.</Text>
 
-            <Text style={styles.subtitle}>
-  A few details and you&apos;ll be ready to get started.
-</Text>
-          </View>
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Name</Text>
+              <TextInput
+                value={name}
+                onChangeText={setName}
+                placeholder="Your name"
+                placeholderTextColor="#98A2B3"
+                autoCapitalize="words"
+                maxLength={100}
+                style={styles.input}
+              />
+            </View>
 
-          {/* Form */}
-          <View style={styles.form}>
-            {/* Email */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Age</Text>
+              <TextInput
+                value={age}
+                onChangeText={(value) => setAge(value.replace(/\D/g, ''))}
+                placeholder="18 or older"
+                placeholderTextColor="#98A2B3"
+                keyboardType="number-pad"
+                maxLength={3}
+                style={styles.input}
+              />
+            </View>
+
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Email</Text>
-
               <TextInput
                 value={email}
                 onChangeText={setEmail}
                 placeholder="you@example.com"
-                placeholderTextColor="#9CA3AF"
+                placeholderTextColor="#98A2B3"
                 keyboardType="email-address"
                 autoCapitalize="none"
                 autoCorrect={false}
@@ -161,61 +164,18 @@ export default function SignupScreen() {
               />
             </View>
 
-            {/* Age */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Age</Text>
-              <TextInput
-                value={age}
-                onChangeText={(value) => setAge(value.replace(/\D/g, ''))}
-                placeholder="Your age"
-                placeholderTextColor="#9CA3AF"
-                keyboardType="number-pad"
-                maxLength={3}
-                style={styles.input}
-              />
-              <Text style={styles.helperText}>You must be 18 or older to create an account.</Text>
-            </View>
-
-            {/* Password */}
             <View style={styles.inputGroup}>
               <View style={styles.passwordHeader}>
                 <Text style={styles.label}>Password</Text>
-
-                <Pressable
-                  onPress={() => setShowPassword(!showPassword)}
-                  hitSlop={8}
-                >
-                  <Text style={styles.showPassword}>
-                    {showPassword ? "Hide" : "Show"}
-                  </Text>
+                <Pressable onPress={() => setShowPassword((value) => !value)} hitSlop={8}>
+                  <Text style={styles.showPassword}>{showPassword ? 'Hide' : 'Show'}</Text>
                 </Pressable>
               </View>
-
               <TextInput
                 value={password}
                 onChangeText={setPassword}
-                placeholder="Create a password"
-                placeholderTextColor="#9CA3AF"
-                secureTextEntry={!showPassword}
-                autoCapitalize="none"
-                autoCorrect={false}
-                style={styles.input}
-              />
-
-              <Text style={styles.helperText}>
-                Use at least 8 characters.
-              </Text>
-            </View>
-
-            {/* Confirm password */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Confirm password</Text>
-
-              <TextInput
-                value={confirmPassword}
-                onChangeText={setConfirmPassword}
-                placeholder="Enter your password again"
-                placeholderTextColor="#9CA3AF"
+                placeholder="Minimum 6 characters"
+                placeholderTextColor="#98A2B3"
                 secureTextEntry={!showPassword}
                 autoCapitalize="none"
                 autoCorrect={false}
@@ -223,80 +183,31 @@ export default function SignupScreen() {
               />
             </View>
 
-            {/* Terms */}
-            <Pressable
-              onPress={() => setAgree(!agree)}
-              style={styles.termsRow}
-            >
-              <View
-                style={[
-                  styles.checkbox,
-                  agree && styles.checkboxActive,
-                ]}
-              >
+            <Pressable onPress={() => setAgree((value) => !value)} style={styles.termsRow}>
+              <View style={[styles.checkbox, agree && styles.checkboxActive]}>
                 {agree && <Text style={styles.checkmark}>✓</Text>}
               </View>
-
               <Text style={styles.termsText}>
-                I agree to the{" "}
-                <Text style={styles.termsLink}>Terms</Text>
-                {" "}and{" "}
+                I agree to the <Text style={styles.termsLink}>Terms</Text> and{' '}
                 <Text style={styles.termsLink}>Privacy Policy</Text>.
               </Text>
             </Pressable>
 
-            {/* Create account */}
             <Pressable
-              onPress={handleSignup}
+              onPress={() => void handleSignup()}
               disabled={submitting}
-              style={({ pressed }) => [
-                styles.signupButton,
-                pressed && styles.buttonPressed,
-              ]}
+              style={({ pressed }) => [styles.signupButton, pressed && styles.buttonPressed, submitting && styles.disabled]}
             >
-              <Text style={styles.signupButtonText}>
-                {submitting ? 'Creating account...' : 'Create account'}
-              </Text>
+              <Text style={styles.signupButtonText}>{submitting ? 'Creating account...' : 'Create account'}</Text>
             </Pressable>
+
+            <View style={styles.loginRow}>
+              <Text style={styles.loginText}>Already have an account?</Text>
+              <Pressable onPress={() => router.replace('/login')} hitSlop={8}>
+                <Text style={styles.loginLink}> Log in</Text>
+              </Pressable>
+            </View>
           </View>
-
-          {/* Divider */}
-          <View style={styles.dividerRow}>
-            <View style={styles.divider} />
-
-            <Text style={styles.dividerText}>or continue with</Text>
-
-            <View style={styles.divider} />
-          </View>
-
-          {/* Social buttons */}
-          <View style={styles.socialRow}>
-            <Pressable
-              style={({ pressed }) => [styles.socialButton, pressed && styles.socialPressed]}
-            >
-              <Text style={styles.googleIcon}>G</Text>
-              <Text style={styles.socialText}>Google</Text>
-            </Pressable>
-          </View>
-
-          {/* Login */}
-          <View style={styles.loginRow}>
-            <Text style={styles.loginText}>
-              Already have an account?
-            </Text>
-
-            <Pressable
-              onPress={() => router.replace("/login")}
-              hitSlop={8}
-            >
-              <Text style={styles.loginLink}> Log in</Text>
-            </Pressable>
-          </View>
-
-          {/* Footer */}
-          <Text style={styles.footer}>
-            Your information is kept private and secure.
-          </Text>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -304,322 +215,87 @@ export default function SignupScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: "#F8FBFF",
-  },
-
-  keyboardView: {
-    flex: 1,
-  },
-
-  container: {
-    flexGrow: 1,
-    paddingHorizontal: 24,
-    paddingTop: 18,
-    paddingBottom: 28,
-  },
-
-  /* Back */
-
+  safeArea: { flex: 1, backgroundColor: '#F4F9FF' },
+  keyboardView: { flex: 1 },
+  container: { flexGrow: 1, justifyContent: 'center', paddingHorizontal: 22, paddingVertical: 18 },
   backButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    alignSelf: "flex-start",
+    position: 'absolute',
+    top: 14,
+    left: 20,
+    zIndex: 2,
     minHeight: 44,
-    marginBottom: 26,
-    paddingVertical: 6,
-    paddingRight: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
-
-  backPressed: {
-    opacity: 0.55,
-  },
-
-  backIcon: {
-    fontSize: 28,
-    lineHeight: 28,
-    color: "#344054",
-    marginRight: 4,
-  },
-
-  backText: {
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: "600",
-    color: "#475467",
-  },
-
-  /* Brand */
-
-  brandSection: {
-    alignItems: "center",
-    marginBottom: 34,
-  },
-
-  logo: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    backgroundColor: "#4AA8FF",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 10,
-  },
-
-  logoText: {
-    color: "#FFFFFF",
-    fontSize: 22,
-    lineHeight: 28,
-    fontWeight: ANDROID_EXTRA_BOLD,
-  },
-
-  brandName: {
-    fontSize: 16,
-    lineHeight: 20,
-    fontWeight: "700",
-    color: "#172033",
-    letterSpacing: -0.3,
-  },
-
-  /* Header */
-
-  header: {
-    marginBottom: 28,
-  },
-
-  title: {
-    fontSize: 30,
-    lineHeight: 37,
-    fontWeight: ANDROID_EXTRA_BOLD,
-    color: "#101828",
-    letterSpacing: -0.8,
-    marginBottom: 9,
-  },
-
-  subtitle: {
-    fontSize: 15,
-    lineHeight: 23,
-    color: "#667085",
-    maxWidth: 330,
-  },
-
-  /* Form */
-
-  form: {
-    width: "100%",
-  },
-
-  inputGroup: {
-    marginBottom: 18,
-  },
-
-  label: {
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: "600",
-    color: "#344054",
-    marginBottom: 8,
-  },
-
-  input: {
-    height: 52,
+  backIcon: { fontSize: 28, color: '#344054', marginRight: 3 },
+  backText: { fontSize: 14, fontWeight: '600', color: '#475467' },
+  brandSection: { alignItems: 'center', marginBottom: 14, gap: 5 },
+  brandName: { fontSize: 18, fontWeight: '700', color: '#172033' },
+  card: {
+    width: '100%',
+    maxWidth: 520,
+    alignSelf: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 26,
     borderWidth: 1,
-    borderColor: "#D9E2EC",
+    borderColor: '#E2ECF6',
+    padding: 22,
+    shadowColor: '#0B315B',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.08,
+    shadowRadius: 22,
+    elevation: 3,
+  },
+  title: {
+    fontSize: 28,
+    lineHeight: 34,
+    fontWeight: ANDROID_EXTRA_BOLD,
+    color: '#101828',
+    letterSpacing: -0.7,
+  },
+  subtitle: { marginTop: 7, marginBottom: 22, fontSize: 14, lineHeight: 21, color: '#667085' },
+  inputGroup: { marginBottom: 15 },
+  label: { fontSize: 14, lineHeight: 18, fontWeight: '600', color: '#344054', marginBottom: 7 },
+  input: {
+    height: 50,
+    borderWidth: 1,
+    borderColor: '#D9E2EC',
     borderRadius: 14,
-    backgroundColor: "#FFFFFF",
-    paddingHorizontal: 16,
+    backgroundColor: '#FBFDFF',
+    paddingHorizontal: 15,
     fontSize: 16,
-    lineHeight: 20,
-    color: "#101828",
-    ...ANDROID_INPUT_TEXT_FIX,
+    color: '#101828',
   },
-
-  passwordHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-
-  showPassword: {
-    fontSize: 13,
-    lineHeight: 17,
-    fontWeight: "600",
-    color: "#3195F5",
-  },
-
-  helperText: {
-    fontSize: 12,
-    lineHeight: 16,
-    color: "#98A2B3",
-    marginTop: 7,
-  },
-
-  /* Terms */
-
-  termsRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    marginTop: 2,
-    marginBottom: 24,
-  },
-
+  passwordHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  showPassword: { fontSize: 13, fontWeight: '600', color: '#3195F5' },
+  termsRow: { flexDirection: 'row', alignItems: 'flex-start', marginTop: 2, marginBottom: 20 },
   checkbox: {
     width: 20,
     height: 20,
     borderRadius: 6,
     borderWidth: 1.5,
-    borderColor: "#C8D2DC",
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
+    borderColor: '#C8D2DC',
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
     marginRight: 10,
     marginTop: 1,
   },
-
-  checkboxActive: {
-    backgroundColor: "#3195F5",
-    borderColor: "#3195F5",
-  },
-
-  checkmark: {
-    color: "#FFFFFF",
-    fontSize: 13,
-    lineHeight: 16,
-    fontWeight: ANDROID_EXTRA_BOLD,
-  },
-
-  termsText: {
-    flex: 1,
-    fontSize: 12,
-    lineHeight: 19,
-    color: "#667085",
-  },
-
-  termsLink: {
-    color: "#3195F5",
-    fontWeight: "600",
-  },
-
-  /* Button */
-
+  checkboxActive: { backgroundColor: '#3195F5', borderColor: '#3195F5' },
+  checkmark: { color: '#FFFFFF', fontSize: 13, fontWeight: ANDROID_EXTRA_BOLD },
+  termsText: { flex: 1, fontSize: 12, lineHeight: 19, color: '#667085' },
+  termsLink: { color: '#3195F5', fontWeight: '600' },
   signupButton: {
-    height: 54,
-    borderRadius: 14,
-    backgroundColor: "#3195F5",
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#3195F5",
-    shadowOffset: {
-      width: 0,
-      height: 6,
-    },
-    shadowOpacity: 0.18,
-    shadowRadius: 12,
-    elevation: 4,
-  },
-
-  buttonPressed: {
-    opacity: 0.82,
-    transform: [{ scale: 0.985 }],
-  },
-
-  signupButtonText: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    lineHeight: 20,
-    fontWeight: "700",
-  },
-
-  /* Divider */
-
-  dividerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginVertical: 26,
-  },
-
-  divider: {
-    flex: 1,
-    height: 1,
-    backgroundColor: "#E5EAF0",
-  },
-
-  dividerText: {
-    marginHorizontal: 12,
-    fontSize: 12,
-    lineHeight: 16,
-    color: "#98A2B3",
-  },
-
-  /* Social */
-
-  socialRow: {
-    flexDirection: "row",
-    gap: 12,
-  },
-
-  socialButton: {
-    flex: 1,
     height: 52,
-    borderWidth: 1,
-    borderColor: "#D9E2EC",
     borderRadius: 14,
-    backgroundColor: "#FFFFFF",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 9,
+    backgroundColor: '#3195F5',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-
-  socialPressed: {
-    backgroundColor: "#F5F8FB",
-  },
-
-  googleIcon: {
-    fontSize: 17,
-    lineHeight: 20,
-    fontWeight: ANDROID_EXTRA_BOLD,
-    color: "#4285F4",
-  },
-
-  socialText: {
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: "600",
-    color: "#344054",
-  },
-
-  /* Login */
-
-  loginRow: {
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-    marginTop: 28,
-  },
-
-  loginText: {
-    fontSize: 14,
-    lineHeight: 18,
-    color: "#667085",
-  },
-
-  loginLink: {
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: "700",
-    color: "#3195F5",
-  },
-
-  /* Footer */
-
-  footer: {
-    textAlign: "center",
-    fontSize: 11,
-    lineHeight: 17,
-    color: "#98A2B3",
-    marginTop: 24,
-    paddingHorizontal: 20,
-  },
+  signupButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+  buttonPressed: { opacity: 0.84, transform: [{ scale: 0.99 }] },
+  disabled: { opacity: 0.6 },
+  loginRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginTop: 20 },
+  loginText: { fontSize: 14, color: '#667085' },
+  loginLink: { fontSize: 14, fontWeight: '700', color: '#3195F5' },
 });
