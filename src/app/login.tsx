@@ -89,11 +89,11 @@ export default function LoginScreen() {
       const response = await apiRequest<{
         success: boolean;
         data: {
-          accessToken: string;
-          refreshToken: string;
+          authenticated: boolean;
+          verificationRequired: boolean;
+          challengeId: string;
+          identifierHint: string;
           expiresAt: string;
-          profileCompleted: boolean;
-          user: { id: string; email?: string; phoneNumber?: string };
         };
       }>('/api/auth/login', {
         method: 'POST',
@@ -104,46 +104,17 @@ export default function LoginScreen() {
           platform: Platform.OS,
         }),
       });
-      await persistSession(response.data);
-    } catch (error) {
-      Alert.alert('Sign in failed', error instanceof Error ? error.message : 'Unable to sign in.');
-    } finally {
-      setLoggingIn(false);
-    }
-  };
 
-  const requestLoginCode = async () => {
-    if (!identifier.trim()) {
-      Alert.alert(
-        channel === 'email' ? 'Email required' : 'Phone number required',
-        channel === 'email' ? 'Enter your email address.' : 'Enter your phone number.',
-      );
-      return;
-    }
-
-    try {
-      setLoggingIn(true);
-      const response = await apiRequest<{
-        success: boolean;
-        data: { challengeId: string; identifierHint: string; expiresAt: string };
-      }>('/api/auth/login/code/request', {
-        method: 'POST',
-        body: JSON.stringify({
-          identifier: identifier.trim(),
-          channel,
-          country: channel === 'phone' ? 'MY' : undefined,
-        }),
-      });
+      if (!response.data.verificationRequired || !response.data.challengeId) {
+        throw new Error('Unable to start two-step verification.');
+      }
 
       setChallengeId(response.data.challengeId);
       setIdentifierHint(response.data.identifierHint);
       setCode('');
       setStage('verify');
     } catch (error) {
-      Alert.alert(
-        'Unable to send code',
-        error instanceof Error ? error.message : 'Please try again.',
-      );
+      Alert.alert('Sign in failed', error instanceof Error ? error.message : 'Unable to sign in.');
     } finally {
       setLoggingIn(false);
     }
@@ -515,19 +486,6 @@ export default function LoginScreen() {
                     </Text>
                   </Pressable>
 
-                  <Pressable
-                    onPress={() => void requestLoginCode()}
-                    disabled={busy}
-                    style={({ pressed }) => [
-                      styles.codeButton,
-                      pressed && styles.buttonPressed,
-                      busy && styles.disabled,
-                    ]}
-                  >
-                    <Ionicons name="keypad-outline" size={19} color="#245B8E" />
-                    <Text style={styles.codeButtonText}>Log in with verification code</Text>
-                  </Pressable>
-
                   {biometricAvailable && (
                     <Pressable
                       onPress={() => void handleBiometricLogin()}
@@ -547,9 +505,9 @@ export default function LoginScreen() {
                 </>
               ) : (
                 <>
-                  <Text style={styles.title}>Enter verification code</Text>
+                  <Text style={styles.title}>Verify it&apos;s you</Text>
                   <Text style={styles.subtitle}>
-                    We sent a 6-digit code to {identifierHint || 'your account contact'}.
+                    Enter the 6-digit code sent to {identifierHint || 'your verified contact'}.
                   </Text>
 
                   <View style={styles.inputGroup}>
