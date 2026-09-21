@@ -31,7 +31,7 @@ const BADGE_REFRESH_MS = 45_000;
 async function readSeenIds(key: string) {
   try {
     const stored = await AsyncStorage.getItem(key);
-    if (!stored) return new Set<string>();
+    if (stored === null) return null;
     const parsed: unknown = JSON.parse(stored);
     return new Set(
       Array.isArray(parsed)
@@ -108,18 +108,30 @@ export default function TabsLayout() {
       const viewingNews = pathname.endsWith('/news');
       const viewingServices = pathname.endsWith('/services');
 
+      // First run establishes a baseline so old content does not suddenly appear
+      // as dozens of "new" notifications after this feature is installed.
+      const effectiveSeenNews = seenNews ?? new Set(newsIds);
+      const effectiveSeenServices = seenServices ?? new Set(serviceIds);
+
+      if (seenNews === null) {
+        await writeSeenIds(SEEN_NEWS_KEY, newsIds);
+      }
+      if (seenServices === null) {
+        await writeSeenIds(SEEN_SERVICES_KEY, serviceIds);
+      }
+
       if (viewingNews) {
-        await writeSeenIds(SEEN_NEWS_KEY, [...seenNews, ...newsIds]);
+        await writeSeenIds(SEEN_NEWS_KEY, [...effectiveSeenNews, ...newsIds]);
         setNewsBadge(0);
       } else {
-        setNewsBadge(newsIds.filter((id) => !seenNews.has(id)).length);
+        setNewsBadge(newsIds.filter((id) => !effectiveSeenNews.has(id)).length);
       }
 
       if (viewingServices) {
-        await writeSeenIds(SEEN_SERVICES_KEY, [...seenServices, ...serviceIds]);
+        await writeSeenIds(SEEN_SERVICES_KEY, [...effectiveSeenServices, ...serviceIds]);
         setServicesBadge(0);
       } else {
-        setServicesBadge(serviceIds.filter((id) => !seenServices.has(id)).length);
+        setServicesBadge(serviceIds.filter((id) => !effectiveSeenServices.has(id)).length);
       }
     } catch (error) {
       console.warn('Content badge refresh failed:', error);
