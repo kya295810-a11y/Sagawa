@@ -1642,9 +1642,23 @@ app.get('/api/news/:id', async (req, res) => {
       });
     }
 
+    const updatedNews = mapNewsRow(result.rows[0]);
+
+    if (!current.published && updatedNews.published) {
+      void sendContentPush({
+        type: 'news',
+        id: updatedNews.id,
+        title: updatedNews.title,
+      }).then((delivery) => {
+        console.log('[Push] News notification sent:', delivery);
+      }).catch((pushError) => {
+        console.error('[Push] News notification failed:', pushError.message);
+      });
+    }
+
     res.json({
       success: true,
-      data: mapNewsRow(result.rows[0]),
+      data: updatedNews,
     });
   } catch (error) {
     console.error('[News] GET by id failed:', error.message);
@@ -2056,6 +2070,20 @@ app.put('/api/services/:id', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Service title is required.' });
     }
 
+    const existing = await db.query(
+      'SELECT published FROM services WHERE id = $1',
+      [id],
+    );
+
+    if (existing.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Service not found.',
+      });
+    }
+
+    const wasPublished = Boolean(existing.rows[0].published);
+
     const result = await db.query(
       `UPDATE services
          SET title = COALESCE($1, title),
@@ -2109,9 +2137,23 @@ app.put('/api/services/:id', async (req, res) => {
       });
     }
 
+    const updatedService = result.rows[0];
+
+    if (!wasPublished && updatedService.published) {
+      void sendContentPush({
+        type: 'service',
+        id: updatedService.id,
+        title: updatedService.title,
+      }).then((delivery) => {
+        console.log('[Push] Service notification sent:', delivery);
+      }).catch((pushError) => {
+        console.error('[Push] Service notification failed:', pushError.message);
+      });
+    }
+
     res.json({
       success: true,
-      data: result.rows[0],
+      data: updatedService,
     });
   } catch (error) {
     console.error('[Services] PUT failed:', error.message);
