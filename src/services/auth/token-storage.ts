@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 
 import { AuthTokens } from '@/features/auth/types';
@@ -5,6 +6,14 @@ import { registerAccessTokenProvider } from '@/services/api/client';
 
 const ACCESS_TOKEN_KEY = 'auth.accessToken';
 const REFRESH_TOKEN_KEY = 'auth.refreshToken';
+const BIOMETRIC_TOKEN_KEY = 'auth.biometricCredential';
+const BIOMETRIC_ENABLED_KEY = 'auth.biometricEnabled';
+
+const biometricSecureOptions: SecureStore.SecureStoreOptions = {
+  requireAuthentication: true,
+  authenticationPrompt: 'Unlock Sagawa',
+  keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+};
 
 export async function getStoredTokens(): Promise<AuthTokens | null> {
   const [accessToken, refreshToken] = await Promise.all([
@@ -41,4 +50,24 @@ export function initializeTokenStorage() {
     const tokens = await getStoredTokens();
     return tokens?.accessToken ?? null;
   });
+}
+
+
+export async function hasBiometricCredential() {
+  return (await AsyncStorage.getItem(BIOMETRIC_ENABLED_KEY)) === '1';
+}
+
+export async function saveBiometricCredential(credential: string) {
+  await SecureStore.setItemAsync(BIOMETRIC_TOKEN_KEY, credential, biometricSecureOptions);
+  await AsyncStorage.setItem(BIOMETRIC_ENABLED_KEY, '1');
+}
+
+export async function getBiometricCredential() {
+  if (!(await hasBiometricCredential())) return null;
+  return SecureStore.getItemAsync(BIOMETRIC_TOKEN_KEY, biometricSecureOptions);
+}
+
+export async function clearBiometricCredential() {
+  await SecureStore.deleteItemAsync(BIOMETRIC_TOKEN_KEY);
+  await AsyncStorage.removeItem(BIOMETRIC_ENABLED_KEY);
 }
