@@ -57,8 +57,6 @@ export default function ExchangeScreen() {
 
   const loadExchangeRate = useCallback(async () => {
     try {
-      setRefreshing(true);
-
       const payload = await apiRequest<ExchangeResponse>('/api/exchange-rate');
 
       const directRate = Number(payload.data?.rate);
@@ -79,10 +77,17 @@ export default function ExchangeScreen() {
       setUpdatedAt(payload.data?.updatedAt ?? null);
     } catch (error) {
       console.error('Exchange API error:', error);
+    }
+  }, []);
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await loadExchangeRate();
     } finally {
       setRefreshing(false);
     }
-  }, []);
+  }, [loadExchangeRate]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -342,7 +347,7 @@ export default function ExchangeScreen() {
                 </View>
 
                 <Pressable
-                  onPress={loadExchangeRate}
+                  onPress={handleRefresh}
                   hitSlop={8}
                   style={({ pressed }) => [
                     styles.refreshButton,
