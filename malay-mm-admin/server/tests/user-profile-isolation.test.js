@@ -88,15 +88,9 @@ test.after(async () => {
 });
 
 test('profiles remain isolated and server ignores client-supplied user IDs', async () => {
-  const register = async (email) => {
-    const result = await request('/api/auth/register', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password: 'ValidPass123!' }),
-    });
-    assert.equal(result.response.status, 201);
-    return result.body.data;
-  };
+  const { registerUser } = require('../user-auth');
+  const register = async (email) =>
+    registerUser(email, 'ValidPass123!', 30, email.split('@')[0]);
 
   const alice = await register('alice.integration@example.com');
   const bob = await register('bob.integration@example.com');
@@ -203,7 +197,12 @@ test('profiles remain isolated and server ignores client-supplied user IDs', asy
   const duplicate = await request('/api/auth/register', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email: 'ALICE.integration@example.com', password: 'ValidPass123!' }),
+    body: JSON.stringify({
+      name: 'Duplicate Alice',
+      age: 30,
+      email: 'ALICE.integration@example.com',
+      password: 'ValidPass123!',
+    }),
   });
   assert.equal(duplicate.response.status, 409);
 
@@ -225,18 +224,13 @@ test('profiles remain isolated and server ignores client-supplied user IDs', asy
 });
 
 test('mobile password reset codes are expiring, one-time, and revoke existing sessions', async () => {
-  const { requestMobilePasswordReset, resetMobilePassword } = require('../user-auth');
+  const { registerUser, requestMobilePasswordReset, resetMobilePassword } = require('../user-auth');
   // A mobile account may intentionally use the same email as the separate admin account.
   const email = String(process.env.ADMIN_EMAIL).trim().toLowerCase();
   const originalPassword = 'OriginalPass123!';
   const nextPassword = 'UpdatedPass456!';
 
-  const register = await request('/api/auth/register', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password: originalPassword, accountType: 'mobile' }),
-  });
-  assert.equal(register.response.status, 201);
+  await registerUser(email, originalPassword, 30, 'Admin Mobile Test');
 
   const reset = await requestMobilePasswordReset(email);
   assert.match(reset.code, /^\d{6}$/);

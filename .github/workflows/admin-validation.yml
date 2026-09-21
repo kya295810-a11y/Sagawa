@@ -4,12 +4,22 @@ on:
   pull_request:
     paths:
       - 'malay-mm-admin/**'
+      - 'src/**'
+      - 'assets/**'
+      - 'app.json'
+      - 'package.json'
+      - 'package-lock.json'
       - '.github/workflows/admin-validation.yml'
   push:
     branches:
       - main
     paths:
       - 'malay-mm-admin/**'
+      - 'src/**'
+      - 'assets/**'
+      - 'app.json'
+      - 'package.json'
+      - 'package-lock.json'
       - '.github/workflows/admin-validation.yml'
 
 permissions:
@@ -85,3 +95,22 @@ jobs:
         run: echo "ADMIN_PASSWORD_HASH=$(node -e "console.log(require('bcryptjs').hashSync('AdminPass123!', 12))")" >> "$GITHUB_ENV"
       - name: Tests
         run: npm test
+
+
+  mobile-app:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint

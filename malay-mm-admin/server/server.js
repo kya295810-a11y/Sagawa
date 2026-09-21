@@ -63,6 +63,13 @@ const {
 } = require('./user-auth');
 const { isEmailConfigured, sendVerificationCode, sendPasswordResetCode } = require('./email');
 const {
+  authCapabilities,
+  requestLoginVerification,
+  requestSignupVerification,
+  verifyLogin: verifyLoginCode,
+  verifySignup: verifySignupCode,
+} = require('./auth-otp');
+const {
   authenticateGoogleCallback,
   createGoogleAuthorizationUrl,
   createNativeGoogleConfig,
@@ -558,9 +565,53 @@ app.use(
   }),
 );
 
-app.post('/api/auth/register', async (req, res) => {
+app.get('/api/auth/capabilities', (_req, res) => {
+  return res.json({ success: true, data: authCapabilities() });
+});
+
+app.post('/api/auth/register', resendLimiter, async (req, res) => {
   try {
-    const result = await registerUser(req.body?.email, req.body?.password, req.body?.age, req.body?.name);
+    const challenge = await requestSignupVerification({
+      nameValue: req.body?.name,
+      ageValue: req.body?.age,
+      identifierValue: req.body?.identifier ?? req.body?.email ?? req.body?.phone,
+      channelValue: req.body?.channel || (req.body?.phone ? 'phone' : 'email'),
+      country: req.body?.country,
+      password: req.body?.password,
+    });
+
+    return res.status(202).json({
+      success: true,
+      data: { ...challenge, verificationRequired: true },
+      message: 'Verification code sent.',
+    });
+  } catch (error) {
+    const status = Number(error.statusCode) || 500;
+    if (status >= 500) console.error('[Auth] Mobile registration request failed:', error.message);
+    if (error.retryAfter) res.setHeader('Retry-After', String(error.retryAfter));
+    return res.status(status).json({
+      success: false,
+      message: status >= 500 ? 'Unable to start account verification.' : error.message,
+    });
+  }
+});
+
+app.post('/api/auth/register/verify', async (req, res) => {
+  try {
+    const result = await verifySignupCode(
+      String(req.body?.challengeId || '').trim(),
+      String(req.body?.code || '').trim(),
+    );
+    if (!result || result.error) {
+      const tooMany = result?.error === 'too_many_attempts';
+      return res.status(tooMany ? 429 : 401).json({
+        success: false,
+        message: tooMany
+          ? 'Too many incorrect attempts. Request a new code.'
+          : 'The verification code is invalid or expired.',
+      });
+    }
+
     scheduleUserSheetSync(result.user.id, { platform: req.body?.platform || 'Mobile' });
     return res.status(201).json({
       success: true,
@@ -568,10 +619,64 @@ app.post('/api/auth/register', async (req, res) => {
     });
   } catch (error) {
     const status = Number(error.statusCode) || 500;
-    if (status >= 500) console.error('[Auth] Mobile registration failed:', error.message);
+    if (status >= 500) console.error('[Auth] Mobile registration verification failed:', error.message);
     return res.status(status).json({
       success: false,
-      message: status >= 500 ? 'Unable to create account.' : error.message,
+      message: status >= 500 ? 'Unable to verify account.' : error.message,
+    });
+  }
+});
+
+app.post('/api/auth/login/code/request', resendLimiter, async (req, res) => {
+  try {
+    const challenge = await requestLoginVerification({
+      identifierValue: req.body?.identifier ?? req.body?.email ?? req.body?.phone,
+      channelValue: req.body?.channel || (req.body?.phone ? 'phone' : 'email'),
+      country: req.body?.country,
+    });
+    return res.status(202).json({
+      success: true,
+      data: { ...challenge, verificationRequired: true },
+      message: 'Verification code sent.',
+    });
+  } catch (error) {
+    const status = Number(error.statusCode) || 500;
+    if (status >= 500) console.error('[Auth] Login code request failed:', error.message);
+    if (error.retryAfter) res.setHeader('Retry-After', String(error.retryAfter));
+    return res.status(status).json({
+      success: false,
+      message: status >= 500 ? 'Unable to send login code.' : error.message,
+    });
+  }
+});
+
+app.post('/api/auth/login/code/verify', async (req, res) => {
+  try {
+    const result = await verifyLoginCode(
+      String(req.body?.challengeId || '').trim(),
+      String(req.body?.code || '').trim(),
+    );
+    if (!result || result.error) {
+      const tooMany = result?.error === 'too_many_attempts';
+      return res.status(tooMany ? 429 : 401).json({
+        success: false,
+        message: tooMany
+          ? 'Too many incorrect attempts. Request a new code.'
+          : 'The verification code is invalid or expired.',
+      });
+    }
+
+    scheduleUserSheetSync(result.user.id, { platform: req.body?.platform || 'Mobile' });
+    return res.json({
+      success: true,
+      data: { ...result, authenticated: true },
+    });
+  } catch (error) {
+    const status = Number(error.statusCode) || 500;
+    if (status >= 500) console.error('[Auth] Login code verification failed:', error.message);
+    return res.status(status).json({
+      success: false,
+      message: status >= 500 ? 'Unable to verify login code.' : error.message,
     });
   }
 });
@@ -762,21 +867,22 @@ app.post('/api/auth/google/exchange', async (req, res) => {
 
 app.post('/api/auth/login', async (req, res) => {
   const email = String(req.body?.email || '').trim();
+  const identifier = String(req.body?.identifier || req.body?.email || req.body?.phone || '').trim();
   const password = req.body?.password;
   const isMobileRequest = req.body?.accountType === 'mobile';
 
-  if (!email || typeof password !== 'string' || !password) {
+  if ((!isMobileRequest && !email) || (isMobileRequest && !identifier) || typeof password !== 'string' || !password) {
     return res.status(400).json({
       success: false,
-      message: 'Email and password are required.',
+      message: isMobileRequest ? 'Email or phone number and password are required.' : 'Email and password are required.',
     });
   }
 
   try {
     if (isMobileRequest || normalizeEmail(email) !== ADMIN_EMAIL) {
-      const mobileSession = await loginUser(email, password);
+      const mobileSession = await loginUser(identifier, password);
       if (!mobileSession) {
-        return res.status(401).json({ success: false, message: 'Invalid email or password.' });
+        return res.status(401).json({ success: false, message: 'Invalid email/phone number or password.' });
       }
       const profileResult = await db.query(
         'SELECT profile_completed FROM profiles WHERE user_id = $1',

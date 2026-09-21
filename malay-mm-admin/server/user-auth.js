@@ -47,7 +47,11 @@ function passwordResetHash(email, code) {
 }
 
 function publicUser(row) {
-  return { id: row.id, email: row.email };
+  return {
+    id: row.id,
+    ...(row.email ? { email: row.email } : {}),
+    ...(row.phone_number ? { phoneNumber: row.phone_number } : {}),
+  };
 }
 
 async function getProfileCompleted(client, userId) {
@@ -193,7 +197,7 @@ async function consumeOAuthHandoff(code) {
     }
 
     const userResult = await client.query(
-      'SELECT id, email FROM users WHERE id = $1',
+      'SELECT id, email, phone_number FROM users WHERE id = $1',
       [row.user_id],
     );
     const user = userResult.rows[0];
@@ -224,7 +228,7 @@ async function createMobileSessionForUser(userId) {
   try {
     await client.query('BEGIN');
     const userResult = await client.query(
-      'SELECT id, email FROM users WHERE id = $1',
+      'SELECT id, email, phone_number FROM users WHERE id = $1',
       [userId],
     );
     const user = userResult.rows[0];
@@ -423,11 +427,26 @@ async function revokeBiometricCredential(userId, platformValue) {
   );
 }
 
-async function loginUser(emailValue, password) {
-  const email = normalizeEmail(emailValue);
-  const result = validateEmail(email)
-    ? await db.query('SELECT id, email, password_hash FROM users WHERE lower(email) = $1', [email])
-    : { rows: [] };
+async function loginUser(identifierValue, password) {
+  const rawIdentifier = String(identifierValue || '').trim();
+  const email = normalizeEmail(rawIdentifier);
+  const compactPhone = rawIdentifier.replace(/[\s().-]/g, '').replace(/^00/, '+');
+  const localMy = /^01\d{8,9}$/.test(compactPhone) ? `+60${compactPhone.slice(1)}` : compactPhone;
+  const phone = /^09\d{7,9}$/.test(localMy) ? `+95${localMy.slice(1)}` : localMy;
+
+  let result = { rows: [] };
+  if (validateEmail(email)) {
+    result = await db.query(
+      'SELECT id, email, phone_number, password_hash FROM users WHERE lower(email) = $1',
+      [email],
+    );
+  } else if (/^\+601\d{8,9}$/.test(phone) || /^\+959\d{7,9}$/.test(phone)) {
+    result = await db.query(
+      'SELECT id, email, phone_number, password_hash FROM users WHERE phone_number = $1',
+      [phone],
+    );
+  }
+
   const row = result.rows[0];
   const passwordMatches = await bcrypt.compare(
     typeof password === 'string' ? password : '',
@@ -565,7 +584,7 @@ async function getMobileSession(req) {
   const token = readBearerToken(req);
   if (!token) return null;
   const result = await db.query(
-    `SELECT s.id AS session_id, s.user_id, s.access_expires_at, u.email
+    `SELECT s.id AS session_id, s.user_id, s.access_expires_at, u.email, u.phone_number
        FROM user_sessions s
        JOIN users u ON u.id = s.user_id
       WHERE s.access_token_hash = $1
@@ -582,7 +601,12 @@ async function requireMobileUser(req, res, next) {
     if (!session) {
       return res.status(401).json({ success: false, message: 'Authentication required.' });
     }
-    req.mobileUser = { id: session.user_id, email: session.email, sessionId: session.session_id };
+    req.mobileUser = {
+      id: session.user_id,
+      email: session.email || null,
+      phoneNumber: session.phone_number || null,
+      sessionId: session.session_id,
+    };
     return next();
   } catch (error) {
     return next(error);
@@ -595,7 +619,7 @@ async function refreshMobileSession(refreshToken) {
   try {
     await client.query('BEGIN');
     const result = await client.query(
-      `SELECT s.id, s.user_id, u.email
+      `SELECT s.id, s.user_id, u.email, u.phone_number
          FROM user_sessions s
          JOIN users u ON u.id = s.user_id
         WHERE s.refresh_token_hash = $1
@@ -611,7 +635,7 @@ async function refreshMobileSession(refreshToken) {
     await client.query('DELETE FROM user_sessions WHERE id = $1', [row.id]);
     const session = await createUserSession(client, row.user_id);
     await client.query('COMMIT');
-    return { user: publicUser({ id: row.user_id, email: row.email }), ...session };
+    return { user: publicUser({ id: row.user_id, email: row.email, phone_number: row.phone_number }), ...session };
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;
