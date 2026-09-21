@@ -180,6 +180,33 @@ async function requestSignupVerification({ nameValue, ageValue, identifierValue,
   });
 }
 
+async function requestPasswordLoginVerification(user) {
+  const email = String(user?.email || '').trim().toLowerCase();
+  const phone = String(user?.phoneNumber || '').trim();
+
+  if (email && user?.emailVerified) {
+    return createChallenge({
+      purpose: 'login',
+      channel: 'email',
+      identifier: email,
+      payload: { userId: user.id },
+    });
+  }
+
+  if (phone && user?.phoneVerified) {
+    return createChallenge({
+      purpose: 'login',
+      channel: 'phone',
+      identifier: phone,
+      payload: { userId: user.id },
+    });
+  }
+
+  const error = new Error('This account does not have a verified email or phone number.');
+  error.statusCode = 403;
+  throw error;
+}
+
 async function requestLoginVerification({ identifierValue, channelValue, country }) {
   const normalized = normalizeIdentifier(identifierValue, channelValue, country);
   if (!normalized) {
@@ -367,6 +394,7 @@ module.exports = {
   normalizeIdentifier,
   normalizePhone,
   requestLoginVerification,
+  requestPasswordLoginVerification,
   requestSignupVerification,
   verifyLogin,
   verifySignup,
