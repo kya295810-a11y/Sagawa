@@ -431,8 +431,9 @@ async function loginUser(identifierValue, password) {
   const rawIdentifier = String(identifierValue || '').trim();
   const email = normalizeEmail(rawIdentifier);
   const compactPhone = rawIdentifier.replace(/[\s().-]/g, '').replace(/^00/, '+');
-  const localMy = /^01\d{8,9}$/.test(compactPhone) ? `+60${compactPhone.slice(1)}` : compactPhone;
-  const phone = /^09\d{7,9}$/.test(localMy) ? `+95${localMy.slice(1)}` : localMy;
+  const phone = /^01\d{8,9}$/.test(compactPhone)
+    ? `+60${compactPhone.slice(1)}`
+    : compactPhone;
 
   let result = { rows: [] };
   if (validateEmail(email)) {
@@ -440,7 +441,7 @@ async function loginUser(identifierValue, password) {
       'SELECT id, email, phone_number, password_hash FROM users WHERE lower(email) = $1',
       [email],
     );
-  } else if (/^\+601\d{8,9}$/.test(phone) || /^\+959\d{7,9}$/.test(phone)) {
+  } else if (/^\+601\d{8,9}$/.test(phone)) {
     result = await db.query(
       'SELECT id, email, phone_number, password_hash FROM users WHERE phone_number = $1',
       [phone],
