@@ -70,6 +70,9 @@ async function sendExpoBatch(messages) {
         Accept: 'application/json',
         'Accept-Encoding': 'gzip, deflate',
         'Content-Type': 'application/json',
+        ...(process.env.EXPO_ACCESS_TOKEN
+          ? { Authorization: `Bearer ${process.env.EXPO_ACCESS_TOKEN}` }
+          : {}),
       },
       body: JSON.stringify(messages),
       signal: controller.signal,
