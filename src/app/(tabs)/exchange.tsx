@@ -121,7 +121,7 @@ export default function ExchangeScreen() {
         ? 340
         : 360;
 
-  const heroHeight = baseHeroHeight;
+  const heroHeight = baseHeroHeight + (providerRates.length > 1 ? 72 : providerRates.length === 1 ? 8 : 0);
 
   /*
    * ============================================================
@@ -1451,45 +1451,45 @@ const createStyles = (colors: {
     },
 
     providerCards: {
-      flexDirection: 'row',
-      gap: 7,
+      flexDirection: 'column',
+      gap: 8,
     },
 
     providerCard: {
+      width: '100%',
+      height: 64,
       minWidth: 0,
-      minHeight: 58,
-      flex: 1,
 
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 8,
+      gap: 10,
 
-      paddingHorizontal: 8,
-      paddingVertical: 7,
+      paddingHorizontal: 10,
+      paddingVertical: 8,
 
       borderWidth: 1,
-      borderColor: 'rgba(152,195,239,0.20)',
+      borderColor: 'rgba(152,195,239,0.24)',
       borderRadius: 14,
 
-      backgroundColor: 'rgba(38,64,91,0.82)',
+      backgroundColor: 'rgba(38,64,91,0.84)',
     },
 
     providerLogo: {
-      width: 42,
-      height: 42,
+      width: 48,
+      height: 48,
 
-      borderRadius: 11,
+      borderRadius: 12,
       backgroundColor: '#FFFFFF',
     },
 
     providerLogoFallback: {
-      width: 42,
-      height: 42,
+      width: 48,
+      height: 48,
 
       alignItems: 'center',
       justifyContent: 'center',
 
-      borderRadius: 21,
+      borderRadius: 24,
       backgroundColor: '#08131F',
     },
 
@@ -1509,16 +1509,16 @@ const createStyles = (colors: {
     providerName: {
       color: '#FFFFFF',
 
-      fontSize: 10,
-      lineHeight: 13,
+      fontSize: 11,
+      lineHeight: 14,
       fontWeight: ANDROID_EXTRA_BOLD,
     },
 
     providerRate: {
       color: '#83B9FF',
 
-      fontSize: 12,
-      lineHeight: 16,
+      fontSize: 13,
+      lineHeight: 17,
       fontWeight: ANDROID_BLACK,
       fontVariant: ['tabular-nums'],
     },
