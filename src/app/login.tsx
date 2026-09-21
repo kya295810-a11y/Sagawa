@@ -1,5 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   ImageBackground,
@@ -27,7 +27,6 @@ import {
 import { useAuthStore } from '@/store/auth-store';
 
 type Channel = 'email' | 'phone';
-type Country = 'MY' | 'MM';
 
 const LOGIN_BACKGROUND = require('../../assets/images/login-bg.jpg');
 const ANDROID_EXTRA_BOLD = Platform.OS === 'android' ? '700' : '800';
@@ -35,7 +34,6 @@ const ANDROID_EXTRA_BOLD = Platform.OS === 'android' ? '700' : '800';
 export default function LoginScreen() {
   const [stage, setStage] = useState<'login' | 'verify'>('login');
   const [channel, setChannel] = useState<Channel>('email');
-  const [country, setCountry] = useState<Country>('MY');
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
@@ -48,8 +46,6 @@ export default function LoginScreen() {
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [biometricLoggingIn, setBiometricLoggingIn] = useState(false);
   const passwordInputRef = useRef<TextInput>(null);
-
-  const countryPrefix = useMemo(() => (country === 'MY' ? '+60' : '+95'), [country]);
 
   useEffect(() => {
     let active = true;
@@ -135,7 +131,7 @@ export default function LoginScreen() {
         body: JSON.stringify({
           identifier: identifier.trim(),
           channel,
-          country: channel === 'phone' ? country : undefined,
+          country: channel === 'phone' ? 'MY' : undefined,
         }),
       });
 
@@ -455,19 +451,8 @@ export default function LoginScreen() {
                   </View>
 
                   {channel === 'phone' && (
-                    <View style={styles.countryRow}>
-                      <Pressable
-                        onPress={() => setCountry('MY')}
-                        style={[styles.countryButton, country === 'MY' && styles.countryButtonActive]}
-                      >
-                        <Text style={styles.countryText}>🇲🇾 +60</Text>
-                      </Pressable>
-                      <Pressable
-                        onPress={() => setCountry('MM')}
-                        style={[styles.countryButton, country === 'MM' && styles.countryButtonActive]}
-                      >
-                        <Text style={styles.countryText}>🇲🇲 +95</Text>
-                      </Pressable>
+                    <View style={styles.countrySingle}>
+                      <Text style={styles.countryText}>🇲🇾 +60 Malaysia</Text>
                     </View>
                   )}
 
@@ -476,7 +461,7 @@ export default function LoginScreen() {
                     <TextInput
                       value={identifier}
                       onChangeText={setIdentifier}
-                      placeholder={channel === 'email' ? 'you@example.com' : countryPrefix + ' or local number'}
+                      placeholder={channel === 'email' ? 'you@example.com' : '+60 or local number'}
                       placeholderTextColor="#98A2B3"
                       keyboardType={channel === 'email' ? 'email-address' : 'phone-pad'}
                       autoCapitalize="none"
@@ -707,18 +692,16 @@ const styles = StyleSheet.create({
   segmentButtonActive: { backgroundColor: '#FFFFFF' },
   segmentText: { color: '#667085', fontWeight: '600' },
   segmentTextActive: { color: '#1677D2' },
-  countryRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
-  countryButton: {
-    flex: 1,
+  countrySingle: {
     minHeight: 42,
     borderWidth: 1,
-    borderColor: '#D9E2EC',
+    borderColor: '#3195F5',
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#FBFDFF',
+    backgroundColor: '#EEF7FF',
+    marginBottom: 12,
   },
-  countryButtonActive: { borderColor: '#3195F5', backgroundColor: '#EEF7FF' },
   countryText: { color: '#344054', fontSize: 13, fontWeight: '600' },
   inputGroup: { marginBottom: 13 },
   label: { color: '#344054', fontSize: 14, fontWeight: '600', marginBottom: 7 },
