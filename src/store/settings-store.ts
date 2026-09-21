@@ -1,5 +1,4 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Appearance } from 'react-native';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 
@@ -18,8 +17,6 @@ type SettingsState = {
   setThemePreference: (value: ThemePreference) => void;
 };
 
-const systemTheme = Appearance.getColorScheme();
-
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set, _get, store) => ({
@@ -33,7 +30,8 @@ export const useSettingsStore = create<SettingsState>()(
       setLanguagePreference: (languagePreference) => set({ languagePreference }),
       setPrefersReducedMotion: (prefersReducedMotion) => set({ prefersReducedMotion }),
       setThemePreference: (themePreference) => set({ themePreference }),
-      themePreference: systemTheme === 'dark' ? 'dark' : 'system',
+      // New installs always start in light mode. Existing users keep their persisted choice.
+      themePreference: 'light',
     }),
     {
       name: 'app.settings',
