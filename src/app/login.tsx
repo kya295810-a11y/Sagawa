@@ -205,8 +205,10 @@ export default function LoginScreen() {
     const {
       GoogleOneTapSignIn,
       isCancelledResponse,
+      isErrorWithCode,
       isNoSavedCredentialFoundResponse,
       isSuccessResponse,
+      statusCodes,
     } = await import('react-native-nitro-google-signin');
 
     GoogleOneTapSignIn.configure({
@@ -215,12 +217,33 @@ export default function LoginScreen() {
       autoSelectOnSignIn: false,
     });
 
-    await GoogleOneTapSignIn.checkPlayServices();
+    let googleResponse;
+    try {
+      await GoogleOneTapSignIn.checkPlayServices();
 
-    let googleResponse = await GoogleOneTapSignIn.createAccount();
-    if (isNoSavedCredentialFoundResponse(googleResponse)) {
-      googleResponse = await GoogleOneTapSignIn.presentExplicitSignIn();
+      googleResponse = await GoogleOneTapSignIn.signIn();
+      if (isNoSavedCredentialFoundResponse(googleResponse)) {
+        googleResponse = await GoogleOneTapSignIn.createAccount();
+      }
+      if (isNoSavedCredentialFoundResponse(googleResponse)) {
+        googleResponse = await GoogleOneTapSignIn.presentExplicitSignIn();
+      }
+    } catch (error) {
+      if (isErrorWithCode(error)) {
+        if (error.code === statusCodes.DEVELOPER_ERROR) {
+          throw new Error(
+            'Google Sign-In is not configured for this Android build. Register the app package and signing SHA-1 in Google Cloud, then rebuild the app.',
+          );
+        }
+        if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+          throw new Error('Google Play Services is missing or needs to be updated.');
+        }
+        if (error.code === statusCodes.SIGN_IN_CANCELLED) return;
+      }
+      throw error;
     }
+
+    if (!googleResponse) return;
     if (isCancelledResponse(googleResponse)) return;
     if (!isSuccessResponse(googleResponse) || !googleResponse.data.idToken) {
       throw new Error('Google account selection did not complete.');

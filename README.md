@@ -43,6 +43,19 @@ npm run format
 npm run format:check
 ```
 
+## Android Google sign-in
+
+Google sign-in requires a Web OAuth client for the backend and an Android OAuth client in the same Google Cloud project for every signing certificate used to build the app. The mobile app receives the Web client ID from the backend and passes it to the native sign-in SDK.
+
+For local Android development, create an Android OAuth client in Google Cloud with:
+
+- Package name: `com.kyawsanlin.sagawa`
+- SHA-1: `5E:8F:16:06:2E:A3:CD:2C:4A:0D:54:78:76:BA:A6:F3:8C:AB:F6:25`
+
+After adding the Android client, allow several minutes for Google to propagate the change and try again. Release and Play App Signing certificates have different SHA-1 fingerprints and must be registered separately.
+
+Set the backend's `GOOGLE_ANDROID_CLIENT_IDS` to the comma-separated Android OAuth client IDs that may request tokens for its Web client. The server validates both the token audience and this authorized-party allowlist.
+
 ## Project structure
 
 ```text

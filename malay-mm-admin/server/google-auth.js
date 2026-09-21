@@ -204,6 +204,24 @@ function audienceMatches(aud, clientId) {
   return aud === clientId;
 }
 
+function parseClientIdList(value) {
+  return String(value || '')
+    .split(',')
+    .map((clientId) => clientId.trim())
+    .filter(Boolean);
+}
+
+function authorizedPartyMatches(authorizedParty, webClientId) {
+  if (authorizedParty == null || authorizedParty === '') return true;
+  if (typeof authorizedParty !== 'string') return false;
+
+  const allowedClientIds = new Set([
+    webClientId,
+    ...parseClientIdList(process.env.GOOGLE_ANDROID_CLIENT_IDS),
+  ]);
+  return allowedClientIds.has(authorizedParty);
+}
+
 async function verifyGoogleIdToken(idToken, expectedNonce) {
   if (typeof idToken !== 'string' || idToken.length > 20_000) {
     throw authError('Invalid Google identity token.', 401, 'invalid_google_token');
@@ -255,7 +273,7 @@ async function verifyGoogleIdToken(idToken, expectedNonce) {
   if (!audienceMatches(payload.aud, config.clientId)) {
     throw authError('Google identity token was issued for another application.', 401, 'invalid_google_token');
   }
-  if (payload.azp && payload.azp !== config.clientId) {
+  if (!authorizedPartyMatches(payload.azp, config.clientId)) {
     throw authError('Google identity token was issued for another application.', 401, 'invalid_google_token');
   }
   if (!Number.isFinite(payload.exp) || payload.exp < now - CLOCK_SKEW_SECONDS) {
@@ -336,4 +354,8 @@ module.exports = {
   getGoogleAppRedirectUri,
   isGoogleAuthConfigured,
   verifyGoogleIdToken,
+  __test: {
+    authorizedPartyMatches,
+    parseClientIdList,
+  },
 };
