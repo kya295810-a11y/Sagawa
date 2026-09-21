@@ -658,7 +658,7 @@ export default function LoginScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#F4F9FF' },
-  overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(244,249,255,0.88)' },
+  overlay: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(244,249,255,0.88)' },
   safeArea: { flex: 1 },
   keyboardView: { flex: 1 },
   container: {
