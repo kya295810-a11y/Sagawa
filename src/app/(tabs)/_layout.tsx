@@ -139,7 +139,9 @@ export default function TabsLayout() {
   }, [pathname]);
 
   useEffect(() => {
-    void refreshContentBadges();
+    const initialRefresh = setTimeout(() => {
+      void refreshContentBadges();
+    }, 0);
 
     const interval = setInterval(() => {
       void refreshContentBadges();
@@ -152,6 +154,7 @@ export default function TabsLayout() {
     });
 
     return () => {
+      clearTimeout(initialRefresh);
       clearInterval(interval);
       subscription.remove();
     };
