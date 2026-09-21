@@ -291,10 +291,17 @@ async function createUserSession(client, userId) {
   };
 }
 
-async function registerUser(emailValue, password) {
+async function registerUser(emailValue, password, ageValue) {
   const email = normalizeEmail(emailValue);
+  const ageText = String(ageValue ?? '').trim();
+  const age = Number(ageText);
   if (!validateEmail(email)) {
     const error = new Error('Please enter a valid email address.');
+    error.statusCode = 400;
+    throw error;
+  }
+  if (!/^\d{1,3}$/.test(ageText) || !Number.isInteger(age) || age < 18 || age > 120) {
+    const error = new Error('You must be 18 or older to create a Sagawa account.');
     error.statusCode = 400;
     throw error;
   }
@@ -317,9 +324,9 @@ async function registerUser(emailValue, password) {
     );
     const user = userResult.rows[0];
     await client.query(
-      `INSERT INTO profiles (user_id, name, profile_completed)
-       VALUES ($1, '', false)`,
-      [user.id],
+      `INSERT INTO profiles (user_id, name, age, profile_completed)
+       VALUES ($1, '', $2, false)`,
+      [user.id, age],
     );
     const session = await createUserSession(client, user.id);
     await client.query('COMMIT');
