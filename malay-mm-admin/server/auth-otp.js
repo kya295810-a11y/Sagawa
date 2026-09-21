@@ -184,25 +184,27 @@ async function requestPasswordLoginVerification(user) {
   const email = String(user?.email || '').trim().toLowerCase();
   const phone = String(user?.phoneNumber || '').trim();
 
-  if (email && user?.emailVerified) {
+  // Legacy accounts may predate verified_at columns. Sending the code to the
+  // stored contact and requiring the code proves ownership during this login.
+  if (email) {
     return createChallenge({
       purpose: 'login',
       channel: 'email',
       identifier: email,
-      payload: { userId: user.id },
+      payload: { userId: user.id, verifyContactOnSuccess: true },
     });
   }
 
-  if (phone && user?.phoneVerified) {
+  if (phone) {
     return createChallenge({
       purpose: 'login',
       channel: 'phone',
       identifier: phone,
-      payload: { userId: user.id },
+      payload: { userId: user.id, verifyContactOnSuccess: true },
     });
   }
 
-  const error = new Error('This account does not have a verified email or phone number.');
+  const error = new Error('This account does not have an email or phone number for verification.');
   error.statusCode = 403;
   throw error;
 }
@@ -363,6 +365,20 @@ async function verifyLogin(challengeId, code) {
       await client.query('DELETE FROM user_auth_challenges WHERE id = $1', [checked.challenge.id]);
       await client.query('COMMIT');
       return { error: 'invalid' };
+    }
+
+    if (checked.challenge.payload?.verifyContactOnSuccess) {
+      if (checked.challenge.channel === 'email') {
+        await client.query(
+          'UPDATE users SET email_verified_at = COALESCE(email_verified_at, NOW()) WHERE id = $1',
+          [userId],
+        );
+      } else if (checked.challenge.channel === 'phone') {
+        await client.query(
+          'UPDATE users SET phone_verified_at = COALESCE(phone_verified_at, NOW()) WHERE id = $1',
+          [userId],
+        );
+      }
     }
 
     await client.query('DELETE FROM user_auth_challenges WHERE id = $1', [checked.challenge.id]);
