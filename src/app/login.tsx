@@ -20,6 +20,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { apiRequest } from '@/services/api/client';
 import { useAuthStore } from '@/store/auth-store';
+import SagawaFlowerLogo from '../../assets/images/sagawa-flower-logo.svg';
 
 const LOGIN_BACKGROUND = require("../../assets/images/login-bg.jpg");
 const ANDROID_EXTRA_BOLD = Platform.OS === "android" ? "700" : "800";
@@ -286,7 +287,7 @@ export default function LoginScreen() {
 
   return (
     <View style={styles.screen}>
-      <StatusBar style="light" />
+      <StatusBar style="dark" />
 
       {/* Background image */}
       <View pointerEvents="none" style={styles.background}>
@@ -321,12 +322,8 @@ export default function LoginScreen() {
           >
             {/* Brand */}
             <View style={styles.brandSection}>
-              <Text
-                style={styles.brandName}
-                allowFontScaling={false}
-              >
-                Sagawa
-              </Text>
+              <SagawaFlowerLogo width={58} height={58} accessibilityLabel="Sagawa flower logo" />
+              <Text style={styles.brandName} allowFontScaling={false}>Sagawa</Text>
             </View>
 
             {/* Login panel */}
@@ -410,7 +407,7 @@ export default function LoginScreen() {
                       <Ionicons
                         name={showPassword ? "eye-off-outline" : "eye-outline"}
                         size={22}
-                        color="#C9E6FF"
+                        color="#667085"
                       />
                     </Pressable>
                   </View>
@@ -566,9 +563,7 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     left: 0,
-    backgroundColor: Platform.OS === "android"
-      ? "rgba(3,18,40,0.68)"
-      : "rgba(3,18,40,0.48)",
+    backgroundColor: "rgba(241,248,255,0.72)",
   },
 
   safeArea: {
@@ -586,17 +581,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 18,
     paddingBottom: 28,
+    justifyContent: "center",
   },
 
   /* Brand */
 
   brandSection: {
     alignItems: "center",
-    marginBottom: 24,
+    marginBottom: 16,
+    gap: 8,
   },
 
   brandName: {
-    color: "#FFFFFF",
+    color: "#10243E",
     fontSize: 18,
     lineHeight: 22,
     fontWeight: "700",
@@ -613,12 +610,8 @@ const styles = StyleSheet.create({
     paddingTop: 25,
     paddingBottom: 24,
     borderWidth: 1,
-    borderColor: Platform.OS === "android"
-      ? "rgba(255,255,255,0.32)"
-      : "rgba(255,255,255,0.25)",
-    backgroundColor: Platform.OS === "android"
-      ? "rgba(7,26,49,0.98)"
-      : "rgba(255,255,255,0.14)",
+    borderColor: "rgba(49,149,245,0.20)",
+    backgroundColor: Platform.OS === "android" ? "rgba(255,255,255,0.98)" : "rgba(255,255,255,0.88)",
   },
 
   panelOverlay: {
@@ -627,9 +620,7 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     left: 0,
-    backgroundColor: Platform.OS === "android"
-      ? "rgba(255,255,255,0.03)"
-      : "rgba(255,255,255,0.08)",
+    backgroundColor: "rgba(255,255,255,0.22)",
   },
 
   /* Header */
@@ -639,7 +630,7 @@ const styles = StyleSheet.create({
   },
 
   title: {
-    color: "#FFFFFF",
+    color: "#101828",
     fontSize: 30,
     lineHeight: 37,
     fontWeight: ANDROID_EXTRA_BOLD,
@@ -649,7 +640,7 @@ const styles = StyleSheet.create({
   },
 
   subtitle: {
-    color: "rgba(255,255,255,0.82)",
+    color: "#667085",
     fontSize: 15,
     lineHeight: 22,
     includeFontPadding: false,
@@ -666,7 +657,7 @@ const styles = StyleSheet.create({
   },
 
   label: {
-    color: "#FFFFFF",
+    color: "#344054",
     fontSize: 14,
     lineHeight: 18,
     fontWeight: "600",
@@ -677,17 +668,13 @@ const styles = StyleSheet.create({
   input: {
     height: 54,
     borderWidth: 1,
-    borderColor: Platform.OS === "android"
-      ? "rgba(255,255,255,0.38)"
-      : "rgba(255,255,255,0.28)",
+    borderColor: "#D9E2EC",
     borderRadius: 15,
-    backgroundColor: Platform.OS === "android"
-      ? "rgba(20,45,70,0.98)"
-      : "rgba(255,255,255,0.14)",
+    backgroundColor: "#FFFFFF",
     paddingHorizontal: 16,
     fontSize: 16,
     lineHeight: 20,
-    color: "#FFFFFF",
+    color: "#101828",
     elevation: 1,
     includeFontPadding: false,
     ...ANDROID_INPUT_TEXT_FIX,
@@ -718,7 +705,7 @@ const styles = StyleSheet.create({
   },
 
   forgotText: {
-    color: "#C9E6FF",
+    color: "#3195F5",
     fontSize: 14,
     lineHeight: 18,
     fontWeight: "600",
@@ -765,12 +752,12 @@ const styles = StyleSheet.create({
   divider: {
     flex: 1,
     height: 1,
-    backgroundColor: "rgba(255,255,255,0.20)",
+    backgroundColor: "#E5EAF0",
   },
 
   dividerText: {
     marginHorizontal: 11,
-    color: "rgba(255,255,255,0.60)",
+    color: "#98A2B3",
     fontSize: 12,
     lineHeight: 16,
     includeFontPadding: false,
@@ -787,9 +774,9 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 50,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.25)",
+    borderColor: "#D9E2EC",
     borderRadius: 14,
-    backgroundColor: "rgba(255,255,255,0.12)",
+    backgroundColor: "#FFFFFF",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -797,14 +784,14 @@ const styles = StyleSheet.create({
   },
 
   socialPressed: {
-    backgroundColor: "rgba(255,255,255,0.20)",
+    backgroundColor: "#F5F8FB",
   },
 
   googleIcon: {
     fontSize: 17,
     lineHeight: 20,
     fontWeight: ANDROID_EXTRA_BOLD,
-    color: "#FFFFFF",
+    color: "#4285F4",
     includeFontPadding: false,
   },
 
@@ -812,7 +799,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 18,
     fontWeight: "600",
-    color: "#FFFFFF",
+    color: "#344054",
     includeFontPadding: false,
   },
 
@@ -822,7 +809,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
     fontSize: 11,
     lineHeight: 16,
-    color: "rgba(255,255,255,0.64)",
+    color: "#667085",
     includeFontPadding: false,
   },
 
@@ -838,7 +825,7 @@ const styles = StyleSheet.create({
   signupText: {
     fontSize: 14,
     lineHeight: 18,
-    color: "rgba(255,255,255,0.76)",
+    color: "#667085",
     includeFontPadding: false,
   },
 
@@ -856,7 +843,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
     fontSize: 11,
     lineHeight: 17,
-    color: "rgba(255,255,255,0.60)",
+    color: "#667085",
     marginTop: 20,
     paddingHorizontal: 18,
     includeFontPadding: false,
