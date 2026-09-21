@@ -16,7 +16,8 @@
         "foregroundImage": "./assets/images/sagawa-icon.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.kyawsanlin.sagawa"
+      "package": "com.kyawsanlin.sagawa",
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "output": "static",

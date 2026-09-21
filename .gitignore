@@ -67,3 +67,4 @@ serviceAccountKey.json
 malay-mm-admin/server/data/notification-tokens.json
 # Sagawa runtime uploads - never commit user-generated files
 malay-mm-admin/server/uploads/
+secrets/

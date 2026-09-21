@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "924233932882",
+    "project_id": "sagawa-37474",
+    "storage_bucket": "sagawa-37474.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:924233932882:android:fa472d5bb12a91a357bf8b",
+        "android_client_info": {
+          "package_name": "com.kyawsanlin.Sagawa"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDfq2ZYc9me0mpr-sLeOIJfWsOx5n-YeYk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
