@@ -1,3 +1,4 @@
+import Ionicons from '@expo/vector-icons/Ionicons';
 import React, { useState } from 'react';
 import {
   Alert,
@@ -178,7 +179,7 @@ export default function SignupScreen() {
             hitSlop={8}
           >
             <Text style={styles.backIcon}>‹</Text>
-            <Text style={styles.backText}>{stage === 'verify' ? 'Edit details' : 'Back'}</Text>
+            <Text style={styles.backText}>Back</Text>
           </Pressable>
 
           <View style={styles.brandSection}>
@@ -303,56 +304,89 @@ export default function SignupScreen() {
                 </Pressable>
               </>
             ) : (
-              <>
-                <Text style={styles.title}>Verify your account</Text>
-                <Text style={styles.subtitle}>
-                  We sent a 6-digit code to {identifierHint || 'your account contact'}. The code expires in 10 minutes.
-                </Text>
-
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Verification code</Text>
-                  <TextInput
-                    value={code}
-                    onChangeText={(value) => setCode(value.replace(/\D/g, '').slice(0, 6))}
-                    placeholder="000000"
-                    placeholderTextColor="#98A2B3"
-                    keyboardType="number-pad"
-                    autoComplete="one-time-code"
-                    maxLength={6}
-                    style={[styles.input, styles.codeInput]}
+              <View style={styles.verifyContent}>
+                <View style={styles.verifyIconWrap}>
+                  <Ionicons
+                    name={channel === 'email' ? 'mail-outline' : 'phone-portrait-outline'}
+                    size={28}
+                    color="#1677D2"
                   />
                 </View>
 
+                <Text style={styles.verifyTitle}>
+                  {channel === 'email' ? 'Check your email' : 'Check your phone'}
+                </Text>
+                <Text style={styles.verifySubtitle}>
+                  Enter the 6-digit code sent to
+                </Text>
+                <Text style={styles.verifyDestination}>
+                  {identifierHint || identifier.trim()}
+                </Text>
+
+                <TextInput
+                  value={code}
+                  onChangeText={(value) => setCode(value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="000000"
+                  placeholderTextColor="#B0BAC6"
+                  keyboardType="number-pad"
+                  autoComplete="one-time-code"
+                  textContentType="oneTimeCode"
+                  maxLength={6}
+                  autoFocus
+                  style={styles.verifyCodeInput}
+                />
+
+                <Text style={styles.expiryText}>Code expires in 10 minutes</Text>
+
                 <Pressable
                   onPress={() => void verifyAndCreateAccount()}
-                  disabled={submitting}
+                  disabled={submitting || code.length !== 6}
                   style={({ pressed }) => [
                     styles.primaryButton,
                     pressed && styles.buttonPressed,
-                    submitting && styles.disabled,
+                    (submitting || code.length !== 6) && styles.disabled,
                   ]}
                 >
                   <Text style={styles.primaryButtonText}>
-                    {submitting ? 'Verifying...' : 'Verify & create account'}
+                    {submitting ? 'Verifying...' : 'Verify'}
                   </Text>
                 </Pressable>
 
+                <View style={styles.resendRow}>
+                  <Text style={styles.resendLabel}>Didn't get the code?</Text>
+                  <Pressable
+                    onPress={() => void requestVerification()}
+                    disabled={submitting}
+                    hitSlop={8}
+                  >
+                    <Text style={styles.resendLink}> Resend</Text>
+                  </Pressable>
+                </View>
+
                 <Pressable
-                  onPress={() => void requestVerification()}
-                  disabled={submitting}
-                  style={styles.secondaryAction}
+                  onPress={() => {
+                    setStage('details');
+                    setCode('');
+                    setChallengeId('');
+                  }}
+                  style={styles.changeContactButton}
+                  hitSlop={8}
                 >
-                  <Text style={styles.secondaryActionText}>Send a new code</Text>
+                  <Text style={styles.changeContactText}>
+                    {channel === 'email' ? 'Change email' : 'Change phone number'}
+                  </Text>
                 </Pressable>
-              </>
+              </View>
             )}
 
-            <View style={styles.loginRow}>
-              <Text style={styles.loginText}>Already have an account?</Text>
-              <Pressable onPress={() => router.replace('/login')} hitSlop={8}>
-                <Text style={styles.loginLink}> Log in</Text>
-              </Pressable>
-            </View>
+            {stage === 'details' && (
+              <View style={styles.loginRow}>
+                <Text style={styles.loginText}>Already have an account?</Text>
+                <Pressable onPress={() => router.replace('/login')} hitSlop={8}>
+                  <Text style={styles.loginLink}> Log in</Text>
+                </Pressable>
+              </View>
+            )}
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -434,7 +468,74 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#101828',
   },
-  codeInput: { textAlign: 'center', letterSpacing: 8, fontSize: 21, fontWeight: '700' },  passwordHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  verifyContent: {
+    alignItems: 'center',
+    paddingTop: 8,
+  },
+  verifyIconWrap: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EEF7FF',
+    marginBottom: 18,
+  },
+  verifyTitle: {
+    fontSize: 26,
+    lineHeight: 32,
+    fontWeight: ANDROID_EXTRA_BOLD,
+    color: '#101828',
+    letterSpacing: -0.5,
+    textAlign: 'center',
+  },
+  verifySubtitle: {
+    marginTop: 8,
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#667085',
+    textAlign: 'center',
+  },
+  verifyDestination: {
+    marginTop: 3,
+    marginBottom: 24,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '700',
+    color: '#344054',
+    textAlign: 'center',
+  },
+  verifyCodeInput: {
+    width: '100%',
+    height: 62,
+    borderWidth: 1,
+    borderColor: '#C9D8E8',
+    borderRadius: 16,
+    backgroundColor: '#FBFDFF',
+    paddingHorizontal: 18,
+    textAlign: 'center',
+    fontSize: 24,
+    fontWeight: '700',
+    letterSpacing: 12,
+    color: '#101828',
+  },
+  expiryText: {
+    marginTop: 10,
+    marginBottom: 22,
+    fontSize: 12,
+    color: '#98A2B3',
+  },
+  resendRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 18,
+  },
+  resendLabel: { fontSize: 14, color: '#667085' },
+  resendLink: { fontSize: 14, fontWeight: '700', color: '#1677D2' },
+  changeContactButton: { marginTop: 14, paddingVertical: 6 },
+  changeContactText: { fontSize: 13, fontWeight: '600', color: '#667085' },
+  passwordHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   showPassword: { fontSize: 13, fontWeight: '600', color: '#3195F5' },
   termsRow: { flexDirection: 'row', alignItems: 'flex-start', marginTop: 2, marginBottom: 18 },
   checkbox: {
@@ -463,8 +564,6 @@ const styles = StyleSheet.create({
   primaryButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
   buttonPressed: { opacity: 0.84, transform: [{ scale: 0.99 }] },
   disabled: { opacity: 0.6 },
-  secondaryAction: { alignItems: 'center', paddingVertical: 14 },
-  secondaryActionText: { color: '#3195F5', fontSize: 14, fontWeight: '700' },
   loginRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginTop: 18 },
   loginText: { fontSize: 14, color: '#667085' },
   loginLink: { fontSize: 14, fontWeight: '700', color: '#3195F5' },
