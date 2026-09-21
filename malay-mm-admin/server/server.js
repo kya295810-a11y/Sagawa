@@ -557,7 +557,7 @@ app.use(
 
 app.post('/api/auth/register', async (req, res) => {
   try {
-    const result = await registerUser(req.body?.email, req.body?.password);
+    const result = await registerUser(req.body?.email, req.body?.password, req.body?.age);
     scheduleUserSheetSync(result.user.id, { platform: req.body?.platform || 'Mobile' });
     return res.status(201).json({
       success: true,
@@ -2323,8 +2323,8 @@ function validateProfileInput(body) {
   const location = String(body?.location ?? '').trim().replace(/\s+/g, ' ');
 
   if (!name || name.length > 100) return { error: 'Name is required and must be 100 characters or fewer.' };
-  if (!/^\d{1,3}$/.test(ageText) || !Number.isInteger(age) || age < 13 || age > 120) {
-    return { error: 'Age must be a whole number between 13 and 120.' };
+  if (!/^\d{1,3}$/.test(ageText) || !Number.isInteger(age) || age < 18 || age > 120) {
+    return { error: 'You must be 18 or older to use a Sagawa account.' };
   }
   if (!['male', 'female'].includes(gender)) return { error: 'Gender must be male or female.' };
   if (location.length > 120) return { error: 'Location must be 120 characters or fewer.' };
