@@ -1,17 +1,19 @@
 import Constants from 'expo-constants';
-import * as Device from 'expo-device';
 import { Platform } from 'react-native';
 
 import { apiRequest } from '@/services/api/client';
+import {
+  getRemoteNotificationsUnsupportedReason,
+  loadNotificationsModule,
+  type ExpoNotificationsModule,
+  type RemoteNotificationsUnsupportedReason,
+} from '@/services/notifications/runtime';
 import { ApiResponse } from '@/types/profile';
 
 let notificationHandlerRegistered = false;
+let pushTokenRegistrationPromise: Promise<RegisterPushTokenResult> | null = null;
 
-type ExpoNotificationsModule = typeof import('expo-notifications');
-
-function registerNotificationHandler(
-  notifications: ExpoNotificationsModule,
-) {
+function registerNotificationHandler(notifications: ExpoNotificationsModule) {
   if (notificationHandlerRegistered) {
     return;
   }
@@ -31,25 +33,26 @@ function registerNotificationHandler(
 export type RegisterPushTokenResult =
   | { status: 'registered'; token: string }
   | { status: 'denied' }
-  | { status: 'unsupported' };
+  | {
+      status: 'unsupported';
+      reason: RemoteNotificationsUnsupportedReason;
+    };
 
-export async function registerPushToken(): Promise<RegisterPushTokenResult> {
-  if (Constants.executionEnvironment === 'storeClient') {
-    return { status: 'unsupported' };
+async function registerPushTokenOnce(): Promise<RegisterPushTokenResult> {
+  const unsupportedReason = getRemoteNotificationsUnsupportedReason();
+
+  if (unsupportedReason) {
+    return { status: 'unsupported', reason: unsupportedReason };
   }
 
-  if (!Device.isDevice) {
-    return { status: 'unsupported' };
+  const Notifications = await loadNotificationsModule();
+
+  if (!Notifications) {
+    // The runtime was checked above; this is only a defensive fallback.
+    return { status: 'unsupported', reason: 'web' };
   }
 
-  const Notifications =
-    await import(
-      'expo-notifications'
-    );
-
-  registerNotificationHandler(
-    Notifications,
-  );
+  registerNotificationHandler(Notifications);
 
   if (Platform.OS === 'android') {
     await Notifications.setNotificationChannelAsync('default', {
@@ -72,13 +75,15 @@ export async function registerPushToken(): Promise<RegisterPushTokenResult> {
 
   // Read the EAS project id from the app's own runtime config — never
   // hard-code it here.
-  const projectId =
-    Constants.expoConfig?.extra?.eas?.projectId ??
-    Constants.easConfig?.projectId;
+  const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
 
-  const tokenResponse = await Notifications.getExpoPushTokenAsync(
-    projectId ? { projectId } : undefined,
-  );
+  if (!projectId) {
+    throw new Error(
+      'Push notifications are not configured: missing EAS projectId. Run `eas init` and rebuild the app.',
+    );
+  }
+
+  const tokenResponse = await Notifications.getExpoPushTokenAsync({ projectId });
 
   const token = tokenResponse.data;
 
@@ -94,4 +99,21 @@ export async function registerPushToken(): Promise<RegisterPushTokenResult> {
   );
 
   return { status: 'registered', token };
+}
+
+export async function registerPushToken(): Promise<RegisterPushTokenResult> {
+  if (pushTokenRegistrationPromise) {
+    return pushTokenRegistrationPromise;
+  }
+
+  const registrationPromise = registerPushTokenOnce();
+  pushTokenRegistrationPromise = registrationPromise;
+
+  try {
+    return await registrationPromise;
+  } finally {
+    if (pushTokenRegistrationPromise === registrationPromise) {
+      pushTokenRegistrationPromise = null;
+    }
+  }
 }

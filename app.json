@@ -36,14 +36,26 @@
       "expo-localization",
       "expo-asset",
       "expo-image",
-      "expo-notifications"
+      [
+        "expo-notifications",
+        {
+          "defaultChannel": "default"
+        }
+      ],
+      "expo-video",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
     },
     "extra": {
-      "appOwnership": "foundation-shell"
-    }
+      "appOwnership": "foundation-shell",
+      "router": {},
+      "eas": {
+        "projectId": "41a8c754-f8ae-412d-ab01-f7bb60580bd5"
+      }
+    },
+    "owner": "kya295810s-team"
   }
 }

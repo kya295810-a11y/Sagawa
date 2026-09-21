@@ -13,8 +13,8 @@ export class ApiError extends Error {
 }
 
 export class NetworkError extends ApiError {
-  constructor(message = 'Network unavailable') {
-    super(message, { code: 'network_unavailable', status: 0 });
+  constructor(message = 'Network unavailable', details?: unknown) {
+    super(message, { code: 'network_unavailable', details, status: 0 });
     this.name = 'NetworkError';
   }
 }

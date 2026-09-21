@@ -1,18 +1,19 @@
 import React, { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    Animated,
-    Image,
-    Platform,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    View,
+  ActivityIndicator,
+  Alert,
+  Animated,
+  Image,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
 } from 'react-native';
 
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { File as ExpoFile } from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -193,11 +194,13 @@ export default function ProfileScreen() {
       const fileName = `profile.${extension}`;
 
       const formData = new FormData();
-      formData.append('image', {
-        uri: asset.uri,
-        name: fileName,
-        type: fileType,
-      } as unknown as Blob);
+      const file = Platform.OS === 'web' ? asset.file : new ExpoFile(asset.uri);
+
+      if (!file) {
+        throw new ApiError('The selected image could not be read.', { status: 400 });
+      }
+
+      formData.append('image', file, fileName);
 
       await imageUpload.mutateAsync(formData);
       setProfileImageFailed(false);
@@ -268,7 +271,12 @@ export default function ProfileScreen() {
         return;
       }
 
-      Alert.alert('Notifications Unavailable', 'Push notifications require a physical device.');
+      Alert.alert(
+        'Notifications Unavailable',
+        result.reason === 'expo-go'
+          ? 'Android push notifications require a development build or production build, not Expo Go.'
+          : 'Push notifications are not available in the web version of Sagawa.',
+      );
     } catch (error) {
       console.error('Push notification registration error:', error);
       Alert.alert('Notifications Error', 'Unable to register for push notifications right now.');
@@ -297,9 +305,12 @@ export default function ProfileScreen() {
 
   const handleLogout = () => {
     if (isGuest) {
-      void useAuthStore.getState().exitGuest().then(() => {
-        router.replace('/login');
-      });
+      void useAuthStore
+        .getState()
+        .exitGuest()
+        .then(() => {
+          router.replace('/login');
+        });
       return;
     }
 
@@ -513,7 +524,10 @@ export default function ProfileScreen() {
               {profile.name}
             </Text>
             <Text style={styles.profileSubtitle} allowFontScaling={false}>
-              {profile.age ?? 'Age not set'} · {profile.gender ? `${profile.gender[0].toUpperCase()}${profile.gender.slice(1)}` : 'Gender not set'}
+              {profile.age ?? 'Age not set'} ·{' '}
+              {profile.gender
+                ? `${profile.gender[0].toUpperCase()}${profile.gender.slice(1)}`
+                : 'Gender not set'}
               {profile.location ? ` · ${profile.location}` : ''}
             </Text>
           </View>

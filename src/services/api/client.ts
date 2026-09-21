@@ -1,3 +1,5 @@
+import { fetch } from 'expo/fetch';
+
 import { env } from '@/config/env';
 import { ApiError, NetworkError } from '@/services/api/errors';
 
@@ -37,40 +39,61 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
   }
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), env.EXPO_PUBLIC_API_TIMEOUT_MS);
+  const callerSignal = options.signal;
+  let timedOut = false;
 
-  const accessToken = await getAccessToken();
-  const headers = new Headers(options.headers);
-  headers.set('Accept', 'application/json');
+  const forwardCallerAbort = () => {
+    controller.abort(callerSignal?.reason);
+  };
 
-  // Do not force a Content-Type when the body is FormData (e.g. multipart
-  // image uploads). fetch/React Native must set its own
-  // "multipart/form-data; boundary=..." header — overriding it here would
-  // break the upload.
-  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
-
-  if (!headers.has('Content-Type') && options.body && !isFormData) {
-    headers.set('Content-Type', 'application/json');
+  if (callerSignal?.aborted) {
+    forwardCallerAbort();
+  } else {
+    callerSignal?.addEventListener('abort', forwardCallerAbort, { once: true });
   }
 
-  if (accessToken) {
-    headers.set('Authorization', `Bearer ${accessToken}`);
-  }
+  const timeoutId = setTimeout(() => {
+    if (controller.signal.aborted) {
+      return;
+    }
+
+    timedOut = true;
+    controller.abort();
+  }, env.EXPO_PUBLIC_API_TIMEOUT_MS);
 
   try {
+    const accessToken = await getAccessToken();
+    const headers = new Headers(options.headers);
+    headers.set('Accept', 'application/json');
+
+    // Do not force a Content-Type when the body is FormData (e.g. multipart
+    // image uploads). expo/fetch must set its own
+    // "multipart/form-data; boundary=..." header — overriding it here would
+    // break the upload.
+    const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
+
+    if (!headers.has('Content-Type') && options.body && !isFormData) {
+      headers.set('Content-Type', 'application/json');
+    }
+
+    if (accessToken) {
+      headers.set('Authorization', `Bearer ${accessToken}`);
+    }
+
     const response = await fetch(buildApiUrl(path), {
       ...options,
       headers,
-      signal: options.signal ?? controller.signal,
+      signal: controller.signal,
     });
 
     if (!response.ok) {
       let details: unknown = null;
+      const responseBody = await response.text();
 
       try {
-        details = await response.json();
+        details = responseBody ? JSON.parse(responseBody) : null;
       } catch {
-        details = await response.text();
+        details = responseBody;
       }
 
       const serverMessage =
@@ -102,19 +125,20 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
       throw error;
     }
 
-    if (options.signal?.aborted) {
+    if (callerSignal?.aborted && !timedOut) {
       throw error;
     }
 
-    if (error instanceof Error && error.name === 'AbortError') {
+    if (timedOut) {
       throw new ApiError('API request timed out.', {
         code: 'request_timeout',
         status: 408,
       });
     }
 
-    throw new NetworkError();
+    throw new NetworkError('Unable to reach Sagawa. Check your connection and try again.', error);
   } finally {
     clearTimeout(timeoutId);
+    callerSignal?.removeEventListener('abort', forwardCallerAbort);
   }
 }

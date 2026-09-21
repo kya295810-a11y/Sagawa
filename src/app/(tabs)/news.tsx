@@ -3,17 +3,17 @@ import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    FlatList,
-    Image,
-    Keyboard,
-    Pressable,
-    StyleSheet,
-    Text,
-    TextInput,
-    View,
-    useWindowDimensions,
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Image,
+  Keyboard,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+  useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -140,7 +140,12 @@ export default function NewsScreen() {
         return;
       }
 
-      Alert.alert('Notifications Unavailable', 'Push notifications require a physical device.');
+      Alert.alert(
+        'Notifications Unavailable',
+        result.reason === 'expo-go'
+          ? 'Android push notifications require a development build or production build, not Expo Go.'
+          : 'Push notifications are not available in the web version of Sagawa.',
+      );
     } catch (requestError) {
       console.error('News push registration error:', requestError);
       Alert.alert('Notifications Error', 'Unable to register for push notifications right now.');

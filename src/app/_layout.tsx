@@ -8,6 +8,7 @@ import { useAppBootstrap } from '@/hooks/use-app-bootstrap';
 import { useAppTheme } from '@/theme/provider';
 import { useAuthStore } from '@/store/auth-store';
 import { registerPushToken } from '@/services/notifications/push-token';
+import { loadNotificationsModule } from '@/services/notifications/runtime';
 
 SplashScreen.preventAutoHideAsync().catch(() => {
   // Ignore repeated calls during Fast Refresh.
@@ -39,29 +40,28 @@ function RootNavigator() {
 
     const setupPushNavigation = async () => {
       try {
-        const Notifications = await import('expo-notifications');
+        const Notifications = await loadNotificationsModule();
 
-        const openNotification = (
-          response: import('expo-notifications').NotificationResponse,
-        ) => {
+        if (!Notifications || !mounted) {
+          return;
+        }
+
+        const openNotification = (response: import('expo-notifications').NotificationResponse) => {
           if (!mounted) return;
 
           const data = response.notification.request.content.data as
-            | Record<string, unknown>
-            | undefined;
+            Record<string, unknown> | undefined;
 
           const type = String(data?.type || '').toLowerCase();
           const newsId = data?.newsId ?? data?.news_id;
           const serviceId = data?.serviceId ?? data?.service_id;
 
-          if (
-            type === 'news' &&
-            (typeof newsId === 'string' || typeof newsId === 'number')
-          ) {
+          if (type === 'news' && (typeof newsId === 'string' || typeof newsId === 'number')) {
             router.push({
               pathname: '/news/[id]',
               params: { id: String(newsId) },
             });
+            Notifications.clearLastNotificationResponse();
             return;
           }
 
@@ -73,13 +73,13 @@ function RootNavigator() {
               pathname: '/services/[id]',
               params: { id: String(serviceId) },
             });
+            Notifications.clearLastNotificationResponse();
           }
         };
 
-        subscription =
-          Notifications.addNotificationResponseReceivedListener(openNotification);
+        subscription = Notifications.addNotificationResponseReceivedListener(openNotification);
 
-        const lastResponse = await Notifications.getLastNotificationResponseAsync();
+        const lastResponse = Notifications.getLastNotificationResponse();
         if (lastResponse) {
           openNotification(lastResponse);
         }
