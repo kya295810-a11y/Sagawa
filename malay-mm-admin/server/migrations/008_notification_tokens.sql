@@ -6,6 +6,9 @@ CREATE TABLE IF NOT EXISTS notification_tokens (
   updated_at timestamptz NOT NULL DEFAULT NOW()
 );
 
+ALTER TABLE notification_tokens
+  ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT NOW();
+
 CREATE INDEX IF NOT EXISTS notification_tokens_updated_at_idx
   ON notification_tokens (updated_at DESC);
 
