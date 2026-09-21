@@ -1,4 +1,4 @@
-import { Stack } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
@@ -7,6 +7,7 @@ import { AppProviders } from '@/components/common/app-providers';
 import { useAppBootstrap } from '@/hooks/use-app-bootstrap';
 import { useAppTheme } from '@/theme/provider';
 import { useAuthStore } from '@/store/auth-store';
+import { registerPushToken } from '@/services/notifications/push-token';
 
 SplashScreen.preventAutoHideAsync().catch(() => {
   // Ignore repeated calls during Fast Refresh.
@@ -14,12 +15,86 @@ SplashScreen.preventAutoHideAsync().catch(() => {
 
 function RootNavigator() {
   const { theme } = useAppTheme();
+  const router = useRouter();
   const status = useAuthStore((state) => state.status);
   const profileCompleted = useAuthStore((state) => state.session?.profileCompleted ?? false);
 
   const isAuthenticated = status === 'authenticated';
   const isGuest = status === 'guest';
   const canUseApp = isGuest || (isAuthenticated && profileCompleted);
+
+  useEffect(() => {
+    if (!canUseApp) return;
+
+    void registerPushToken().catch((error) => {
+      console.warn('Push registration unavailable:', error);
+    });
+  }, [canUseApp]);
+
+  useEffect(() => {
+    if (!canUseApp) return;
+
+    let mounted = true;
+    let subscription: { remove: () => void } | undefined;
+
+    const setupPushNavigation = async () => {
+      try {
+        const Notifications = await import('expo-notifications');
+
+        const openNotification = (
+          response: import('expo-notifications').NotificationResponse,
+        ) => {
+          if (!mounted) return;
+
+          const data = response.notification.request.content.data as
+            | Record<string, unknown>
+            | undefined;
+
+          const type = String(data?.type || '').toLowerCase();
+          const newsId = data?.newsId ?? data?.news_id;
+          const serviceId = data?.serviceId ?? data?.service_id;
+
+          if (
+            type === 'news' &&
+            (typeof newsId === 'string' || typeof newsId === 'number')
+          ) {
+            router.push({
+              pathname: '/news/[id]',
+              params: { id: String(newsId) },
+            });
+            return;
+          }
+
+          if (
+            type === 'service' &&
+            (typeof serviceId === 'string' || typeof serviceId === 'number')
+          ) {
+            router.push({
+              pathname: '/services/[id]',
+              params: { id: String(serviceId) },
+            });
+          }
+        };
+
+        subscription =
+          Notifications.addNotificationResponseReceivedListener(openNotification);
+
+        const lastResponse = await Notifications.getLastNotificationResponseAsync();
+        if (lastResponse) {
+          openNotification(lastResponse);
+        }
+      } catch (error) {
+        console.warn('Push navigation unavailable:', error);
+      }
+    };
+
+    void setupPushNavigation();
+
+    return () => {
+      mounted = false;
+      subscription?.remove();
+    };
+  }, [canUseApp, router]);
 
   return (
     <>
