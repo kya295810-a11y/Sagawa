@@ -11,6 +11,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const db = require('./db');
+const { savePushToken, sendContentPush } = require('./push-notifications');
 const {
   ADMIN_EMAIL,
   ADMIN_NAME,
@@ -1728,9 +1729,23 @@ app.post('/api/news', newsUploadMiddleware, async (req, res) => {
       ],
     );
 
+    const createdNews = mapNewsRow(result.rows[0]);
+
+    if (createdNews.published) {
+      void sendContentPush({
+        type: 'news',
+        id: createdNews.id,
+        title: createdNews.title,
+      }).then((delivery) => {
+        console.log('[Push] News notification sent:', delivery);
+      }).catch((pushError) => {
+        console.error('[Push] News notification failed:', pushError.message);
+      });
+    }
+
     res.status(201).json({
       success: true,
-      data: mapNewsRow(result.rows[0]),
+      data: createdNews,
     });
   } catch (error) {
     removeUploadedFiles(req.files);
@@ -1988,9 +2003,23 @@ app.post('/api/services', async (req, res) => {
       ],
     );
 
+    const createdService = result.rows[0];
+
+    if (createdService.published) {
+      void sendContentPush({
+        type: 'service',
+        id: createdService.id,
+        title: createdService.title,
+      }).then((delivery) => {
+        console.log('[Push] Service notification sent:', delivery);
+      }).catch((pushError) => {
+        console.error('[Push] Service notification failed:', pushError.message);
+      });
+    }
+
     res.status(201).json({
       success: true,
-      data: result.rows[0],
+      data: createdService,
     });
   } catch (error) {
     console.error('[Services] POST failed:', error.message);
@@ -2436,36 +2465,23 @@ app.post('/api/support', supportLimiter, (req, res) => {
   }
 });
 
-app.post('/api/notifications/register-token', (req, res) => {
-  const body = req.body || {};
-
-  const token = String(body.token || '').trim();
-
-  if (!token) {
-    return res.status(400).json({
+app.post('/api/notifications/register-token', async (req, res) => {
+  try {
+    const record = await savePushToken(req.body?.token, req.body?.platform);
+    return res.status(201).json({
+      success: true,
+      data: record,
+    });
+  } catch (error) {
+    const status = Number(error.statusCode) || 500;
+    if (status >= 500) {
+      console.error('[Push] Token registration failed:', error.message);
+    }
+    return res.status(status).json({
       success: false,
-      message: 'Notification token is required.',
+      message: status >= 500 ? 'Unable to register notifications.' : error.message,
     });
   }
-
-  const tokens = readJson(notificationTokensFile, []);
-
-  const record = {
-    token,
-    platform: String(body.platform || 'unknown').trim(),
-    updatedAt: new Date().toISOString(),
-  };
-
-  const nextTokens = Array.isArray(tokens) ? tokens.filter((item) => item?.token !== token) : [];
-
-  nextTokens.unshift(record);
-
-  writeJson(notificationTokensFile, nextTokens);
-
-  res.status(201).json({
-    success: true,
-    data: record,
-  });
 });
 
 app.use((req, res) => {
