@@ -8,6 +8,7 @@ export interface AuthTokens {
 export interface SessionUser {
   id: string;
   email?: string;
+  phoneNumber?: string;
   preferredLanguage?: string | null;
 }
 
