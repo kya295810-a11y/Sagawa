@@ -59,8 +59,8 @@ export default function ForgotPasswordScreen() {
       Alert.alert('Invalid code', 'Enter the 6-digit code from your email.');
       return;
     }
-    if (newPassword.length < 8) {
-      Alert.alert('Password too short', 'Use at least 8 characters.');
+    if (newPassword.length < 6) {
+      Alert.alert('Password too short', 'Use at least 6 characters.');
       return;
     }
     if (newPassword !== confirmPassword) {
