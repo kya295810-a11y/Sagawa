@@ -35,6 +35,7 @@ const ANDROID_INPUT_TEXT_FIX = Platform.select({
 });
 
 const KL_EXCHANGE = require('../../../assets/images/kl-exchange-premium.png');
+const MERCHANTRADE_LOGO = require('../../../assets/images/merchantrade-logo.png');
 
 export default function ExchangeScreen() {
   const { theme } = useAppTheme();
@@ -540,6 +541,9 @@ export default function ExchangeScreen() {
                         .join('')
                         .toUpperCase();
                       const logoSource = apiAssetUrl(provider.logoUrl);
+                      const providerNameKey = provider.name.trim().toLowerCase();
+                      const displayLogoSource =
+                        logoSource || (providerNameKey === 'merchantrade' ? MERCHANTRADE_LOGO : null);
 
                       return (
                         <Pressable
@@ -558,9 +562,9 @@ export default function ExchangeScreen() {
                             pressed && styles.pressed,
                           ]}
                         >
-                          {logoSource ? (
+                          {displayLogoSource ? (
                             <Image
-                              source={logoSource}
+                              source={displayLogoSource}
                               style={styles.providerLogo}
                               contentFit="contain"
                               accessibilityLabel={`${provider.name} logo`}
