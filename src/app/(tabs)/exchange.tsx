@@ -121,7 +121,7 @@ export default function ExchangeScreen() {
         ? 340
         : 360;
 
-  const heroHeight = baseHeroHeight + (providerRates.length > 0 ? 108 : 0);
+  const heroHeight = baseHeroHeight;
 
   /*
    * ============================================================
