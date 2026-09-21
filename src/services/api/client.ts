@@ -30,6 +30,12 @@ function buildApiUrl(path: string) {
   return `${baseUrl}${normalizedPath}`;
 }
 
+export function apiAssetUrl(path?: string | null) {
+  if (!path) return '';
+  if (/^(?:https?:|data:)/i.test(path)) return path;
+  return buildApiUrl(path);
+}
+
 export async function apiRequest<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
   if (!env.EXPO_PUBLIC_API_URL) {
     throw new ApiError('Missing public API base URL configuration.', {

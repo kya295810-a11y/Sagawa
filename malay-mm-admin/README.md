@@ -17,8 +17,10 @@ Use a long random `SESSION_SECRET`. Set `ADMIN_ORIGIN` to the exact browser orig
 Start the backend from `malay-mm-admin/server`:
 
 ```sh
-node server.js
+npm start
 ```
+
+`npm start` applies pending additive database migrations before starting the API.
 
 In another terminal, set the admin URL and start Vite:
 
@@ -36,6 +38,13 @@ The exchange endpoints are:
 
 - `GET /api/exchange-rate`
 - `PUT /api/exchange-rate` with `{ "rate": "1055" }`
+- `POST /api/exchange-providers` with multipart provider details and an optional `logo`
+- `PUT /api/exchange-providers/:id` to update a comparison provider
+- `DELETE /api/exchange-providers/:id` to remove a comparison provider
+
+The public exchange-rate response includes up to two published comparison providers. Provider
+mutations require an authenticated admin session. In production, configure
+`EXCHANGE_PROVIDER_UPLOAD_DIR` on persistent storage before uploading provider logos.
 
 This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
 

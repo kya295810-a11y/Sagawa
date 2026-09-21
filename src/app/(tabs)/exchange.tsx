@@ -16,10 +16,13 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
+import { Image } from 'expo-image';
+import * as Linking from 'expo-linking';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 import { useAppTheme } from '@/theme/provider';
-import { apiRequest } from '@/services/api/client';
+import { apiAssetUrl, apiRequest } from '@/services/api/client';
+import { ExchangeProviderRate, ExchangeRateResponse } from '@/features/exchange/types';
 
 const ANDROID_BLACK = Platform.OS === 'android' ? '700' : '900';
 const ANDROID_EXTRA_BOLD = Platform.OS === 'android' ? '700' : '800';
@@ -31,18 +34,6 @@ const ANDROID_INPUT_TEXT_FIX = Platform.select({
   default: {},
 });
 
-type ExchangeResponse = {
-  success?: boolean;
-  data?: {
-    rate?: number | string;
-    updatedAt?: string;
-    rates?: {
-      currency?: string;
-      buy?: number | string;
-    }[];
-  };
-};
-
 const KL_EXCHANGE = require('../../../assets/images/kl-exchange-premium.png');
 
 export default function ExchangeScreen() {
@@ -53,11 +44,12 @@ export default function ExchangeScreen() {
   const [reverse, setReverse] = useState(false);
   const [exchangeRate, setExchangeRate] = useState<number | null>(null);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
+  const [providerRates, setProviderRates] = useState<ExchangeProviderRate[]>([]);
   const [refreshing, setRefreshing] = useState(false);
 
   const loadExchangeRate = useCallback(async () => {
     try {
-      const payload = await apiRequest<ExchangeResponse>('/api/exchange-rate');
+      const payload = await apiRequest<ExchangeRateResponse>('/api/exchange-rate');
 
       const directRate = Number(payload.data?.rate);
       const firstRate = Number(payload.data?.rates?.[0]?.buy);
@@ -73,8 +65,23 @@ export default function ExchangeScreen() {
         throw new Error('Invalid exchange rate received from API');
       }
 
+      const nextProviders = (payload.data?.providers ?? [])
+        .map((provider, index) => ({
+          id: String(provider.id ?? index),
+          name: String(provider.name ?? '').trim(),
+          rate: Number(provider.rate),
+          logoUrl: String(provider.logoUrl ?? ''),
+          websiteUrl: String(provider.websiteUrl ?? ''),
+          displayOrder: Number(provider.displayOrder ?? index),
+        }))
+        .filter((provider) =>
+          provider.name.length > 0 && Number.isFinite(provider.rate) && provider.rate > 0)
+        .sort((left, right) => left.displayOrder - right.displayOrder)
+        .slice(0, 2);
+
       setExchangeRate(nextRate);
       setUpdatedAt(payload.data?.updatedAt ?? null);
+      setProviderRates(nextProviders);
     } catch (error) {
       console.error('Exchange API error:', error);
     }
@@ -106,12 +113,14 @@ export default function ExchangeScreen() {
    * This prevents the KL image from being stretched vertically.
    */
 
-  const heroHeight =
+  const baseHeroHeight =
     height <= 700
       ? 320
       : height <= 800
         ? 340
         : 360;
+
+  const heroHeight = baseHeroHeight + (providerRates.length > 0 ? 108 : 0);
 
   /*
    * ============================================================
@@ -495,26 +504,110 @@ export default function ExchangeScreen() {
                 </View>
               </View>
 
-              {/* ==================================================
-                  CHANGE BADGE
-              ================================================== */}
+              {providerRates.length > 0 && (
+                <View style={styles.providerPanel}>
+                  <View style={styles.providerPanelHeader}>
+                    <Text
+                      style={styles.providerPanelTitle}
+                      allowFontScaling={false}
+                    >
+                      Compare with trusted providers
+                    </Text>
 
-              <View
-                style={styles.changeBadge}
-              >
-                <Ionicons
-                  name="trending-up"
-                  size={13}
-                  color="#078A50"
-                />
+                    <View style={styles.providerHint}>
+                      <Ionicons
+                        name="information-circle-outline"
+                        size={13}
+                        color="#9CC7FF"
+                      />
+                      <Text
+                        style={styles.providerHintText}
+                        allowFontScaling={false}
+                      >
+                        Rates are indicative
+                      </Text>
+                    </View>
+                  </View>
 
-                <Text
-                  style={styles.changeText}
-                  allowFontScaling={false}
-                >
-                  Admin-controlled rate
-                </Text>
-              </View>
+                  <View style={styles.providerCards}>
+                    {providerRates.map((provider) => {
+                      const displayRate = reverse ? 1 / provider.rate : provider.rate;
+                      const initials = provider.name
+                        .split(/\s+/)
+                        .filter(Boolean)
+                        .slice(0, 2)
+                        .map((part) => part[0])
+                        .join('')
+                        .toUpperCase();
+                      const logoSource = apiAssetUrl(provider.logoUrl);
+
+                      return (
+                        <Pressable
+                          key={provider.id}
+                          disabled={!provider.websiteUrl}
+                          accessibilityRole={provider.websiteUrl ? 'link' : undefined}
+                          accessibilityLabel={`${provider.name}, ${formatRate(displayRate)} ${toCurrency}`}
+                          onPress={() => {
+                            if (!provider.websiteUrl) return;
+                            void Linking.openURL(provider.websiteUrl).catch((error) => {
+                              console.error('Could not open provider website:', error);
+                            });
+                          }}
+                          style={({ pressed }) => [
+                            styles.providerCard,
+                            pressed && styles.pressed,
+                          ]}
+                        >
+                          {logoSource ? (
+                            <Image
+                              source={logoSource}
+                              style={styles.providerLogo}
+                              contentFit="contain"
+                              accessibilityLabel={`${provider.name} logo`}
+                            />
+                          ) : (
+                            <View style={styles.providerLogoFallback}>
+                              <Text
+                                style={styles.providerLogoInitials}
+                                allowFontScaling={false}
+                              >
+                                {initials || 'FX'}
+                              </Text>
+                            </View>
+                          )}
+
+                          <View style={styles.providerDetails}>
+                            <Text
+                              style={styles.providerName}
+                              numberOfLines={1}
+                              allowFontScaling={false}
+                            >
+                              {provider.name}
+                            </Text>
+                            <Text
+                              style={styles.providerRate}
+                              numberOfLines={1}
+                              adjustsFontSizeToFit
+                              allowFontScaling={false}
+                            >
+                              {formatRate(displayRate)} {toCurrency}
+                            </Text>
+                          </View>
+
+                          {provider.websiteUrl ? (
+                            <Ionicons
+                              name="chevron-forward"
+                              size={17}
+                              color="#7DB8FF"
+                            />
+                          ) : null}
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
+              )}
+
             </View>
           </ImageBackground>
 
@@ -1304,35 +1397,126 @@ const createStyles = (colors: {
     },
 
     /* ==========================================================
-       CHANGE
+       PROVIDER COMPARISON
     ========================================================== */
 
-    changeBadge: {
-      alignSelf: 'center',
+    providerPanel: {
+      marginTop: 8,
+      paddingHorizontal: 10,
+      paddingTop: 9,
+      paddingBottom: 10,
 
-      flexDirection: 'row',
-      alignItems: 'center',
-
-      backgroundColor:
-        'rgba(232,252,240,0.97)',
-
+      borderWidth: 1,
+      borderColor: 'rgba(142,190,242,0.28)',
       borderRadius: 18,
 
-      paddingHorizontal: 12,
-      paddingVertical: 5,
-
-      marginTop: 5,
+      backgroundColor: 'rgba(12,35,58,0.88)',
     },
 
-    changeText: {
-      color: '#078A50',
+    providerPanelHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+
+      marginBottom: 8,
+    },
+
+    providerPanelTitle: {
+      flexShrink: 1,
+
+      color: 'rgba(230,241,255,0.92)',
 
       fontSize: 10,
       lineHeight: 13,
+      fontWeight: '600',
+    },
 
+    providerHint: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+
+      paddingLeft: 8,
+    },
+
+    providerHintText: {
+      color: 'rgba(210,228,248,0.78)',
+
+      fontSize: 8,
+      lineHeight: 11,
+    },
+
+    providerCards: {
+      flexDirection: 'row',
+      gap: 7,
+    },
+
+    providerCard: {
+      minWidth: 0,
+      minHeight: 58,
+      flex: 1,
+
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+
+      paddingHorizontal: 8,
+      paddingVertical: 7,
+
+      borderWidth: 1,
+      borderColor: 'rgba(152,195,239,0.20)',
+      borderRadius: 14,
+
+      backgroundColor: 'rgba(38,64,91,0.82)',
+    },
+
+    providerLogo: {
+      width: 42,
+      height: 42,
+
+      borderRadius: 11,
+      backgroundColor: '#FFFFFF',
+    },
+
+    providerLogoFallback: {
+      width: 42,
+      height: 42,
+
+      alignItems: 'center',
+      justifyContent: 'center',
+
+      borderRadius: 21,
+      backgroundColor: '#08131F',
+    },
+
+    providerLogoInitials: {
+      color: '#FFD523',
+
+      fontSize: 12,
+      lineHeight: 15,
+      fontWeight: ANDROID_BLACK,
+    },
+
+    providerDetails: {
+      minWidth: 0,
+      flex: 1,
+    },
+
+    providerName: {
+      color: '#FFFFFF',
+
+      fontSize: 10,
+      lineHeight: 13,
       fontWeight: ANDROID_EXTRA_BOLD,
+    },
 
-      marginLeft: 4,
+    providerRate: {
+      color: '#83B9FF',
+
+      fontSize: 12,
+      lineHeight: 16,
+      fontWeight: ANDROID_BLACK,
+      fontVariant: ['tabular-nums'],
     },
 
     /* ==========================================================

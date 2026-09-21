@@ -79,6 +79,36 @@ type ExchangeItem = {
   updatedAt?: string;
 };
 
+type ExchangeProviderItem = {
+  id: string;
+  name: string;
+  rate: string;
+  logoUrl: string;
+  websiteUrl: string;
+  published: boolean;
+  displayOrder: number;
+  updatedAt?: string;
+};
+
+const normalizeExchangeProvider = (item: Record<string, unknown>): ExchangeProviderItem => ({
+  id: String(item.id ?? ''),
+  name: typeof item.name === 'string' ? item.name : '',
+  rate: formatRate(item.rate as string | number | null | undefined),
+  logoUrl: typeof item.logoUrl === 'string'
+    ? item.logoUrl
+    : typeof item.logo_url === 'string'
+      ? item.logo_url
+      : '',
+  websiteUrl: typeof item.websiteUrl === 'string'
+    ? item.websiteUrl
+    : typeof item.website_url === 'string'
+      ? item.website_url
+      : '',
+  published: item.published !== false,
+  displayOrder: Number(item.displayOrder ?? item.display_order ?? 0),
+  updatedAt: typeof item.updatedAt === 'string' ? item.updatedAt : undefined,
+});
+
 type AnalyticsItem = {
   contentType: 'news' | 'service';
   contentId: string;
@@ -1033,6 +1063,9 @@ function App() {
   const [exchangeRate, setExchangeRate] =
     useState<ExchangeItem>(initialExchange);
 
+  const [exchangeProviders, setExchangeProviders] =
+    useState<ExchangeProviderItem[]>([]);
+
   const [analytics, setAnalytics] =
     useState<AnalyticsData>(emptyAnalytics);
 
@@ -1128,6 +1161,15 @@ function App() {
 
   const [exchangeDraft, setExchangeDraft] =
     useState<ExchangeItem>(initialExchange);
+
+  const [exchangeProviderDrafts, setExchangeProviderDrafts] =
+    useState<ExchangeProviderItem[]>([]);
+
+  const [exchangeProviderLogoFiles, setExchangeProviderLogoFiles] =
+    useState<Record<string, File>>({});
+
+  const [exchangeProviderLogoPreviews, setExchangeProviderLogoPreviews] =
+    useState<Record<string, string>>({});
 
   const [apiLoading, setApiLoading] = useState(false);
   const [apiError, setApiError] = useState('');
@@ -1506,6 +1548,13 @@ function App() {
       const rawExchange =
         exchangeResult?.data ?? exchangeResult;
 
+      const loadedProviders = Array.isArray(rawExchange?.providers)
+        ? rawExchange.providers
+            .map((item: Record<string, unknown>) => normalizeExchangeProvider(item))
+            .sort((left: ExchangeProviderItem, right: ExchangeProviderItem) =>
+              left.displayOrder - right.displayOrder)
+        : [];
+
       let loadedRate = '';
 
       if (
@@ -1569,6 +1618,9 @@ function App() {
               : [],
           });
         }
+
+        setExchangeProviders(loadedProviders);
+        setExchangeProviderDrafts(loadedProviders);
 
         if (
           loadedRate &&
@@ -2407,6 +2459,180 @@ function App() {
     }
   };
 
+  const updateExchangeProvider = (
+    id: string,
+    patch: Partial<ExchangeProviderItem>,
+  ) => {
+    setExchangeProviderDrafts((current) =>
+      current.map((provider) =>
+        provider.id === id ? { ...provider, ...patch } : provider,
+      ),
+    );
+  };
+
+  const addExchangeProvider = () => {
+    if (exchangeProviderDrafts.length >= 2) {
+      alert('A maximum of two comparison providers is supported.');
+      return;
+    }
+
+    const id = `new-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    setExchangeProviderDrafts((current) => [
+      ...current,
+      {
+        id,
+        name: '',
+        rate: '',
+        logoUrl: '',
+        websiteUrl: '',
+        published: true,
+        displayOrder: current.length,
+      },
+    ]);
+  };
+
+  const selectExchangeProviderLogo = (id: string, file?: File | null) => {
+    if (!file) return;
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      alert('Use a JPEG, PNG, or WebP provider logo.');
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      alert('Provider logo must be 2 MB or smaller.');
+      return;
+    }
+
+    const previousPreview = exchangeProviderLogoPreviews[id];
+    if (previousPreview?.startsWith('blob:')) URL.revokeObjectURL(previousPreview);
+
+    setExchangeProviderLogoFiles((current) => ({ ...current, [id]: file }));
+    setExchangeProviderLogoPreviews((current) => ({
+      ...current,
+      [id]: URL.createObjectURL(file),
+    }));
+  };
+
+  const removeExchangeProviderLogo = (id: string) => {
+    const preview = exchangeProviderLogoPreviews[id];
+    if (preview?.startsWith('blob:')) URL.revokeObjectURL(preview);
+
+    setExchangeProviderLogoFiles((current) => {
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
+    setExchangeProviderLogoPreviews((current) => {
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
+    updateExchangeProvider(id, { logoUrl: '' });
+  };
+
+  const saveExchangeProvider = async (provider: ExchangeProviderItem) => {
+    const name = provider.name.trim();
+    const rate = provider.rate.trim().replace(/,/g, '');
+    const websiteUrl = provider.websiteUrl.trim();
+
+    if (!name) {
+      alert('Please enter a provider name.');
+      return;
+    }
+    if (!/^\d+(?:\.\d+)?$/.test(rate) || Number(rate) <= 0) {
+      alert('Please enter a valid provider rate greater than zero.');
+      return;
+    }
+    if (websiteUrl) {
+      try {
+        const parsedUrl = new URL(websiteUrl);
+        if (!['http:', 'https:'].includes(parsedUrl.protocol)) throw new Error();
+      } catch {
+        alert('Provider website must be a valid HTTP or HTTPS URL.');
+        return;
+      }
+    }
+
+    const isNew = provider.id.startsWith('new-');
+    const savedProvider = exchangeProviders.find((item) => item.id === provider.id);
+    const formData = new FormData();
+    formData.append('name', name);
+    formData.append('rate', rate);
+    formData.append('websiteUrl', websiteUrl);
+    formData.append('published', String(provider.published));
+    formData.append('displayOrder', String(provider.displayOrder));
+    formData.append(
+      'removeLogo',
+      String(Boolean(savedProvider?.logoUrl && !provider.logoUrl && !exchangeProviderLogoFiles[provider.id])),
+    );
+    const logoFile = exchangeProviderLogoFiles[provider.id];
+    if (logoFile) formData.append('logo', logoFile);
+
+    try {
+      setApiError('');
+      setApiLoading(true);
+      const result = await readApiResponse<Record<string, unknown>>(
+        await adminFetch(
+          apiUrl(isNew ? '/api/exchange-providers' : `/api/exchange-providers/${provider.id}`),
+          {
+            method: isNew ? 'POST' : 'PUT',
+            body: formData,
+          },
+        ),
+      );
+      const saved = normalizeExchangeProvider(result.data);
+      const replaceProvider = (current: ExchangeProviderItem[]) => [
+        ...current.filter((item) => item.id !== provider.id),
+        saved,
+      ].sort((left, right) => left.displayOrder - right.displayOrder);
+
+      setExchangeProviders(replaceProvider);
+      setExchangeProviderDrafts(replaceProvider);
+
+      const preview = exchangeProviderLogoPreviews[provider.id];
+      if (preview?.startsWith('blob:')) URL.revokeObjectURL(preview);
+      setExchangeProviderLogoFiles((current) => {
+        const next = { ...current };
+        delete next[provider.id];
+        return next;
+      });
+      setExchangeProviderLogoPreviews((current) => {
+        const next = { ...current };
+        delete next[provider.id];
+        return next;
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not save comparison provider.';
+      setApiError(message);
+      alert(message);
+    } finally {
+      setApiLoading(false);
+    }
+  };
+
+  const deleteExchangeProvider = async (provider: ExchangeProviderItem) => {
+    if (provider.id.startsWith('new-')) {
+      removeExchangeProviderLogo(provider.id);
+      setExchangeProviderDrafts((current) => current.filter((item) => item.id !== provider.id));
+      return;
+    }
+    if (!window.confirm(`Remove ${provider.name || 'this provider'} from the comparison?`)) return;
+
+    try {
+      setApiLoading(true);
+      await readApiResponse<{ id: string }>(
+        await adminFetch(apiUrl(`/api/exchange-providers/${provider.id}`), { method: 'DELETE' }),
+      );
+      setExchangeProviders((current) => current.filter((item) => item.id !== provider.id));
+      setExchangeProviderDrafts((current) => current.filter((item) => item.id !== provider.id));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not delete comparison provider.';
+      setApiError(message);
+      alert(message);
+    } finally {
+      setApiLoading(false);
+    }
+  };
+
   /* =========================================================
      DASHBOARD
   ========================================================= */
@@ -3173,7 +3399,7 @@ function App() {
           <h1>Exchange Rate</h1>
 
           <p>
-            Review and publish the MYR to MMK reference rate displayed throughout Sagawa.
+            Publish the Sagawa reference rate and manage the trusted providers shown for comparison.
           </p>
         </div>
 
@@ -3245,6 +3471,156 @@ function App() {
           >
             Preview & Confirm
           </button>
+        </div>
+      </div>
+
+      <div className="exchange-panel provider-rate-panel">
+        <div className="exchange-header provider-rate-header">
+          <div>
+            <strong>Trusted provider comparison</strong>
+            <span>Up to two published providers appear in the mobile Exchange hero.</span>
+          </div>
+
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={addExchangeProvider}
+            disabled={apiLoading || exchangeProviderDrafts.length >= 2}
+          >
+            + Add provider
+          </button>
+        </div>
+
+        <div className="provider-admin-list">
+          {exchangeProviderDrafts.length === 0 ? (
+            <div className="provider-empty-state">
+              <strong>No comparison providers yet</strong>
+              <span>Add a provider, rate, and optional logo to enable the mobile comparison section.</span>
+            </div>
+          ) : exchangeProviderDrafts.map((provider, index) => {
+            const logoPreview = exchangeProviderLogoPreviews[provider.id] || mediaUrl(provider.logoUrl);
+
+            return (
+              <article className="provider-editor-card" key={provider.id}>
+                <div className="provider-editor-heading">
+                  <div className="provider-logo-editor">
+                    <div className="provider-logo-preview">
+                      {logoPreview ? (
+                        <img src={logoPreview} alt={`${provider.name || 'Provider'} logo`} />
+                      ) : (
+                        <span>{(provider.name || 'P').slice(0, 2).toUpperCase()}</span>
+                      )}
+                    </div>
+
+                    <div className="provider-logo-actions">
+                      <label className="upload-button provider-upload-button">
+                        Upload logo
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp"
+                          onChange={(event) =>
+                            selectExchangeProviderLogo(provider.id, event.target.files?.[0])}
+                        />
+                      </label>
+                      {logoPreview && (
+                        <button
+                          className="small-action danger-text"
+                          type="button"
+                          onClick={() => removeExchangeProviderLogo(provider.id)}
+                        >
+                          Remove logo
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <span className={provider.published ? 'status-badge published' : 'status-badge draft'}>
+                    {provider.published ? 'Visible' : 'Hidden'}
+                  </span>
+                </div>
+
+                <div className="provider-fields-grid">
+                  <label>
+                    Provider name
+                    <input
+                      value={provider.name}
+                      maxLength={80}
+                      onChange={(event) =>
+                        updateExchangeProvider(provider.id, { name: event.target.value })}
+                      placeholder="e.g. Merchanttrade"
+                    />
+                  </label>
+
+                  <label>
+                    MYR → MMK rate
+                    <input
+                      value={provider.rate}
+                      inputMode="decimal"
+                      onChange={(event) =>
+                        updateExchangeProvider(provider.id, { rate: event.target.value })}
+                      placeholder="1076.50"
+                    />
+                  </label>
+
+                  <label className="provider-website-field">
+                    Provider website (optional)
+                    <input
+                      value={provider.websiteUrl}
+                      inputMode="url"
+                      onChange={(event) =>
+                        updateExchangeProvider(provider.id, { websiteUrl: event.target.value })}
+                      placeholder="https://provider.example"
+                    />
+                  </label>
+
+                  <label>
+                    Position
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={provider.displayOrder}
+                      onChange={(event) =>
+                        updateExchangeProvider(provider.id, {
+                          displayOrder: Number(event.target.value) || 0,
+                        })}
+                    />
+                  </label>
+                </div>
+
+                <div className="provider-editor-footer">
+                  <label className="provider-publish-toggle">
+                    <input
+                      type="checkbox"
+                      checked={provider.published}
+                      onChange={(event) =>
+                        updateExchangeProvider(provider.id, { published: event.target.checked })}
+                    />
+                    Show in mobile app
+                  </label>
+
+                  <div>
+                    <button
+                      className="small-action danger-text"
+                      type="button"
+                      onClick={() => deleteExchangeProvider(provider)}
+                      disabled={apiLoading}
+                    >
+                      Delete
+                    </button>
+                    <button
+                      className="primary-button"
+                      type="button"
+                      onClick={() => saveExchangeProvider({ ...provider, displayOrder: provider.displayOrder ?? index })}
+                      disabled={apiLoading}
+                    >
+                      {apiLoading ? 'Saving…' : 'Save provider'}
+                    </button>
+                  </div>
+                </div>
+              </article>
+            );
+          })}
         </div>
       </div>
     </>

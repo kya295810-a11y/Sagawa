@@ -24,6 +24,17 @@ Production deployments must set `NEWS_UPLOAD_DIR` to storage that survives deplo
 external object-storage provider, so deploying with the default local directory on
 an ephemeral host would lose uploaded media on restart or redeploy.
 
+## Exchange provider comparison
+
+Migration `011_exchange_provider_rates.sql` adds up to two admin-managed comparison providers for
+the Exchange screen. Each record stores the provider name, MYR/MMK rate, optional uploaded logo,
+optional website, visibility, and display order. Public API responses include only published
+providers; authenticated admin requests include drafts as well.
+
+Provider logos are stored beneath `EXCHANGE_PROVIDER_UPLOAD_DIR` (or
+`server/uploads/content/exchange-providers` locally). Production deployments must point this value
+to persistent storage.
+
 ## Planned entities
 
 - `users`

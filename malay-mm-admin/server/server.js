@@ -318,6 +318,87 @@ const newsUploadMiddleware = (req, res, next) => {
   });
 };
 
+const exchangeProviderUploadDir = path.resolve(
+  process.env.EXCHANGE_PROVIDER_UPLOAD_DIR ||
+    path.join(defaultContentUploadDir, 'exchange-providers'),
+);
+fs.mkdirSync(exchangeProviderUploadDir, { recursive: true });
+
+if (process.env.NODE_ENV === 'production' && !process.env.EXCHANGE_PROVIDER_UPLOAD_DIR) {
+  console.warn(
+    '[Exchange] EXCHANGE_PROVIDER_UPLOAD_DIR is not configured. Uploaded provider logos may be lost on an ephemeral host.',
+  );
+}
+
+const exchangeProviderStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, exchangeProviderUploadDir),
+  filename: (_req, file, cb) => {
+    try {
+      const { extension } = validateUploadMetadata({
+        ...file,
+        fieldname: 'image',
+        size: 0,
+      });
+      cb(null, `exchange-provider-${crypto.randomUUID()}${extension}`);
+    } catch (error) {
+      cb(error);
+    }
+  },
+});
+
+const exchangeProviderUpload = multer({
+  storage: exchangeProviderStorage,
+  limits: { fileSize: 2 * 1024 * 1024, files: 1, fields: 8 },
+  fileFilter: (_req, file, cb) => {
+    try {
+      validateUploadMetadata({ ...file, fieldname: 'image', size: 0 });
+      cb(null, true);
+    } catch (error) {
+      cb(error);
+    }
+  },
+});
+
+const exchangeProviderUploadMiddleware = (req, res, next) => {
+  exchangeProviderUpload.single('logo')(req, res, (error) => {
+    if (error) {
+      if (req.file?.path) {
+        try {
+          fs.unlinkSync(req.file.path);
+        } catch {
+          // Best-effort cleanup.
+        }
+      }
+      const tooLarge = error.code === 'LIMIT_FILE_SIZE' || error.statusCode === 413;
+      return res.status(tooLarge ? 413 : 422).json({
+        success: false,
+        message: tooLarge
+          ? 'Provider logo must be 2 MB or smaller.'
+          : error.message || 'Provider logo must be a JPEG, PNG, or WebP image.',
+      });
+    }
+
+    if (!req.file) return next();
+
+    try {
+      if (!fileMatchesSignature(req.file.path, req.file.mimetype, fs)) {
+        throw new Error('Provider logo contents do not match its file type.');
+      }
+      return next();
+    } catch (validationError) {
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch {
+        // Best-effort cleanup.
+      }
+      return res.status(422).json({
+        success: false,
+        message: validationError.message || 'Invalid provider logo.',
+      });
+    }
+  });
+};
+
 
 function normalizeAnalyticsContentType(value) {
   const type = String(value || '').trim().toLowerCase();
@@ -547,6 +628,13 @@ app.get('/health', async (req, res) => {
 app.use(['/api/news', '/api/services'], express.json({ limit: '32mb' }));
 app.use(express.json({ limit: '256kb' }));
 app.use('/uploads/content/news', express.static(newsUploadDir, {
+  index: false,
+  dotfiles: 'deny',
+  setHeaders(res) {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+  },
+}));
+app.use('/uploads/content/exchange-providers', express.static(exchangeProviderUploadDir, {
   index: false,
   dotfiles: 'deny',
   setHeaders(res) {
@@ -2340,18 +2428,121 @@ app.delete('/api/services/:id', async (req, res) => {
   }
 });
 
-async function getExchangeRate() {
+function mapExchangeProvider(row) {
+  return {
+    id: String(row.id),
+    name: row.name,
+    rate: row.rate,
+    logoUrl: row.logoUrl ?? row.logo_url ?? '',
+    websiteUrl: row.websiteUrl ?? row.website_url ?? '',
+    published: Boolean(row.published),
+    displayOrder: Number(row.displayOrder ?? row.display_order ?? 0),
+    updatedAt: row.updatedAt ?? row.updated_at ?? null,
+  };
+}
+
+async function getExchangeProviders(includeUnpublished = false) {
   const result = await db.query(`
     SELECT
       id,
+      name,
       rate,
+      logo_url AS "logoUrl",
+      website_url AS "websiteUrl",
+      published,
+      display_order AS "displayOrder",
       updated_at AS "updatedAt"
-    FROM exchange_rates
-    ORDER BY updated_at DESC, id DESC
-    LIMIT 1
+    FROM exchange_provider_rates
+    ${includeUnpublished ? '' : 'WHERE published = TRUE'}
+    ORDER BY display_order ASC, id ASC
+    LIMIT 2
   `);
 
-  return result.rows[0] || null;
+  return result.rows.map(mapExchangeProvider);
+}
+
+async function getExchangeRate(includeUnpublishedProviders = false) {
+  const [result, providers] = await Promise.all([
+    db.query(`
+      SELECT
+        id,
+        rate,
+        updated_at AS "updatedAt"
+      FROM exchange_rates
+      ORDER BY updated_at DESC, id DESC
+      LIMIT 1
+    `),
+    getExchangeProviders(includeUnpublishedProviders),
+  ]);
+
+  return {
+    ...(result.rows[0] || { id: null, rate: null, updatedAt: null }),
+    providers,
+  };
+}
+
+function exchangeProviderFileUrl(file) {
+  return file ? `/uploads/content/exchange-providers/${file.filename}` : '';
+}
+
+function localExchangeProviderFilePath(mediaPath) {
+  const prefix = '/uploads/content/exchange-providers/';
+  if (!mediaPath || !String(mediaPath).startsWith(prefix)) return null;
+  const candidate = path.resolve(exchangeProviderUploadDir, path.basename(String(mediaPath)));
+  return candidate.startsWith(`${exchangeProviderUploadDir}${path.sep}`) ? candidate : null;
+}
+
+function removeStoredExchangeProviderLogo(mediaPath) {
+  const filePath = localExchangeProviderFilePath(mediaPath);
+  if (!filePath) return;
+  try {
+    fs.unlinkSync(filePath);
+  } catch (error) {
+    if (error.code !== 'ENOENT') {
+      console.error('[Exchange] Provider logo cleanup failed:', error.message);
+    }
+  }
+}
+
+function validateExchangeProvider(body, current = {}) {
+  const name = boundedText(body.name ?? current.name, 80, 'Provider name');
+  const rateText = String(body.rate ?? current.rate ?? '').trim().replace(/,/g, '');
+  const websiteUrl = boundedText(body.websiteUrl ?? current.website_url ?? '', 2048, 'Website URL');
+  const displayOrder = Number(body.displayOrder ?? current.display_order ?? 0);
+
+  if (!name) {
+    const error = new Error('Provider name is required.');
+    error.statusCode = 400;
+    throw error;
+  }
+  if (!/^\d+(?:\.\d+)?$/.test(rateText) || !Number.isFinite(Number(rateText)) || Number(rateText) <= 0) {
+    const error = new Error('Provider rate must be a number greater than zero.');
+    error.statusCode = 400;
+    throw error;
+  }
+  if (!Number.isInteger(displayOrder) || displayOrder < 0 || displayOrder > 100) {
+    const error = new Error('Display order must be a whole number between 0 and 100.');
+    error.statusCode = 400;
+    throw error;
+  }
+  if (websiteUrl) {
+    try {
+      const parsedUrl = new URL(websiteUrl);
+      if (!['http:', 'https:'].includes(parsedUrl.protocol)) throw new Error('Unsupported protocol.');
+    } catch {
+      const error = new Error('Website URL must be a valid HTTP or HTTPS URL.');
+      error.statusCode = 400;
+      throw error;
+    }
+  }
+
+  return {
+    name,
+    rate: Number(rateText),
+    websiteUrl,
+    displayOrder,
+    published: parseBoolean(body.published, current.published ?? true),
+  };
 }
 
 async function saveExchangeRate(req, res) {
@@ -2408,7 +2599,7 @@ async function saveExchangeRate(req, res) {
 
 app.get('/api/exchange', async (req, res) => {
   try {
-    const exchange = await getExchangeRate();
+    const exchange = await getExchangeRate(isAdminAuthenticated(req));
 
     res.json({
       success: true,
@@ -2425,7 +2616,7 @@ app.get('/api/exchange', async (req, res) => {
 
 app.get('/api/exchange-rate', async (req, res) => {
   try {
-    const exchange = await getExchangeRate();
+    const exchange = await getExchangeRate(isAdminAuthenticated(req));
 
     res.json({
       success: true,
@@ -2447,6 +2638,150 @@ app.put('/api/exchange', saveExchangeRate);
 app.post('/api/exchange-rate', saveExchangeRate);
 
 app.put('/api/exchange-rate', saveExchangeRate);
+
+app.post('/api/exchange-providers', exchangeProviderUploadMiddleware, async (req, res) => {
+  try {
+    const countResult = await db.query('SELECT COUNT(*)::int AS count FROM exchange_provider_rates');
+    if (countResult.rows[0].count >= 2) {
+      if (req.file?.path) fs.unlinkSync(req.file.path);
+      return res.status(409).json({
+        success: false,
+        message: 'A maximum of two comparison providers is allowed.',
+      });
+    }
+
+    const provider = validateExchangeProvider(req.body || {});
+    const logoUrl = exchangeProviderFileUrl(req.file);
+    const result = await db.query(
+      `INSERT INTO exchange_provider_rates
+        (name, rate, logo_url, website_url, published, display_order, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW())
+       RETURNING
+         id,
+         name,
+         rate,
+         logo_url AS "logoUrl",
+         website_url AS "websiteUrl",
+         published,
+         display_order AS "displayOrder",
+         updated_at AS "updatedAt"`,
+      [
+        provider.name,
+        provider.rate,
+        logoUrl,
+        provider.websiteUrl,
+        provider.published,
+        provider.displayOrder,
+      ],
+    );
+
+    return res.status(201).json({ success: true, data: mapExchangeProvider(result.rows[0]) });
+  } catch (error) {
+    if (req.file?.path) {
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch {
+        // Best-effort cleanup.
+      }
+    }
+    console.error('[Exchange] Provider create failed:', error.message);
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.statusCode ? error.message : 'Failed to create comparison provider.',
+    });
+  }
+});
+
+app.put('/api/exchange-providers/:id', exchangeProviderUploadMiddleware, async (req, res) => {
+  try {
+    const existing = await db.query(
+      'SELECT * FROM exchange_provider_rates WHERE id = $1',
+      [String(req.params.id)],
+    );
+    if (existing.rows.length === 0) {
+      if (req.file?.path) fs.unlinkSync(req.file.path);
+      return res.status(404).json({ success: false, message: 'Comparison provider not found.' });
+    }
+
+    const current = existing.rows[0];
+    const provider = validateExchangeProvider(req.body || {}, current);
+    const removeLogo = parseBoolean(req.body?.removeLogo, false);
+    const nextLogoUrl = req.file
+      ? exchangeProviderFileUrl(req.file)
+      : removeLogo
+        ? ''
+        : current.logo_url;
+
+    const result = await db.query(
+      `UPDATE exchange_provider_rates
+       SET name = $1,
+           rate = $2,
+           logo_url = $3,
+           website_url = $4,
+           published = $5,
+           display_order = $6,
+           updated_at = NOW()
+       WHERE id = $7
+       RETURNING
+         id,
+         name,
+         rate,
+         logo_url AS "logoUrl",
+         website_url AS "websiteUrl",
+         published,
+         display_order AS "displayOrder",
+         updated_at AS "updatedAt"`,
+      [
+        provider.name,
+        provider.rate,
+        nextLogoUrl,
+        provider.websiteUrl,
+        provider.published,
+        provider.displayOrder,
+        String(req.params.id),
+      ],
+    );
+
+    if ((req.file || removeLogo) && current.logo_url !== nextLogoUrl) {
+      removeStoredExchangeProviderLogo(current.logo_url);
+    }
+
+    return res.json({ success: true, data: mapExchangeProvider(result.rows[0]) });
+  } catch (error) {
+    if (req.file?.path) {
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch {
+        // Best-effort cleanup.
+      }
+    }
+    console.error('[Exchange] Provider update failed:', error.message);
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.statusCode ? error.message : 'Failed to update comparison provider.',
+    });
+  }
+});
+
+app.delete('/api/exchange-providers/:id', async (req, res) => {
+  try {
+    const result = await db.query(
+      'DELETE FROM exchange_provider_rates WHERE id = $1 RETURNING id, logo_url',
+      [String(req.params.id)],
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Comparison provider not found.' });
+    }
+    removeStoredExchangeProviderLogo(result.rows[0].logo_url);
+    return res.json({ success: true, data: { id: String(result.rows[0].id) } });
+  } catch (error) {
+    console.error('[Exchange] Provider delete failed:', error.message);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to delete comparison provider.',
+    });
+  }
+});
 
 function profilePayload(row) {
   return {
