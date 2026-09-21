@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -18,14 +18,12 @@ import { apiRequest } from '@/services/api/client';
 import { useAuthStore } from '@/store/auth-store';
 
 type Channel = 'email' | 'phone';
-type Country = 'MY' | 'MM';
 
 const ANDROID_EXTRA_BOLD = Platform.OS === 'android' ? '700' : '800';
 
 export default function SignupScreen() {
   const [stage, setStage] = useState<'details' | 'verify'>('details');
   const [channel, setChannel] = useState<Channel>('email');
-  const [country, setCountry] = useState<Country>('MY');
   const [name, setName] = useState('');
   const [age, setAge] = useState('');
   const [identifier, setIdentifier] = useState('');
@@ -36,8 +34,6 @@ export default function SignupScreen() {
   const [challengeId, setChallengeId] = useState('');
   const [identifierHint, setIdentifierHint] = useState('');
   const [submitting, setSubmitting] = useState(false);
-
-  const countryPrefix = useMemo(() => (country === 'MY' ? '+60' : '+95'), [country]);
 
   const requestVerification = async () => {
     const trimmedName = name.trim().replace(/\s+/g, ' ');
@@ -56,7 +52,7 @@ export default function SignupScreen() {
         channel === 'email' ? 'Email required' : 'Phone number required',
         channel === 'email'
           ? 'Enter your email address.'
-          : 'Enter a Malaysia or Myanmar mobile number.',
+          : 'Enter a Malaysia mobile number.',
       );
       return;
     }
@@ -86,7 +82,7 @@ export default function SignupScreen() {
           age: numericAge,
           identifier: identifier.trim(),
           channel,
-          country: channel === 'phone' ? country : undefined,
+          country: channel === 'phone' ? 'MY' : undefined,
           password,
           platform: Platform.OS,
         }),
@@ -195,7 +191,7 @@ export default function SignupScreen() {
               <>
                 <Text style={styles.title}>Create your account</Text>
                 <Text style={styles.subtitle}>
-                  Sign up with a verified email or Malaysia / Myanmar phone number.
+                  Sign up with a verified email or Malaysia phone number.
                 </Text>
 
                 <View style={styles.segment}>
@@ -250,19 +246,8 @@ export default function SignupScreen() {
                 </View>
 
                 {channel === 'phone' && (
-                  <View style={styles.countryRow}>
-                    <Pressable
-                      onPress={() => setCountry('MY')}
-                      style={[styles.countryButton, country === 'MY' && styles.countryButtonActive]}
-                    >
-                      <Text style={styles.countryText}>🇲🇾 +60 Malaysia</Text>
-                    </Pressable>
-                    <Pressable
-                      onPress={() => setCountry('MM')}
-                      style={[styles.countryButton, country === 'MM' && styles.countryButtonActive]}
-                    >
-                      <Text style={styles.countryText}>🇲🇲 +95 Myanmar</Text>
-                    </Pressable>
+                  <View style={styles.countrySingle}>
+                    <Text style={styles.countryText}>🇲🇾 +60 Malaysia</Text>
                   </View>
                 )}
 
@@ -271,7 +256,7 @@ export default function SignupScreen() {
                   <TextInput
                     value={identifier}
                     onChangeText={setIdentifier}
-                    placeholder={channel === 'email' ? 'you@example.com' : countryPrefix + ' or local number'}
+                    placeholder={channel === 'email' ? 'you@example.com' : '+60 or local number'}
                     placeholderTextColor="#98A2B3"
                     keyboardType={channel === 'email' ? 'email-address' : 'phone-pad'}
                     autoCapitalize="none"
@@ -456,19 +441,17 @@ const styles = StyleSheet.create({
     color: '#101828',
   },
   codeInput: { textAlign: 'center', letterSpacing: 8, fontSize: 21, fontWeight: '700' },
-  countryRow: { flexDirection: 'row', gap: 8, marginBottom: 14 },
-  countryButton: {
-    flex: 1,
+  countrySingle: {
     minHeight: 46,
     borderWidth: 1,
-    borderColor: '#D9E2EC',
+    borderColor: '#3195F5',
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#FBFDFF',
+    backgroundColor: '#EEF7FF',
+    marginBottom: 14,
     paddingHorizontal: 8,
   },
-  countryButtonActive: { borderColor: '#3195F5', backgroundColor: '#EEF7FF' },
   countryText: { color: '#344054', fontSize: 12, fontWeight: '600' },
   passwordHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   showPassword: { fontSize: 13, fontWeight: '600', color: '#3195F5' },
