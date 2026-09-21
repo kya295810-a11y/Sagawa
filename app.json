@@ -33,7 +33,12 @@
           "imageWidth": 76
         }
       ],
-      "expo-secure-store",
+      [
+        "expo-secure-store",
+        {
+          "faceIDPermission": "Allow Sagawa to use Face ID for secure sign in."
+        }
+      ],
       "expo-localization",
       "expo-asset",
       "expo-image",
