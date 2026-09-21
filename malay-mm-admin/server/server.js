@@ -965,11 +965,14 @@ app.post('/api/auth/login', async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('[Auth] Login failed:', error.message);
+    const status = Number(error.statusCode) || 500;
+    if (status >= 500) {
+      console.error('[Auth] Login failed:', error.message);
+    }
 
-    return res.status(500).json({
+    return res.status(status).json({
       success: false,
-      message: 'Authentication service unavailable.',
+      message: status >= 500 ? 'Authentication service unavailable.' : error.message,
     });
   }
 });
