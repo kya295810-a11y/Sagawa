@@ -24,8 +24,8 @@ function validateEmail(email) {
 }
 
 function validatePassword(password) {
-  if (typeof password !== 'string' || password.length < 8 || password.length > 128) {
-    return 'Password must be between 8 and 128 characters.';
+  if (typeof password !== 'string' || password.length < 6 || password.length > 128) {
+    return 'Password must be between 6 and 128 characters.';
   }
   return null;
 }
@@ -291,10 +291,16 @@ async function createUserSession(client, userId) {
   };
 }
 
-async function registerUser(emailValue, password, ageValue) {
+async function registerUser(emailValue, password, ageValue, nameValue) {
   const email = normalizeEmail(emailValue);
+  const name = String(nameValue || '').trim().replace(/\s+/g, ' ');
   const ageText = String(ageValue ?? '').trim();
   const age = Number(ageText);
+  if (!name || name.length > 100) {
+    const error = new Error('Name is required and must be 100 characters or fewer.');
+    error.statusCode = 400;
+    throw error;
+  }
   if (!validateEmail(email)) {
     const error = new Error('Please enter a valid email address.');
     error.statusCode = 400;
@@ -325,8 +331,8 @@ async function registerUser(emailValue, password, ageValue) {
     const user = userResult.rows[0];
     await client.query(
       `INSERT INTO profiles (user_id, name, age, profile_completed)
-       VALUES ($1, '', $2, false)`,
-      [user.id, age],
+       VALUES ($1, $2, $3, true)`,
+      [user.id, name, age],
     );
     const session = await createUserSession(client, user.id);
     await client.query('COMMIT');
@@ -342,6 +348,79 @@ async function registerUser(emailValue, password, ageValue) {
   } finally {
     client.release();
   }
+}
+
+async function createBiometricCredential(userId, platformValue) {
+  const token = createOpaqueToken();
+  const platform = String(platformValue || 'mobile').trim().toLowerCase().slice(0, 32) || 'mobile';
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      'DELETE FROM user_biometric_credentials WHERE user_id = $1 AND platform = $2',
+      [userId, platform],
+    );
+    await client.query(
+      `INSERT INTO user_biometric_credentials
+        (id, user_id, token_hash, platform)
+       VALUES ($1, $2, $3, $4)`,
+      [crypto.randomUUID(), userId, tokenHash(token), platform],
+    );
+    await client.query('COMMIT');
+    return token;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function loginWithBiometricCredential(token, platformValue) {
+  if (typeof token !== 'string' || token.length < 20 || token.length > 512) return null;
+  const platform = String(platformValue || 'mobile').trim().toLowerCase().slice(0, 32) || 'mobile';
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await client.query(
+      `SELECT b.id, b.user_id, u.email
+         FROM user_biometric_credentials b
+         JOIN users u ON u.id = b.user_id
+        WHERE b.token_hash = $1 AND b.platform = $2
+        FOR UPDATE OF b`,
+      [tokenHash(token), platform],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      await client.query('ROLLBACK');
+      return null;
+    }
+    await client.query(
+      'UPDATE user_biometric_credentials SET last_used_at = NOW() WHERE id = $1',
+      [row.id],
+    );
+    const profileCompleted = await getProfileCompleted(client, row.user_id);
+    const session = await createUserSession(client, row.user_id);
+    await client.query('COMMIT');
+    return {
+      user: publicUser({ id: row.user_id, email: row.email }),
+      profileCompleted,
+      ...session,
+    };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function revokeBiometricCredential(userId, platformValue) {
+  const platform = String(platformValue || 'mobile').trim().toLowerCase().slice(0, 32) || 'mobile';
+  await db.query(
+    'DELETE FROM user_biometric_credentials WHERE user_id = $1 AND platform = $2',
+    [userId, platform],
+  );
 }
 
 async function loginUser(emailValue, password) {
@@ -549,16 +628,19 @@ async function logoutMobileSession(req) {
 
 module.exports = {
   consumeOAuthHandoff,
+  createBiometricCredential,
   createMobileSessionForUser,
   createOAuthHandoff,
   getMobileSession,
   loginOrRegisterGoogleUser,
   loginUser,
+  loginWithBiometricCredential,
   logoutMobileSession,
   normalizeEmail,
   refreshMobileSession,
   registerUser,
   requestMobilePasswordReset,
   resetMobilePassword,
+  revokeBiometricCredential,
   requireMobileUser,
 };
