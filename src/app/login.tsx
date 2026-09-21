@@ -450,18 +450,12 @@ export default function LoginScreen() {
                     </Pressable>
                   </View>
 
-                  {channel === 'phone' && (
-                    <View style={styles.countrySingle}>
-                      <Text style={styles.countryText}>🇲🇾 +60 Malaysia</Text>
-                    </View>
-                  )}
-
                   <View style={styles.inputGroup}>
                     <Text style={styles.label}>{channel === 'email' ? 'Email' : 'Phone number'}</Text>
                     <TextInput
                       value={identifier}
                       onChangeText={setIdentifier}
-                      placeholder={channel === 'email' ? 'you@example.com' : '+60 or local number'}
+                      placeholder={channel === 'email' ? 'you@example.com' : '+60'}
                       placeholderTextColor="#98A2B3"
                       keyboardType={channel === 'email' ? 'email-address' : 'phone-pad'}
                       autoCapitalize="none"
@@ -599,38 +593,42 @@ export default function LoginScreen() {
                 </>
               )}
 
-              <View style={styles.dividerRow}>
-                <View style={styles.divider} />
-                <Text style={styles.dividerText}>or continue with</Text>
-                <View style={styles.divider} />
-              </View>
+              {stage === 'login' && (
+                <>
+                  <View style={styles.dividerRow}>
+                    <View style={styles.divider} />
+                    <Text style={styles.dividerText}>or continue with</Text>
+                    <View style={styles.divider} />
+                  </View>
 
-              <View style={styles.socialRow}>
-                <Pressable
-                  onPress={() => void handleGoogleLogin()}
-                  disabled={busy}
-                  style={({ pressed }) => [styles.socialButton, pressed && styles.socialPressed]}
-                >
-                  <Text style={styles.googleIcon}>G</Text>
-                  <Text style={styles.socialText}>{googleLoggingIn ? 'Signing in...' : 'Google'}</Text>
-                </Pressable>
+                  <View style={styles.socialRow}>
+                    <Pressable
+                      onPress={() => void handleGoogleLogin()}
+                      disabled={busy}
+                      style={({ pressed }) => [styles.socialButton, pressed && styles.socialPressed]}
+                    >
+                      <Text style={styles.googleIcon}>G</Text>
+                      <Text style={styles.socialText}>{googleLoggingIn ? 'Signing in...' : 'Google'}</Text>
+                    </Pressable>
 
-                <Pressable
-                  onPress={() => void handleGuestContinue()}
-                  disabled={busy}
-                  style={({ pressed }) => [styles.socialButton, pressed && styles.socialPressed]}
-                >
-                  <Ionicons name="person-outline" size={18} color="#344054" />
-                  <Text style={styles.socialText}>{guestContinuing ? 'Opening...' : 'Guest'}</Text>
-                </Pressable>
-              </View>
+                    <Pressable
+                      onPress={() => void handleGuestContinue()}
+                      disabled={busy}
+                      style={({ pressed }) => [styles.socialButton, pressed && styles.socialPressed]}
+                    >
+                      <Ionicons name="person-outline" size={18} color="#344054" />
+                      <Text style={styles.socialText}>{guestContinuing ? 'Opening...' : 'Guest'}</Text>
+                    </Pressable>
+                  </View>
 
-              <View style={styles.signupRow}>
-                <Text style={styles.signupText}>Don&apos;t have an account?</Text>
-                <Pressable onPress={() => router.push('/signup' as Href)}>
-                  <Text style={styles.signupLink}> Sign up</Text>
-                </Pressable>
-              </View>
+                  <View style={styles.signupRow}>
+                    <Text style={styles.signupText}>Don&apos;t have an account?</Text>
+                    <Pressable onPress={() => router.push('/signup' as Href)}>
+                      <Text style={styles.signupLink}> Sign up</Text>
+                    </Pressable>
+                  </View>
+                </>
+              )}
             </View>
 
             <Text style={styles.footer}>By continuing, you agree to our Terms and Privacy Policy.</Text>
@@ -692,17 +690,6 @@ const styles = StyleSheet.create({
   segmentButtonActive: { backgroundColor: '#FFFFFF' },
   segmentText: { color: '#667085', fontWeight: '600' },
   segmentTextActive: { color: '#1677D2' },
-  countrySingle: {
-    minHeight: 42,
-    borderWidth: 1,
-    borderColor: '#3195F5',
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#EEF7FF',
-    marginBottom: 12,
-  },
-  countryText: { color: '#344054', fontSize: 13, fontWeight: '600' },
   inputGroup: { marginBottom: 13 },
   label: { color: '#344054', fontSize: 14, fontWeight: '600', marginBottom: 7 },
   input: {
