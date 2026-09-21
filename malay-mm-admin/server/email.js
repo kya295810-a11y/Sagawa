@@ -135,6 +135,36 @@ This code will expire in ${expirationMinutes} minutes. Do not share it with anyo
   }
 }
 
+
+async function sendUserVerificationCode(toEmail, code, purpose = 'signup') {
+  if (!isEmailConfigured()) {
+    const error = new Error('Email verification is not configured.');
+    error.statusCode = 503;
+    throw error;
+  }
+
+  const action = purpose === 'login' ? 'sign in to' : 'create';
+  const subject = purpose === 'login' ? 'Sagawa Login Code' : 'Verify Your Sagawa Account';
+  const html = `
+    <!DOCTYPE html>
+    <html>
+      <body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#172033;background:#f4f9ff;padding:24px">
+        <div style="max-width:520px;margin:auto;background:#fff;border-radius:18px;padding:28px;border:1px solid #e2ecf6">
+          <h1 style="margin:0 0 12px;font-size:24px">Sagawa</h1>
+          <p>Use this verification code to ${action} your Sagawa account:</p>
+          <div style="font-size:32px;font-weight:700;letter-spacing:6px;text-align:center;padding:18px;margin:22px 0;background:#f4f9ff;border-radius:14px">${code}</div>
+          <p>This code expires in 10 minutes. Never share it with anyone.</p>
+          <p style="font-size:12px;color:#667085">If you did not request this code, you can ignore this message.</p>
+        </div>
+      </body>
+    </html>
+  `;
+  const text = `Sagawa verification code: ${code}\n\nThis code expires in 10 minutes. Never share it with anyone.`;
+
+  await sendEmail({ to: toEmail, subject, html, text });
+  return true;
+}
+
 async function sendPasswordResetCode(toEmail, code, options = {}) {
   if (!isEmailConfigured()) {
     throw new Error('Email service is not configured.');
@@ -219,5 +249,6 @@ This code will expire in ${expirationMinutes} minutes. Do not share it with anyo
 module.exports = {
   isEmailConfigured,
   sendVerificationCode,
+  sendUserVerificationCode,
   sendPasswordResetCode,
 };
