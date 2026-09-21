@@ -641,7 +641,7 @@ export default function LoginScreen() {
               </View>
 
               <View style={styles.signupRow}>
-                <Text style={styles.signupText}>Don't have an account?</Text>
+                <Text style={styles.signupText}>Don&apos;t have an account?</Text>
                 <Pressable onPress={() => router.push('/signup' as Href)}>
                   <Text style={styles.signupLink}> Sign up</Text>
                 </Pressable>
