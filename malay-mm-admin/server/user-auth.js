@@ -427,6 +427,47 @@ async function revokeBiometricCredential(userId, platformValue) {
   );
 }
 
+async function authenticatePasswordUser(identifierValue, password) {
+  const rawIdentifier = String(identifierValue || '').trim();
+  const email = normalizeEmail(rawIdentifier);
+  const compactPhone = rawIdentifier.replace(/[\s().-]/g, '').replace(/^00/, '+');
+  const phone = /^01\d{8,9}$/.test(compactPhone)
+    ? `+60${compactPhone.slice(1)}`
+    : compactPhone;
+
+  let result = { rows: [] };
+  if (validateEmail(email)) {
+    result = await db.query(
+      `SELECT id, email, phone_number, password_hash, email_verified_at, phone_verified_at
+         FROM users
+        WHERE lower(email) = $1`,
+      [email],
+    );
+  } else if (/^\+601\d{8,9}$/.test(phone)) {
+    result = await db.query(
+      `SELECT id, email, phone_number, password_hash, email_verified_at, phone_verified_at
+         FROM users
+        WHERE phone_number = $1`,
+      [phone],
+    );
+  }
+
+  const row = result.rows[0];
+  const passwordMatches = await bcrypt.compare(
+    typeof password === 'string' ? password : '',
+    row?.password_hash || DUMMY_PASSWORD_HASH,
+  );
+  if (!row || !passwordMatches) return null;
+
+  return {
+    id: row.id,
+    email: row.email || null,
+    phoneNumber: row.phone_number || null,
+    emailVerified: Boolean(row.email_verified_at),
+    phoneVerified: Boolean(row.phone_verified_at),
+  };
+}
+
 async function loginUser(identifierValue, password) {
   const rawIdentifier = String(identifierValue || '').trim();
   const email = normalizeEmail(rawIdentifier);
@@ -652,6 +693,7 @@ async function logoutMobileSession(req) {
 }
 
 module.exports = {
+  authenticatePasswordUser,
   consumeOAuthHandoff,
   createBiometricCredential,
   createMobileSessionForUser,
