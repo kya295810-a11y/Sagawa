@@ -26,6 +26,7 @@ const ANDROID_INPUT_TEXT_FIX = Platform.select({
 
 export default function SignupScreen() {
   const [email, setEmail] = useState("");
+  const [age, setAge] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -36,6 +37,11 @@ export default function SignupScreen() {
     const normalizedEmail = email.trim().toLowerCase();
     if (!normalizedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
       Alert.alert('Check your email', 'Enter a valid email address.');
+      return;
+    }
+    const numericAge = Number(age);
+    if (!/^\d{1,3}$/.test(age) || !Number.isInteger(numericAge) || numericAge < 18 || numericAge > 120) {
+      Alert.alert('Age requirement', 'You must be 18 or older to create a Sagawa account.');
       return;
     }
     if (password.length < 8 || password.length > 128) {
@@ -63,7 +69,7 @@ export default function SignupScreen() {
         };
       }>('/api/auth/register', {
         method: 'POST',
-        body: JSON.stringify({ email: normalizedEmail, password, platform: Platform.OS }),
+        body: JSON.stringify({ email: normalizedEmail, password, age: numericAge, platform: Platform.OS }),
       });
       await useAuthStore.getState().setSession(
         {
@@ -153,6 +159,21 @@ export default function SignupScreen() {
                 autoCorrect={false}
                 style={styles.input}
               />
+            </View>
+
+            {/* Age */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Age</Text>
+              <TextInput
+                value={age}
+                onChangeText={(value) => setAge(value.replace(/\D/g, ''))}
+                placeholder="Your age"
+                placeholderTextColor="#9CA3AF"
+                keyboardType="number-pad"
+                maxLength={3}
+                style={styles.input}
+              />
+              <Text style={styles.helperText}>You must be 18 or older to create an account.</Text>
             </View>
 
             {/* Password */}
@@ -251,23 +272,10 @@ export default function SignupScreen() {
           {/* Social buttons */}
           <View style={styles.socialRow}>
             <Pressable
-              style={({ pressed }) => [
-                styles.socialButton,
-                pressed && styles.socialPressed,
-              ]}
+              style={({ pressed }) => [styles.socialButton, pressed && styles.socialPressed]}
             >
               <Text style={styles.googleIcon}>G</Text>
               <Text style={styles.socialText}>Google</Text>
-            </Pressable>
-
-            <Pressable
-              style={({ pressed }) => [
-                styles.socialButton,
-                pressed && styles.socialPressed,
-              ]}
-            >
-              <Text style={styles.appleIcon}>●</Text>
-              <Text style={styles.socialText}>Apple</Text>
             </Pressable>
           </View>
 
@@ -573,11 +581,6 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     fontWeight: ANDROID_EXTRA_BOLD,
     color: "#4285F4",
-  },
-
-  appleIcon: {
-    fontSize: 15,
-    color: "#101828",
   },
 
   socialText: {
