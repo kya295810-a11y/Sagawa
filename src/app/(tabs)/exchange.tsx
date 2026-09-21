@@ -594,7 +594,7 @@ export default function ExchangeScreen() {
                               adjustsFontSizeToFit
                               allowFontScaling={false}
                             >
-                              {formatRate(displayRate)} {toCurrency}
+                              1 {fromCurrency === 'MYR' ? 'RM' : fromCurrency} = {formatRate(displayRate)} {toCurrency}
                             </Text>
                           </View>
 
@@ -1504,6 +1504,7 @@ const createStyles = (colors: {
     providerDetails: {
       minWidth: 0,
       flex: 1,
+      justifyContent: 'center',
     },
 
     providerName: {
@@ -1517,10 +1518,11 @@ const createStyles = (colors: {
     providerRate: {
       color: '#83B9FF',
 
-      fontSize: 13,
-      lineHeight: 17,
+      fontSize: 12,
+      lineHeight: 16,
       fontWeight: ANDROID_BLACK,
       fontVariant: ['tabular-nums'],
+      marginTop: 2,
     },
 
     /* ==========================================================
