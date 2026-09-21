@@ -156,6 +156,7 @@ export default function ProfileScreen() {
   const styles = createStyles(theme.colors, isDark);
 
   const authStatus = useAuthStore((state) => state.status);
+  const authUser = useAuthStore((state) => state.session?.user);
   const isGuest = authStatus === 'guest';
   const profileQuery = useProfile();
   const imageUpload = useUploadProfileImage();
@@ -560,6 +561,24 @@ export default function ProfileScreen() {
     );
   }
 
+  const maskAccountIdentifier = () => {
+    if (authUser?.email) {
+      const [local, domain] = authUser.email.split('@');
+      if (!domain) return authUser.email;
+      const start = local.slice(0, 3);
+      const end = local.length > 3 ? local.slice(-2) : '';
+      return `${start}•••${end}@${domain}`;
+    }
+
+    if (authUser?.phoneNumber) {
+      const compact = authUser.phoneNumber.replace(/\s+/g, '');
+      if (compact.length <= 5) return compact;
+      return `${compact.slice(0, 3)}••••••${compact.slice(-2)}`;
+    }
+
+    return 'Account';
+  };
+
   const avatarUri = getMediaUrl(profile.profileImage);
 
   return (
@@ -614,11 +633,7 @@ export default function ProfileScreen() {
               {profile.name}
             </Text>
             <Text style={styles.profileSubtitle} allowFontScaling={false}>
-              {profile.age ?? 'Age not set'} ·{' '}
-              {profile.gender
-                ? `${profile.gender[0].toUpperCase()}${profile.gender.slice(1)}`
-                : 'Gender not set'}
-              {profile.location ? ` · ${profile.location}` : ''}
+              {maskAccountIdentifier()}
             </Text>
           </View>
         </View>
