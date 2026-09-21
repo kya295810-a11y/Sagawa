@@ -237,7 +237,7 @@ export default function SignupScreen() {
                   <TextInput
                     value={age}
                     onChangeText={(value) => setAge(value.replace(/\D/g, ''))}
-                    placeholder="18 or older"
+                    placeholder=""
                     placeholderTextColor="#98A2B3"
                     keyboardType="number-pad"
                     maxLength={3}
@@ -245,18 +245,12 @@ export default function SignupScreen() {
                   />
                 </View>
 
-                {channel === 'phone' && (
-                  <View style={styles.countrySingle}>
-                    <Text style={styles.countryText}>🇲🇾 +60 Malaysia</Text>
-                  </View>
-                )}
-
                 <View style={styles.inputGroup}>
                   <Text style={styles.label}>{channel === 'email' ? 'Email' : 'Phone number'}</Text>
                   <TextInput
                     value={identifier}
                     onChangeText={setIdentifier}
-                    placeholder={channel === 'email' ? 'you@example.com' : '+60 or local number'}
+                    placeholder={channel === 'email' ? 'you@example.com' : '+60'}
                     placeholderTextColor="#98A2B3"
                     keyboardType={channel === 'email' ? 'email-address' : 'phone-pad'}
                     autoCapitalize="none"
@@ -440,20 +434,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#101828',
   },
-  codeInput: { textAlign: 'center', letterSpacing: 8, fontSize: 21, fontWeight: '700' },
-  countrySingle: {
-    minHeight: 46,
-    borderWidth: 1,
-    borderColor: '#3195F5',
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#EEF7FF',
-    marginBottom: 14,
-    paddingHorizontal: 8,
-  },
-  countryText: { color: '#344054', fontSize: 12, fontWeight: '600' },
-  passwordHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  codeInput: { textAlign: 'center', letterSpacing: 8, fontSize: 21, fontWeight: '700' },  passwordHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   showPassword: { fontSize: 13, fontWeight: '600', color: '#3195F5' },
   termsRow: { flexDirection: 'row', alignItems: 'flex-start', marginTop: 2, marginBottom: 18 },
   checkbox: {
