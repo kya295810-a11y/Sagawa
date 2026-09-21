@@ -44,6 +44,7 @@ const {
   verifyPassword,
 } = require('./auth');
 const {
+  authenticatePasswordUser,
   consumeOAuthHandoff,
   createBiometricCredential,
   createMobileSessionForUser,
@@ -65,6 +66,7 @@ const { isEmailConfigured, sendVerificationCode, sendPasswordResetCode } = requi
 const {
   authCapabilities,
   requestLoginVerification,
+  requestPasswordLoginVerification,
   requestSignupVerification,
   verifyLogin: verifyLoginCode,
   verifySignup: verifySignupCode,
@@ -880,22 +882,20 @@ app.post('/api/auth/login', async (req, res) => {
 
   try {
     if (isMobileRequest || normalizeEmail(email) !== ADMIN_EMAIL) {
-      const mobileSession = await loginUser(identifier, password);
-      if (!mobileSession) {
+      const mobileUser = await authenticatePasswordUser(identifier, password);
+      if (!mobileUser) {
         return res.status(401).json({ success: false, message: 'Invalid email/phone number or password.' });
       }
-      const profileResult = await db.query(
-        'SELECT profile_completed FROM profiles WHERE user_id = $1',
-        [mobileSession.user.id],
-      );
-      scheduleUserSheetSync(mobileSession.user.id, { platform: req.body?.platform || 'Mobile' });
-      return res.json({
+
+      const challenge = await requestPasswordLoginVerification(mobileUser);
+      return res.status(202).json({
         success: true,
         data: {
-          ...mobileSession,
-          authenticated: true,
-          profileCompleted: Boolean(profileResult.rows[0]?.profile_completed),
+          authenticated: false,
+          verificationRequired: true,
+          ...challenge,
         },
+        message: 'Verification code sent.',
       });
     }
 
