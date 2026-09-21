@@ -187,7 +187,7 @@ export default function SignupScreen() {
             <Text style={styles.brandName}>Sagawa</Text>
           </View>
 
-          <View style={styles.card}>
+          <View style={[styles.card, stage === 'verify' && styles.verifyCard]}>
             {stage === 'details' ? (
               <>
                 <Text style={styles.title}>Create your account</Text>
@@ -308,7 +308,7 @@ export default function SignupScreen() {
                 <View style={styles.verifyIconWrap}>
                   <Ionicons
                     name={channel === 'email' ? 'mail-outline' : 'phone-portrait-outline'}
-                    size={28}
+                    size={24}
                     color="#1677D2"
                   />
                 </View>
@@ -316,9 +316,7 @@ export default function SignupScreen() {
                 <Text style={styles.verifyTitle}>
                   {channel === 'email' ? 'Check your email' : 'Check your phone'}
                 </Text>
-                <Text style={styles.verifySubtitle}>
-                  Enter the 6-digit code sent to
-                </Text>
+                <Text style={styles.verifySubtitle}>Enter the 6-digit code sent to</Text>
                 <Text style={styles.verifyDestination}>
                   {identifierHint || identifier.trim()}
                 </Text>
@@ -327,7 +325,7 @@ export default function SignupScreen() {
                   value={code}
                   onChangeText={(value) => setCode(value.replace(/\D/g, '').slice(0, 6))}
                   placeholder="000000"
-                  placeholderTextColor="#B0BAC6"
+                  placeholderTextColor="#B8C1CC"
                   keyboardType="number-pad"
                   autoComplete="one-time-code"
                   textContentType="oneTimeCode"
@@ -336,15 +334,13 @@ export default function SignupScreen() {
                   style={styles.verifyCodeInput}
                 />
 
-                <Text style={styles.expiryText}>Code expires in 10 minutes</Text>
-
                 <Pressable
                   onPress={() => void verifyAndCreateAccount()}
                   disabled={submitting || code.length !== 6}
                   style={({ pressed }) => [
-                    styles.primaryButton,
+                    styles.verifyButton,
                     pressed && styles.buttonPressed,
-                    (submitting || code.length !== 6) && styles.disabled,
+                    (submitting || code.length !== 6) && styles.verifyButtonDisabled,
                   ]}
                 >
                   <Text style={styles.primaryButtonText}>
@@ -352,14 +348,14 @@ export default function SignupScreen() {
                   </Text>
                 </Pressable>
 
-                <View style={styles.resendRow}>
-                  <Text style={styles.resendLabel}>Didn't get the code?</Text>
+                <View style={styles.verifyMetaRow}>
+                  <Text style={styles.expiryText}>Code expires in 10 minutes</Text>
                   <Pressable
                     onPress={() => void requestVerification()}
                     disabled={submitting}
                     hitSlop={8}
                   >
-                    <Text style={styles.resendLink}> Resend</Text>
+                    <Text style={styles.resendLink}>Resend code</Text>
                   </Pressable>
                 </View>
 
@@ -372,6 +368,7 @@ export default function SignupScreen() {
                   style={styles.changeContactButton}
                   hitSlop={8}
                 >
+                  <Ionicons name="chevron-back" size={15} color="#667085" />
                   <Text style={styles.changeContactText}>
                     {channel === 'email' ? 'Change email' : 'Change phone number'}
                   </Text>
@@ -468,22 +465,27 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#101828',
   },
+  verifyCard: {
+    paddingHorizontal: 24,
+    paddingVertical: 28,
+    borderRadius: 24,
+  },
   verifyContent: {
+    width: '100%',
     alignItems: 'center',
-    paddingTop: 8,
   },
   verifyIconWrap: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
+    width: 52,
+    height: 52,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#EEF7FF',
-    marginBottom: 18,
+    marginBottom: 16,
   },
   verifyTitle: {
-    fontSize: 26,
-    lineHeight: 32,
+    fontSize: 24,
+    lineHeight: 30,
     fontWeight: ANDROID_EXTRA_BOLD,
     color: '#101828',
     letterSpacing: -0.5,
@@ -497,8 +499,8 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   verifyDestination: {
-    marginTop: 3,
-    marginBottom: 24,
+    marginTop: 2,
+    marginBottom: 20,
     fontSize: 14,
     lineHeight: 20,
     fontWeight: '700',
@@ -507,33 +509,45 @@ const styles = StyleSheet.create({
   },
   verifyCodeInput: {
     width: '100%',
-    height: 62,
-    borderWidth: 1,
-    borderColor: '#C9D8E8',
-    borderRadius: 16,
-    backgroundColor: '#FBFDFF',
+    height: 58,
+    borderWidth: 1.5,
+    borderColor: '#D3DFEA',
+    borderRadius: 14,
+    backgroundColor: '#FFFFFF',
     paddingHorizontal: 18,
     textAlign: 'center',
-    fontSize: 24,
+    fontSize: 23,
     fontWeight: '700',
-    letterSpacing: 12,
+    letterSpacing: 10,
     color: '#101828',
   },
-  expiryText: {
-    marginTop: 10,
-    marginBottom: 22,
-    fontSize: 12,
-    color: '#98A2B3',
-  },
-  resendRow: {
-    flexDirection: 'row',
+  verifyButton: {
+    width: '100%',
+    height: 52,
+    marginTop: 14,
+    borderRadius: 14,
+    backgroundColor: '#3195F5',
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 18,
   },
-  resendLabel: { fontSize: 14, color: '#667085' },
-  resendLink: { fontSize: 14, fontWeight: '700', color: '#1677D2' },
-  changeContactButton: { marginTop: 14, paddingVertical: 6 },
+  verifyButtonDisabled: {
+    backgroundColor: '#B9D9F7',
+  },
+  verifyMetaRow: {
+    width: '100%',
+    marginTop: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  expiryText: { fontSize: 12, color: '#98A2B3' },
+  resendLink: { fontSize: 13, fontWeight: '700', color: '#1677D2' },
+  changeContactButton: {
+    marginTop: 18,
+    paddingVertical: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   changeContactText: { fontSize: 13, fontWeight: '600', color: '#667085' },
   passwordHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   showPassword: { fontSize: 13, fontWeight: '600', color: '#3195F5' },
