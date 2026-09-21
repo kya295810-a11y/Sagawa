@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -17,20 +17,30 @@ import SagawaFlowerLogo from '../../assets/images/sagawa-flower-logo.svg';
 import { apiRequest } from '@/services/api/client';
 import { useAuthStore } from '@/store/auth-store';
 
+type Channel = 'email' | 'phone';
+type Country = 'MY' | 'MM';
+
 const ANDROID_EXTRA_BOLD = Platform.OS === 'android' ? '700' : '800';
 
 export default function SignupScreen() {
+  const [stage, setStage] = useState<'details' | 'verify'>('details');
+  const [channel, setChannel] = useState<Channel>('email');
+  const [country, setCountry] = useState<Country>('MY');
   const [name, setName] = useState('');
   const [age, setAge] = useState('');
-  const [email, setEmail] = useState('');
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [agree, setAgree] = useState(false);
+  const [code, setCode] = useState('');
+  const [challengeId, setChallengeId] = useState('');
+  const [identifierHint, setIdentifierHint] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  const handleSignup = async () => {
+  const countryPrefix = useMemo(() => (country === 'MY' ? '+60' : '+95'), [country]);
+
+  const requestVerification = async () => {
     const trimmedName = name.trim().replace(/\s+/g, ' ');
-    const normalizedEmail = email.trim().toLowerCase();
     const numericAge = Number(age);
 
     if (!trimmedName || trimmedName.length > 100) {
@@ -41,8 +51,13 @@ export default function SignupScreen() {
       Alert.alert('Age requirement', 'You must be 18 or older to create a Sagawa account.');
       return;
     }
-    if (!normalizedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
-      Alert.alert('Check your email', 'Enter a valid email address.');
+    if (!identifier.trim()) {
+      Alert.alert(
+        channel === 'email' ? 'Email required' : 'Phone number required',
+        channel === 'email'
+          ? 'Enter your email address.'
+          : 'Enter a Malaysia or Myanmar mobile number.',
+      );
       return;
     }
     if (password.length < 6 || password.length > 128) {
@@ -59,19 +74,60 @@ export default function SignupScreen() {
       const response = await apiRequest<{
         success: boolean;
         data: {
-          accessToken: string;
-          refreshToken: string;
+          challengeId: string;
+          identifierHint: string;
+          verificationRequired: boolean;
           expiresAt: string;
-          profileCompleted: boolean;
-          user: { id: string; email: string };
         };
       }>('/api/auth/register', {
         method: 'POST',
         body: JSON.stringify({
           name: trimmedName,
           age: numericAge,
-          email: normalizedEmail,
+          identifier: identifier.trim(),
+          channel,
+          country: channel === 'phone' ? country : undefined,
           password,
+          platform: Platform.OS,
+        }),
+      });
+
+      setChallengeId(response.data.challengeId);
+      setIdentifierHint(response.data.identifierHint);
+      setCode('');
+      setStage('verify');
+    } catch (error) {
+      Alert.alert(
+        'Unable to send verification code',
+        error instanceof Error ? error.message : 'Please try again.',
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const verifyAndCreateAccount = async () => {
+    if (!/^\d{6}$/.test(code.trim())) {
+      Alert.alert('Invalid code', 'Enter the 6-digit verification code.');
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      const response = await apiRequest<{
+        success: boolean;
+        data: {
+          accessToken: string;
+          refreshToken: string;
+          expiresAt: string;
+          profileCompleted: boolean;
+          user: { id: string; email?: string; phoneNumber?: string };
+        };
+      }>('/api/auth/register/verify', {
+        method: 'POST',
+        body: JSON.stringify({
+          challengeId,
+          code: code.trim(),
           platform: Platform.OS,
         }),
       });
@@ -90,7 +146,10 @@ export default function SignupScreen() {
 
       router.replace('/(tabs)' as Href);
     } catch (error) {
-      Alert.alert('Account creation failed', error instanceof Error ? error.message : 'Please try again.');
+      Alert.alert(
+        'Verification failed',
+        error instanceof Error ? error.message : 'Request a new code and try again.',
+      );
     } finally {
       setSubmitting(false);
     }
@@ -98,7 +157,10 @@ export default function SignupScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <KeyboardAvoidingView style={styles.keyboardView} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView
+        style={styles.keyboardView}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
         <ScrollView
           contentContainerStyle={styles.container}
           keyboardShouldPersistTaps="handled"
@@ -106,100 +168,205 @@ export default function SignupScreen() {
         >
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Back to login"
-            onPress={() => (router.canGoBack() ? router.back() : router.replace('/login'))}
+            accessibilityLabel="Back"
+            onPress={() => {
+              if (stage === 'verify') {
+                setStage('details');
+                setCode('');
+                setChallengeId('');
+                return;
+              }
+              router.replace('/login');
+            }}
             style={styles.backButton}
             hitSlop={8}
           >
             <Text style={styles.backIcon}>‹</Text>
-            <Text style={styles.backText}>Back</Text>
+            <Text style={styles.backText}>{stage === 'verify' ? 'Edit details' : 'Back'}</Text>
           </Pressable>
 
           <View style={styles.brandSection}>
-            <SagawaFlowerLogo width={64} height={64} accessibilityLabel="Sagawa flower logo" />
+            <SagawaFlowerLogo width={62} height={62} accessibilityLabel="Sagawa flower logo" />
             <Text style={styles.brandName}>Sagawa</Text>
           </View>
 
           <View style={styles.card}>
-            <Text style={styles.title}>Create your account</Text>
-            <Text style={styles.subtitle}>Enter your details once. You can update your profile later.</Text>
+            {stage === 'details' ? (
+              <>
+                <Text style={styles.title}>Create your account</Text>
+                <Text style={styles.subtitle}>
+                  Sign up with a verified email or Malaysia / Myanmar phone number.
+                </Text>
 
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Name</Text>
-              <TextInput
-                value={name}
-                onChangeText={setName}
-                placeholder="Your name"
-                placeholderTextColor="#98A2B3"
-                autoCapitalize="words"
-                maxLength={100}
-                style={styles.input}
-              />
-            </View>
+                <View style={styles.segment}>
+                  <Pressable
+                    onPress={() => {
+                      setChannel('email');
+                      setIdentifier('');
+                    }}
+                    style={[styles.segmentButton, channel === 'email' && styles.segmentButtonActive]}
+                  >
+                    <Text style={[styles.segmentText, channel === 'email' && styles.segmentTextActive]}>
+                      Email
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => {
+                      setChannel('phone');
+                      setIdentifier('');
+                    }}
+                    style={[styles.segmentButton, channel === 'phone' && styles.segmentButtonActive]}
+                  >
+                    <Text style={[styles.segmentText, channel === 'phone' && styles.segmentTextActive]}>
+                      Phone
+                    </Text>
+                  </Pressable>
+                </View>
 
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Age</Text>
-              <TextInput
-                value={age}
-                onChangeText={(value) => setAge(value.replace(/\D/g, ''))}
-                placeholder="18 or older"
-                placeholderTextColor="#98A2B3"
-                keyboardType="number-pad"
-                maxLength={3}
-                style={styles.input}
-              />
-            </View>
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>Name</Text>
+                  <TextInput
+                    value={name}
+                    onChangeText={setName}
+                    placeholder="Your name"
+                    placeholderTextColor="#98A2B3"
+                    autoCapitalize="words"
+                    maxLength={100}
+                    style={styles.input}
+                  />
+                </View>
 
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Email</Text>
-              <TextInput
-                value={email}
-                onChangeText={setEmail}
-                placeholder="you@example.com"
-                placeholderTextColor="#98A2B3"
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoCorrect={false}
-                style={styles.input}
-              />
-            </View>
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>Age</Text>
+                  <TextInput
+                    value={age}
+                    onChangeText={(value) => setAge(value.replace(/\D/g, ''))}
+                    placeholder="18 or older"
+                    placeholderTextColor="#98A2B3"
+                    keyboardType="number-pad"
+                    maxLength={3}
+                    style={styles.input}
+                  />
+                </View>
 
-            <View style={styles.inputGroup}>
-              <View style={styles.passwordHeader}>
-                <Text style={styles.label}>Password</Text>
-                <Pressable onPress={() => setShowPassword((value) => !value)} hitSlop={8}>
-                  <Text style={styles.showPassword}>{showPassword ? 'Hide' : 'Show'}</Text>
+                {channel === 'phone' && (
+                  <View style={styles.countryRow}>
+                    <Pressable
+                      onPress={() => setCountry('MY')}
+                      style={[styles.countryButton, country === 'MY' && styles.countryButtonActive]}
+                    >
+                      <Text style={styles.countryText}>🇲🇾 +60 Malaysia</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => setCountry('MM')}
+                      style={[styles.countryButton, country === 'MM' && styles.countryButtonActive]}
+                    >
+                      <Text style={styles.countryText}>🇲🇲 +95 Myanmar</Text>
+                    </Pressable>
+                  </View>
+                )}
+
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>{channel === 'email' ? 'Email' : 'Phone number'}</Text>
+                  <TextInput
+                    value={identifier}
+                    onChangeText={setIdentifier}
+                    placeholder={channel === 'email' ? 'you@example.com' : countryPrefix + ' or local number'}
+                    placeholderTextColor="#98A2B3"
+                    keyboardType={channel === 'email' ? 'email-address' : 'phone-pad'}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    style={styles.input}
+                  />
+                </View>
+
+                <View style={styles.inputGroup}>
+                  <View style={styles.passwordHeader}>
+                    <Text style={styles.label}>Password</Text>
+                    <Pressable onPress={() => setShowPassword((value) => !value)} hitSlop={8}>
+                      <Text style={styles.showPassword}>{showPassword ? 'Hide' : 'Show'}</Text>
+                    </Pressable>
+                  </View>
+                  <TextInput
+                    value={password}
+                    onChangeText={setPassword}
+                    placeholder="Minimum 6 characters"
+                    placeholderTextColor="#98A2B3"
+                    secureTextEntry={!showPassword}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    style={styles.input}
+                  />
+                </View>
+
+                <Pressable onPress={() => setAgree((value) => !value)} style={styles.termsRow}>
+                  <View style={[styles.checkbox, agree && styles.checkboxActive]}>
+                    {agree && <Text style={styles.checkmark}>✓</Text>}
+                  </View>
+                  <Text style={styles.termsText}>
+                    I agree to the <Text style={styles.termsLink}>Terms</Text> and{' '}
+                    <Text style={styles.termsLink}>Privacy Policy</Text>.
+                  </Text>
                 </Pressable>
-              </View>
-              <TextInput
-                value={password}
-                onChangeText={setPassword}
-                placeholder="Minimum 6 characters"
-                placeholderTextColor="#98A2B3"
-                secureTextEntry={!showPassword}
-                autoCapitalize="none"
-                autoCorrect={false}
-                style={styles.input}
-              />
-            </View>
 
-            <Pressable onPress={() => setAgree((value) => !value)} style={styles.termsRow}>
-              <View style={[styles.checkbox, agree && styles.checkboxActive]}>
-                {agree && <Text style={styles.checkmark}>✓</Text>}
-              </View>
-              <Text style={styles.termsText}>
-                I agree to the <Text style={styles.termsLink}>Terms</Text> and{' '}
-                <Text style={styles.termsLink}>Privacy Policy</Text>.
-              </Text>
-            </Pressable>
+                <Pressable
+                  onPress={() => void requestVerification()}
+                  disabled={submitting}
+                  style={({ pressed }) => [
+                    styles.primaryButton,
+                    pressed && styles.buttonPressed,
+                    submitting && styles.disabled,
+                  ]}
+                >
+                  <Text style={styles.primaryButtonText}>
+                    {submitting ? 'Sending code...' : 'Continue'}
+                  </Text>
+                </Pressable>
+              </>
+            ) : (
+              <>
+                <Text style={styles.title}>Verify your account</Text>
+                <Text style={styles.subtitle}>
+                  We sent a 6-digit code to {identifierHint || 'your account contact'}. The code expires in 10 minutes.
+                </Text>
 
-            <Pressable
-              onPress={() => void handleSignup()}
-              disabled={submitting}
-              style={({ pressed }) => [styles.signupButton, pressed && styles.buttonPressed, submitting && styles.disabled]}
-            >
-              <Text style={styles.signupButtonText}>{submitting ? 'Creating account...' : 'Create account'}</Text>
-            </Pressable>
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>Verification code</Text>
+                  <TextInput
+                    value={code}
+                    onChangeText={(value) => setCode(value.replace(/\D/g, '').slice(0, 6))}
+                    placeholder="000000"
+                    placeholderTextColor="#98A2B3"
+                    keyboardType="number-pad"
+                    autoComplete="one-time-code"
+                    maxLength={6}
+                    style={[styles.input, styles.codeInput]}
+                  />
+                </View>
+
+                <Pressable
+                  onPress={() => void verifyAndCreateAccount()}
+                  disabled={submitting}
+                  style={({ pressed }) => [
+                    styles.primaryButton,
+                    pressed && styles.buttonPressed,
+                    submitting && styles.disabled,
+                  ]}
+                >
+                  <Text style={styles.primaryButtonText}>
+                    {submitting ? 'Verifying...' : 'Verify & create account'}
+                  </Text>
+                </Pressable>
+
+                <Pressable
+                  onPress={() => void requestVerification()}
+                  disabled={submitting}
+                  style={styles.secondaryAction}
+                >
+                  <Text style={styles.secondaryActionText}>Send a new code</Text>
+                </Pressable>
+              </>
+            )}
 
             <View style={styles.loginRow}>
               <Text style={styles.loginText}>Already have an account?</Text>
@@ -217,7 +384,12 @@ export default function SignupScreen() {
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#F4F9FF' },
   keyboardView: { flex: 1 },
-  container: { flexGrow: 1, justifyContent: 'center', paddingHorizontal: 22, paddingVertical: 18 },
+  container: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 22,
+    paddingVertical: 18,
+  },
   backButton: {
     position: 'absolute',
     top: 14,
@@ -229,7 +401,7 @@ const styles = StyleSheet.create({
   },
   backIcon: { fontSize: 28, color: '#344054', marginRight: 3 },
   backText: { fontSize: 14, fontWeight: '600', color: '#475467' },
-  brandSection: { alignItems: 'center', marginBottom: 14, gap: 5 },
+  brandSection: { alignItems: 'center', marginBottom: 12, gap: 4 },
   brandName: { fontSize: 18, fontWeight: '700', color: '#172033' },
   card: {
     width: '100%',
@@ -253,8 +425,25 @@ const styles = StyleSheet.create({
     color: '#101828',
     letterSpacing: -0.7,
   },
-  subtitle: { marginTop: 7, marginBottom: 22, fontSize: 14, lineHeight: 21, color: '#667085' },
-  inputGroup: { marginBottom: 15 },
+  subtitle: { marginTop: 7, marginBottom: 18, fontSize: 14, lineHeight: 21, color: '#667085' },
+  segment: {
+    flexDirection: 'row',
+    backgroundColor: '#F2F5F9',
+    borderRadius: 12,
+    padding: 4,
+    marginBottom: 18,
+  },
+  segmentButton: {
+    flex: 1,
+    height: 38,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  segmentButtonActive: { backgroundColor: '#FFFFFF' },
+  segmentText: { color: '#667085', fontWeight: '600' },
+  segmentTextActive: { color: '#1677D2' },
+  inputGroup: { marginBottom: 14 },
   label: { fontSize: 14, lineHeight: 18, fontWeight: '600', color: '#344054', marginBottom: 7 },
   input: {
     height: 50,
@@ -266,9 +455,24 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#101828',
   },
+  codeInput: { textAlign: 'center', letterSpacing: 8, fontSize: 21, fontWeight: '700' },
+  countryRow: { flexDirection: 'row', gap: 8, marginBottom: 14 },
+  countryButton: {
+    flex: 1,
+    minHeight: 46,
+    borderWidth: 1,
+    borderColor: '#D9E2EC',
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FBFDFF',
+    paddingHorizontal: 8,
+  },
+  countryButtonActive: { borderColor: '#3195F5', backgroundColor: '#EEF7FF' },
+  countryText: { color: '#344054', fontSize: 12, fontWeight: '600' },
   passwordHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   showPassword: { fontSize: 13, fontWeight: '600', color: '#3195F5' },
-  termsRow: { flexDirection: 'row', alignItems: 'flex-start', marginTop: 2, marginBottom: 20 },
+  termsRow: { flexDirection: 'row', alignItems: 'flex-start', marginTop: 2, marginBottom: 18 },
   checkbox: {
     width: 20,
     height: 20,
@@ -285,17 +489,19 @@ const styles = StyleSheet.create({
   checkmark: { color: '#FFFFFF', fontSize: 13, fontWeight: ANDROID_EXTRA_BOLD },
   termsText: { flex: 1, fontSize: 12, lineHeight: 19, color: '#667085' },
   termsLink: { color: '#3195F5', fontWeight: '600' },
-  signupButton: {
+  primaryButton: {
     height: 52,
     borderRadius: 14,
     backgroundColor: '#3195F5',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  signupButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+  primaryButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
   buttonPressed: { opacity: 0.84, transform: [{ scale: 0.99 }] },
   disabled: { opacity: 0.6 },
-  loginRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginTop: 20 },
+  secondaryAction: { alignItems: 'center', paddingVertical: 14 },
+  secondaryActionText: { color: '#3195F5', fontSize: 14, fontWeight: '700' },
+  loginRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginTop: 18 },
   loginText: { fontSize: 14, color: '#667085' },
   loginLink: { fontSize: 14, fontWeight: '700', color: '#3195F5' },
 });
