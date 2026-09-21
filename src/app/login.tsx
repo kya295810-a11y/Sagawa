@@ -1,7 +1,8 @@
-import Ionicons from "@expo/vector-icons/Ionicons";
-import React, { useEffect, useRef, useState } from "react";
+import Ionicons from '@expo/vector-icons/Ionicons';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  ImageBackground,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -10,33 +11,36 @@ import {
   Text,
   TextInput,
   View,
-  ImageBackground,
-} from "react-native";
-import { BlurView } from "expo-blur";
-import * as Linking from "expo-linking";
-import { router, type Href } from "expo-router";
-import * as WebBrowser from "expo-web-browser";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { StatusBar } from "expo-status-bar";
-import { apiRequest } from '@/services/api/client';
-import { useAuthStore } from '@/store/auth-store';
-import { getBiometricCredential, hasBiometricCredential } from '@/services/auth/token-storage';
-import SagawaFlowerLogo from '../../assets/images/sagawa-flower-logo.svg';
+} from 'react-native';
+import * as Linking from 'expo-linking';
+import { router, type Href } from 'expo-router';
+import * as WebBrowser from 'expo-web-browser';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 
-const LOGIN_BACKGROUND = require("../../assets/images/login-bg.jpg");
-const ANDROID_EXTRA_BOLD = Platform.OS === "android" ? "700" : "800";
-const INPUT_PLACEHOLDER_COLOR = Platform.OS === "android" ? "#C4CEDA" : "#AAB4C3";
-const ANDROID_INPUT_TEXT_FIX = Platform.select({
-  android: {
-    paddingVertical: 0,
-    textAlignVertical: "center" as const,
-  },
-  default: {},
-});
+import SagawaFlowerLogo from '../../assets/images/sagawa-flower-logo.svg';
+import { apiRequest } from '@/services/api/client';
+import {
+  getBiometricCredential,
+  hasBiometricCredential,
+} from '@/services/auth/token-storage';
+import { useAuthStore } from '@/store/auth-store';
+
+type Channel = 'email' | 'phone';
+type Country = 'MY' | 'MM';
+
+const LOGIN_BACKGROUND = require('../../assets/images/login-bg.jpg');
+const ANDROID_EXTRA_BOLD = Platform.OS === 'android' ? '700' : '800';
 
 export default function LoginScreen() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [stage, setStage] = useState<'login' | 'verify'>('login');
+  const [channel, setChannel] = useState<Channel>('email');
+  const [country, setCountry] = useState<Country>('MY');
+  const [identifier, setIdentifier] = useState('');
+  const [password, setPassword] = useState('');
+  const [code, setCode] = useState('');
+  const [challengeId, setChallengeId] = useState('');
+  const [identifierHint, setIdentifierHint] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loggingIn, setLoggingIn] = useState(false);
   const [googleLoggingIn, setGoogleLoggingIn] = useState(false);
@@ -44,6 +48,8 @@ export default function LoginScreen() {
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [biometricLoggingIn, setBiometricLoggingIn] = useState(false);
   const passwordInputRef = useRef<TextInput>(null);
+
+  const countryPrefix = useMemo(() => (country === 'MY' ? '+60' : '+95'), [country]);
 
   useEffect(() => {
     let active = true;
@@ -55,13 +61,30 @@ export default function LoginScreen() {
     };
   }, []);
 
-  const togglePasswordVisibility = () => {
-    setShowPassword((current) => !current);
-    requestAnimationFrame(() => passwordInputRef.current?.focus());
+  const persistSession = async (data: {
+    accessToken: string;
+    refreshToken: string;
+    expiresAt: string;
+    profileCompleted?: boolean;
+    user: { id: string; email?: string; phoneNumber?: string };
+  }) => {
+    await useAuthStore.getState().setSession(
+      {
+        expiresAt: data.expiresAt,
+        profileCompleted: Boolean(data.profileCompleted),
+        user: data.user,
+      },
+      {
+        accessToken: data.accessToken,
+        refreshToken: data.refreshToken,
+      },
+    );
+    router.replace((data.profileCompleted ? '/(tabs)' : '/complete-profile') as Href);
   };
 
-  const handleLogin = async () => {
-    if (!email.trim() || !password) {
+  const handlePasswordLogin = async () => {
+    if (!identifier.trim() || !password) {
+      Alert.alert('Missing details', 'Enter your email or phone number and password.');
       return;
     }
 
@@ -69,39 +92,98 @@ export default function LoginScreen() {
       setLoggingIn(true);
       const response = await apiRequest<{
         success: boolean;
-        data?: {
-          accessToken?: string;
-          refreshToken?: string;
-          expiresAt?: string;
-          profileCompleted?: boolean;
-          user?: { id?: string; email?: string };
+        data: {
+          accessToken: string;
+          refreshToken: string;
+          expiresAt: string;
+          profileCompleted: boolean;
+          user: { id: string; email?: string; phoneNumber?: string };
         };
-        message?: string;
       }>('/api/auth/login', {
         method: 'POST',
-        body: JSON.stringify({ email: email.trim(), password, accountType: 'mobile', platform: Platform.OS }),
+        body: JSON.stringify({
+          identifier: identifier.trim(),
+          password,
+          accountType: 'mobile',
+          platform: Platform.OS,
+        }),
+      });
+      await persistSession(response.data);
+    } catch (error) {
+      Alert.alert('Sign in failed', error instanceof Error ? error.message : 'Unable to sign in.');
+    } finally {
+      setLoggingIn(false);
+    }
+  };
+
+  const requestLoginCode = async () => {
+    if (!identifier.trim()) {
+      Alert.alert(
+        channel === 'email' ? 'Email required' : 'Phone number required',
+        channel === 'email' ? 'Enter your email address.' : 'Enter your phone number.',
+      );
+      return;
+    }
+
+    try {
+      setLoggingIn(true);
+      const response = await apiRequest<{
+        success: boolean;
+        data: { challengeId: string; identifierHint: string; expiresAt: string };
+      }>('/api/auth/login/code/request', {
+        method: 'POST',
+        body: JSON.stringify({
+          identifier: identifier.trim(),
+          channel,
+          country: channel === 'phone' ? country : undefined,
+        }),
       });
 
-      if (!response.success || !response.data?.accessToken) {
-        throw new Error(response.message || 'Unable to sign in.');
-      }
-
-      await useAuthStore.getState().setSession(
-        {
-          expiresAt: response.data.expiresAt || null,
-          profileCompleted: Boolean(response.data.profileCompleted),
-          user: { id: response.data.user?.id || email.trim() },
-        },
-        {
-          accessToken: response.data.accessToken,
-          refreshToken: response.data.refreshToken || response.data.accessToken,
-        },
-      );
-
-      router.replace((response.data.profileCompleted ? "/(tabs)" : "/complete-profile") as Href);
+      setChallengeId(response.data.challengeId);
+      setIdentifierHint(response.data.identifierHint);
+      setCode('');
+      setStage('verify');
     } catch (error) {
-      console.error('Login error:', error);
-      Alert.alert('Sign In Failed', error instanceof Error ? error.message : 'Unable to sign in.');
+      Alert.alert(
+        'Unable to send code',
+        error instanceof Error ? error.message : 'Please try again.',
+      );
+    } finally {
+      setLoggingIn(false);
+    }
+  };
+
+  const verifyLoginCode = async () => {
+    if (!/^\d{6}$/.test(code.trim())) {
+      Alert.alert('Invalid code', 'Enter the 6-digit verification code.');
+      return;
+    }
+
+    try {
+      setLoggingIn(true);
+      const response = await apiRequest<{
+        success: boolean;
+        data: {
+          accessToken: string;
+          refreshToken: string;
+          expiresAt: string;
+          profileCompleted: boolean;
+          user: { id: string; email?: string; phoneNumber?: string };
+        };
+      }>('/api/auth/login/code/verify', {
+        method: 'POST',
+        body: JSON.stringify({
+          challengeId,
+          code: code.trim(),
+          platform: Platform.OS,
+        }),
+      });
+      await persistSession(response.data);
+    } catch (error) {
+      Alert.alert(
+        'Verification failed',
+        error instanceof Error ? error.message : 'Request a new code and try again.',
+      );
     } finally {
       setLoggingIn(false);
     }
@@ -118,26 +200,26 @@ export default function LoginScreen() {
     };
     message?: string;
   }) => {
-    if (!response.success || !response.data?.accessToken || !response.data.user?.id) {
+    if (
+      !response.success ||
+      !response.data?.accessToken ||
+      !response.data.refreshToken ||
+      !response.data.expiresAt ||
+      !response.data.user?.id
+    ) {
       throw new Error(response.message || 'Unable to complete Google sign-in.');
     }
 
-    await useAuthStore.getState().setSession(
-      {
-        expiresAt: response.data.expiresAt || null,
-        profileCompleted: Boolean(response.data.profileCompleted),
-        user: {
-          id: response.data.user.id,
-          email: response.data.user.email,
-        },
+    await persistSession({
+      accessToken: response.data.accessToken,
+      refreshToken: response.data.refreshToken,
+      expiresAt: response.data.expiresAt,
+      profileCompleted: Boolean(response.data.profileCompleted),
+      user: {
+        id: response.data.user.id,
+        email: response.data.user.email,
       },
-      {
-        accessToken: response.data.accessToken,
-        refreshToken: response.data.refreshToken || response.data.accessToken,
-      },
-    );
-
-    router.replace((response.data.profileCompleted ? '/(tabs)' : '/complete-profile') as Href);
+    });
   };
 
   const handleNativeGoogleLogin = async () => {
@@ -172,10 +254,7 @@ export default function LoginScreen() {
     if (isNoSavedCredentialFoundResponse(googleResponse)) {
       googleResponse = await GoogleOneTapSignIn.presentExplicitSignIn();
     }
-
-    if (isCancelledResponse(googleResponse)) {
-      return;
-    }
+    if (isCancelledResponse(googleResponse)) return;
     if (!isSuccessResponse(googleResponse) || !googleResponse.data.idToken) {
       throw new Error('Google account selection did not complete.');
     }
@@ -216,10 +295,7 @@ export default function LoginScreen() {
 
     const redirectUri = Linking.createURL('auth/google');
     const result = await WebBrowser.openAuthSessionAsync(authorizationUrl, redirectUri);
-
-    if (result.type === 'cancel' || result.type === 'dismiss') {
-      return;
-    }
+    if (result.type === 'cancel' || result.type === 'dismiss') return;
     if (result.type !== 'success' || !result.url) {
       throw new Error('Google sign-in could not be completed.');
     }
@@ -229,15 +305,10 @@ export default function LoginScreen() {
     const errorCode = typeof query.error === 'string' ? query.error : '';
     const errorDescription =
       typeof query.error_description === 'string' ? query.error_description : '';
+    if (errorCode) throw new Error(errorDescription || 'Google sign-in failed.');
 
-    if (errorCode) {
-      throw new Error(errorDescription || 'Google sign-in failed.');
-    }
-
-    const code = typeof query.code === 'string' ? query.code : '';
-    if (!code) {
-      throw new Error('Google sign-in response is missing the authorization code.');
-    }
+    const authCode = typeof query.code === 'string' ? query.code : '';
+    if (!authCode) throw new Error('Google sign-in response is missing the authorization code.');
 
     const response = await apiRequest<{
       success: boolean;
@@ -251,7 +322,7 @@ export default function LoginScreen() {
       message?: string;
     }>('/api/auth/google/exchange', {
       method: 'POST',
-      body: JSON.stringify({ code, platform: Platform.OS }),
+      body: JSON.stringify({ code: authCode, platform: Platform.OS }),
     });
 
     await persistGoogleSession(response);
@@ -260,20 +331,17 @@ export default function LoginScreen() {
   const handleGoogleLogin = async () => {
     try {
       setGoogleLoggingIn(true);
-
       if (Platform.OS === 'android') {
         await handleNativeGoogleLogin();
       } else {
         await handleBrowserGoogleLogin();
       }
     } catch (error) {
-      console.error('Google login error:', error);
-      const message =
-        error instanceof Error ? error.message : 'Unable to sign in with Google.';
+      const message = error instanceof Error ? error.message : 'Unable to sign in with Google.';
       Alert.alert(
-        'Google Sign In Failed',
+        'Google sign in failed',
         message.includes('NitroGoogleSignin')
-          ? 'Native Google Sign-In is not installed in this development build. Rebuild Sagawa for Android once.'
+          ? 'Native Google Sign-In is not installed in this build. Rebuild Sagawa for Android.'
           : message,
       );
     } finally {
@@ -282,13 +350,15 @@ export default function LoginScreen() {
   };
 
   const handleBiometricLogin = async () => {
-    if (biometricLoggingIn) return;
     try {
       setBiometricLoggingIn(true);
       const credential = await getBiometricCredential();
       if (!credential) {
         setBiometricAvailable(false);
-        Alert.alert('Biometric sign in unavailable', 'Enable biometric sign in again from your Sagawa profile.');
+        Alert.alert(
+          'Biometric sign in unavailable',
+          'Enable biometric sign in again from your Sagawa profile.',
+        );
         return;
       }
 
@@ -299,26 +369,14 @@ export default function LoginScreen() {
           refreshToken: string;
           expiresAt: string;
           profileCompleted: boolean;
-          user: { id: string; email: string };
+          user: { id: string; email?: string; phoneNumber?: string };
         };
       }>('/api/auth/biometric/login', {
         method: 'POST',
         body: JSON.stringify({ credential, platform: Platform.OS }),
       });
 
-      await useAuthStore.getState().setSession(
-        {
-          expiresAt: response.data.expiresAt,
-          profileCompleted: Boolean(response.data.profileCompleted),
-          user: response.data.user,
-        },
-        {
-          accessToken: response.data.accessToken,
-          refreshToken: response.data.refreshToken,
-        },
-      );
-
-      router.replace((response.data.profileCompleted ? '/(tabs)' : '/complete-profile') as Href);
+      await persistSession(response.data);
     } catch (error) {
       Alert.alert(
         'Biometric sign in failed',
@@ -330,288 +388,267 @@ export default function LoginScreen() {
   };
 
   const handleGuestContinue = async () => {
-    if (guestContinuing || googleLoggingIn || loggingIn) {
-      return;
-    }
-
     try {
       setGuestContinuing(true);
       await useAuthStore.getState().continueAsGuest();
       router.replace('/(tabs)' as Href);
-    } catch (error) {
-      console.error('Guest mode error:', error);
-      Alert.alert('Unable to Continue', 'Guest mode could not be started. Please try again.');
+    } catch {
+      Alert.alert('Unable to continue', 'Guest mode could not be started.');
     } finally {
       setGuestContinuing(false);
     }
   };
 
+  const busy = loggingIn || googleLoggingIn || guestContinuing || biometricLoggingIn;
+
   return (
     <View style={styles.screen}>
       <StatusBar style="dark" />
-
-      {/* Background image */}
-      <View pointerEvents="none" style={styles.background}>
-        <ImageBackground
-          source={LOGIN_BACKGROUND}
-          resizeMode="cover"
-          style={StyleSheet.absoluteFill}
-        >
-          {/* Blur */}
-          {Platform.OS === "ios" && (
-            <BlurView
-              intensity={48}
-              tint="dark"
-              style={StyleSheet.absoluteFill}
-            />
-          )}
-
-          {/* Blue / dark overlay */}
-          <View style={styles.overlay} />
-        </ImageBackground>
-      </View>
+      <ImageBackground source={LOGIN_BACKGROUND} resizeMode="cover" style={StyleSheet.absoluteFill}>
+        <View style={styles.overlay} />
+      </ImageBackground>
 
       <SafeAreaView style={styles.safeArea}>
         <KeyboardAvoidingView
           style={styles.keyboardView}
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
           <ScrollView
             contentContainerStyle={styles.container}
-            keyboardShouldPersistTaps="always"
+            keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
           >
-            {/* Brand */}
             <View style={styles.brandSection}>
-              <SagawaFlowerLogo width={58} height={58} accessibilityLabel="Sagawa flower logo" />
-              <Text style={styles.brandName} allowFontScaling={false}>Sagawa</Text>
+              <SagawaFlowerLogo width={60} height={60} accessibilityLabel="Sagawa flower logo" />
+              <Text style={styles.brandName}>Sagawa</Text>
             </View>
 
-            {/* Login panel */}
             <View style={styles.loginPanel}>
-              {Platform.OS === "ios" && (
-                <BlurView
-                  intensity={25}
-                  tint="light"
-                  pointerEvents="none"
-                  style={StyleSheet.absoluteFill}
-                />
-              )}
-              <View pointerEvents="none" style={styles.panelOverlay} />
+              {stage === 'login' ? (
+                <>
+                  <Text style={styles.title}>Welcome back</Text>
+                  <Text style={styles.subtitle}>Sign in securely with Sagawa.</Text>
 
-              {/* Header */}
-              <View style={styles.header}>
-                <Text
-                  style={styles.title}
-                  allowFontScaling={false}
-                >
-                  Welcome back
-                </Text>
-
-                <Text
-                  style={styles.subtitle}
-                  allowFontScaling={false}
-                >
-                  Sign in to continue with Sagawa.
-                </Text>
-              </View>
-
-              {/* Form */}
-              <View style={styles.form}>
-                {/* Email */}
-                <View style={styles.inputGroup}>
-                  <Text
-                    style={styles.label}
-                    allowFontScaling={false}
-                  >
-                    Email
-                  </Text>
-
-                  <TextInput
-                    value={email}
-                    onChangeText={setEmail}
-                    placeholder="you@example.com"
-                    placeholderTextColor={INPUT_PLACEHOLDER_COLOR}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    style={styles.input}
-                    allowFontScaling={false}
-                  />
-                </View>
-
-                {/* Password */}
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label} allowFontScaling={false}>
-                    Password
-                  </Text>
-
-                  <View style={styles.passwordInputContainer}>
-                    <TextInput
-                      ref={passwordInputRef}
-                      value={password}
-                      onChangeText={setPassword}
-                      placeholder="Enter your password"
-                      placeholderTextColor={INPUT_PLACEHOLDER_COLOR}
-                      secureTextEntry={!showPassword}
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                      style={[styles.input, styles.passwordInput]}
-                      allowFontScaling={false}
-                    />
+                  <View style={styles.segment}>
                     <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel={showPassword ? "Hide password" : "Show password"}
-                      onPress={togglePasswordVisibility}
-                      style={styles.passwordVisibilityButton}
+                      onPress={() => {
+                        setChannel('email');
+                        setIdentifier('');
+                      }}
+                      style={[styles.segmentButton, channel === 'email' && styles.segmentButtonActive]}
                     >
-                      <Ionicons
-                        name={showPassword ? "eye-off-outline" : "eye-outline"}
-                        size={22}
-                        color="#667085"
-                      />
+                      <Text style={[styles.segmentText, channel === 'email' && styles.segmentTextActive]}>
+                        Email
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => {
+                        setChannel('phone');
+                        setIdentifier('');
+                      }}
+                      style={[styles.segmentButton, channel === 'phone' && styles.segmentButtonActive]}
+                    >
+                      <Text style={[styles.segmentText, channel === 'phone' && styles.segmentTextActive]}>
+                        Phone
+                      </Text>
                     </Pressable>
                   </View>
-                </View>
 
-                {/* Forgot password */}
-                <Pressable
-                  onPress={() =>
-                    router.push("/forgot-password" as Href)
-                  }
-                  style={styles.forgotButton}
-                  hitSlop={8}
-                >
-                  <Text
-                    style={styles.forgotText}
-                    allowFontScaling={false}
-                  >
-                    Forgot password?
-                  </Text>
-                </Pressable>
+                  {channel === 'phone' && (
+                    <View style={styles.countryRow}>
+                      <Pressable
+                        onPress={() => setCountry('MY')}
+                        style={[styles.countryButton, country === 'MY' && styles.countryButtonActive]}
+                      >
+                        <Text style={styles.countryText}>🇲🇾 +60</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => setCountry('MM')}
+                        style={[styles.countryButton, country === 'MM' && styles.countryButtonActive]}
+                      >
+                        <Text style={styles.countryText}>🇲🇲 +95</Text>
+                      </Pressable>
+                    </View>
+                  )}
 
-                {/* Login */}
-                <Pressable
-                  onPress={() => void handleLogin()}
-                  disabled={loggingIn}
-                  style={({ pressed }) => [
-                    styles.loginButton,
-                    pressed && styles.buttonPressed,
-                  ]}
-                >
-                  <Text
-                    style={styles.loginButtonText}
-                    allowFontScaling={false}
-                  >
-                    {loggingIn ? "Signing in..." : "Log in"}
-                  </Text>
-                </Pressable>
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.label}>{channel === 'email' ? 'Email' : 'Phone number'}</Text>
+                    <TextInput
+                      value={identifier}
+                      onChangeText={setIdentifier}
+                      placeholder={channel === 'email' ? 'you@example.com' : countryPrefix + ' or local number'}
+                      placeholderTextColor="#98A2B3"
+                      keyboardType={channel === 'email' ? 'email-address' : 'phone-pad'}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      style={styles.input}
+                    />
+                  </View>
 
-                {biometricAvailable && (
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.label}>Password</Text>
+                    <View style={styles.passwordWrap}>
+                      <TextInput
+                        ref={passwordInputRef}
+                        value={password}
+                        onChangeText={setPassword}
+                        placeholder="Enter your password"
+                        placeholderTextColor="#98A2B3"
+                        secureTextEntry={!showPassword}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        style={[styles.input, styles.passwordInput]}
+                      />
+                      <Pressable
+                        onPress={() => {
+                          setShowPassword((value) => !value);
+                          requestAnimationFrame(() => passwordInputRef.current?.focus());
+                        }}
+                        style={styles.eyeButton}
+                      >
+                        <Ionicons
+                          name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                          size={22}
+                          color="#667085"
+                        />
+                      </Pressable>
+                    </View>
+                  </View>
+
                   <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Sign in with device biometrics"
-                    onPress={() => void handleBiometricLogin()}
-                    disabled={biometricLoggingIn || loggingIn || googleLoggingIn || guestContinuing}
-                    style={({ pressed }) => [styles.biometricButton, pressed && styles.socialPressed]}
+                    onPress={() => router.push('/forgot-password' as Href)}
+                    style={styles.forgotButton}
                   >
-                    <Ionicons name="finger-print-outline" size={20} color="#3195F5" />
-                    <Text style={styles.biometricText} allowFontScaling={false}>
-                      {biometricLoggingIn ? 'Checking...' : 'Sign in with biometrics'}
+                    <Text style={styles.forgotText}>Forgot password?</Text>
+                  </Pressable>
+
+                  <Pressable
+                    onPress={() => void handlePasswordLogin()}
+                    disabled={busy}
+                    style={({ pressed }) => [
+                      styles.primaryButton,
+                      pressed && styles.buttonPressed,
+                      busy && styles.disabled,
+                    ]}
+                  >
+                    <Text style={styles.primaryButtonText}>
+                      {loggingIn ? 'Signing in...' : 'Log in'}
                     </Text>
                   </Pressable>
-                )}
-              </View>
 
-              {/* Divider */}
+                  <Pressable
+                    onPress={() => void requestLoginCode()}
+                    disabled={busy}
+                    style={({ pressed }) => [
+                      styles.codeButton,
+                      pressed && styles.buttonPressed,
+                      busy && styles.disabled,
+                    ]}
+                  >
+                    <Ionicons name="keypad-outline" size={19} color="#245B8E" />
+                    <Text style={styles.codeButtonText}>Log in with verification code</Text>
+                  </Pressable>
+
+                  {biometricAvailable && (
+                    <Pressable
+                      onPress={() => void handleBiometricLogin()}
+                      disabled={busy}
+                      style={({ pressed }) => [
+                        styles.codeButton,
+                        pressed && styles.buttonPressed,
+                        busy && styles.disabled,
+                      ]}
+                    >
+                      <Ionicons name="finger-print-outline" size={20} color="#245B8E" />
+                      <Text style={styles.codeButtonText}>
+                        {biometricLoggingIn ? 'Checking...' : 'Sign in with biometrics'}
+                      </Text>
+                    </Pressable>
+                  )}
+                </>
+              ) : (
+                <>
+                  <Text style={styles.title}>Enter verification code</Text>
+                  <Text style={styles.subtitle}>
+                    We sent a 6-digit code to {identifierHint || 'your account contact'}.
+                  </Text>
+
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.label}>Verification code</Text>
+                    <TextInput
+                      value={code}
+                      onChangeText={(value) => setCode(value.replace(/\D/g, '').slice(0, 6))}
+                      placeholder="000000"
+                      placeholderTextColor="#98A2B3"
+                      keyboardType="number-pad"
+                      autoComplete="one-time-code"
+                      maxLength={6}
+                      style={[styles.input, styles.codeInput]}
+                    />
+                  </View>
+
+                  <Pressable
+                    onPress={() => void verifyLoginCode()}
+                    disabled={busy}
+                    style={({ pressed }) => [
+                      styles.primaryButton,
+                      pressed && styles.buttonPressed,
+                      busy && styles.disabled,
+                    ]}
+                  >
+                    <Text style={styles.primaryButtonText}>
+                      {loggingIn ? 'Verifying...' : 'Verify & log in'}
+                    </Text>
+                  </Pressable>
+
+                  <Pressable
+                    onPress={() => {
+                      setStage('login');
+                      setCode('');
+                      setChallengeId('');
+                    }}
+                    style={styles.backToLoginButton}
+                  >
+                    <Text style={styles.backToLoginText}>Back to sign in</Text>
+                  </Pressable>
+                </>
+              )}
+
               <View style={styles.dividerRow}>
                 <View style={styles.divider} />
-
-                <Text
-                  style={styles.dividerText}
-                  allowFontScaling={false}
-                >
-                  or continue with
-                </Text>
-
+                <Text style={styles.dividerText}>or continue with</Text>
                 <View style={styles.divider} />
               </View>
 
-              {/* Sign-in options */}
               <View style={styles.socialRow}>
                 <Pressable
                   onPress={() => void handleGoogleLogin()}
-                  disabled={googleLoggingIn || loggingIn || guestContinuing}
-                  accessibilityRole="button"
-                  accessibilityLabel="Continue with Google"
-                  style={({ pressed }) => [
-                    styles.socialButton,
-                    pressed && styles.socialPressed,
-                    (googleLoggingIn || loggingIn || guestContinuing) && { opacity: 0.6 },
-                  ]}
+                  disabled={busy}
+                  style={({ pressed }) => [styles.socialButton, pressed && styles.socialPressed]}
                 >
-                  <Text style={styles.googleIcon} allowFontScaling={false}>
-                    G
-                  </Text>
-
-                  <Text style={styles.socialText} allowFontScaling={false}>
-                    {googleLoggingIn ? "Signing in..." : "Google"}
-                  </Text>
+                  <Text style={styles.googleIcon}>G</Text>
+                  <Text style={styles.socialText}>{googleLoggingIn ? 'Signing in...' : 'Google'}</Text>
                 </Pressable>
 
                 <Pressable
                   onPress={() => void handleGuestContinue()}
-                  disabled={guestContinuing || googleLoggingIn || loggingIn}
-                  accessibilityRole="button"
-                  accessibilityLabel="Continue as guest"
-                  style={({ pressed }) => [
-                    styles.socialButton,
-                    pressed && styles.socialPressed,
-                    (guestContinuing || googleLoggingIn || loggingIn) && { opacity: 0.6 },
-                  ]}
+                  disabled={busy}
+                  style={({ pressed }) => [styles.socialButton, pressed && styles.socialPressed]}
                 >
                   <Ionicons name="person-outline" size={18} color="#344054" />
-                  <Text style={styles.socialText} allowFontScaling={false}>
-                    {guestContinuing ? "Opening..." : "Guest"}
-                  </Text>
+                  <Text style={styles.socialText}>{guestContinuing ? 'Opening...' : 'Guest'}</Text>
                 </Pressable>
               </View>
 
-              <Text style={styles.guestNote} allowFontScaling={false}>
-                Guest mode can read public content without creating an account. Account and profile
-                features require sign in.
-              </Text>
-
-              {/* Sign up */}
               <View style={styles.signupRow}>
-                <Text
-                  style={styles.signupText}
-                  allowFontScaling={false}
-                >
-                  Don&apos;t have an account?
-                </Text>
-
-                <Pressable
-                  onPress={() => router.push("/signup" as Href)}
-                  hitSlop={8}
-                >
-                  <Text
-                    style={styles.signupLink}
-                    allowFontScaling={false}
-                  >
-                    {" "}Sign up
-                  </Text>
+                <Text style={styles.signupText}>Don't have an account?</Text>
+                <Pressable onPress={() => router.push('/signup' as Href)}>
+                  <Text style={styles.signupLink}> Sign up</Text>
                 </Pressable>
               </View>
             </View>
 
-            {/* Footer */}
-            <Text
-              style={styles.footer}
-              allowFontScaling={false}
-            >
-              By continuing, you agree to our Terms and Privacy Policy.
-            </Text>
+            <Text style={styles.footer}>By continuing, you agree to our Terms and Privacy Policy.</Text>
           </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
@@ -620,206 +657,106 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: "#F4F9FF",
-  },
-
-  background: {
-    position: "absolute",
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-  },
-
-  overlay: {
-    position: "absolute",
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    backgroundColor: "rgba(244,249,255,0.84)",
-  },
-
-  safeArea: {
-    flex: 1,
-    zIndex: 1,
-    elevation: 1,
-  },
-
-  keyboardView: {
-    flex: 1,
-  },
-
+  screen: { flex: 1, backgroundColor: '#F4F9FF' },
+  overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(244,249,255,0.88)' },
+  safeArea: { flex: 1 },
+  keyboardView: { flex: 1 },
   container: {
     flexGrow: 1,
+    justifyContent: 'center',
     paddingHorizontal: 20,
-    paddingTop: 18,
-    paddingBottom: 28,
-    justifyContent: "center",
+    paddingVertical: 18,
   },
-
-  /* Brand */
-
-  brandSection: {
-    alignItems: "center",
-    marginBottom: 16,
-    gap: 8,
-  },
-
-  brandName: {
-    color: "#10243E",
-    fontSize: 18,
-    lineHeight: 22,
-    fontWeight: "700",
-    letterSpacing: -0.3,
-    includeFontPadding: false,
-  },
-
-  /* Login panel */
-
+  brandSection: { alignItems: 'center', marginBottom: 12, gap: 4 },
+  brandName: { color: '#10243E', fontSize: 18, fontWeight: '700' },
   loginPanel: {
-    overflow: "hidden",
-    borderRadius: 28,
+    borderRadius: 26,
     paddingHorizontal: 22,
-    paddingTop: 22,
-    paddingBottom: 20,
+    paddingVertical: 22,
     borderWidth: 1,
-    borderColor: "rgba(49,149,245,0.20)",
-    backgroundColor: Platform.OS === "android" ? "rgba(255,255,255,0.98)" : "rgba(255,255,255,0.88)",
+    borderColor: '#DDEAF6',
+    backgroundColor: 'rgba(255,255,255,0.96)',
+    shadowColor: '#0B315B',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.08,
+    shadowRadius: 22,
+    elevation: 3,
   },
-
-  panelOverlay: {
-    position: "absolute",
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    backgroundColor: "rgba(255,255,255,0.22)",
-  },
-
-  /* Header */
-
-  header: {
-    marginBottom: 20,
-  },
-
   title: {
-    color: "#101828",
+    color: '#101828',
     fontSize: 28,
     lineHeight: 34,
     fontWeight: ANDROID_EXTRA_BOLD,
-    letterSpacing: -0.8,
-    marginBottom: 9,
-    includeFontPadding: false,
+    letterSpacing: -0.7,
   },
-
-  subtitle: {
-    color: "#667085",
-    fontSize: 15,
-    lineHeight: 22,
-    includeFontPadding: false,
-  },
-
-  /* Form */
-
-  form: {
-    width: "100%",
-  },
-
-  inputGroup: {
+  subtitle: { color: '#667085', fontSize: 14, lineHeight: 21, marginTop: 6, marginBottom: 18 },
+  segment: {
+    flexDirection: 'row',
+    backgroundColor: '#F2F5F9',
+    borderRadius: 12,
+    padding: 4,
     marginBottom: 14,
   },
-
-  label: {
-    color: "#344054",
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: "600",
-    marginBottom: 8,
-    includeFontPadding: false,
+  segmentButton: {
+    flex: 1,
+    height: 38,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-
+  segmentButtonActive: { backgroundColor: '#FFFFFF' },
+  segmentText: { color: '#667085', fontWeight: '600' },
+  segmentTextActive: { color: '#1677D2' },
+  countryRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
+  countryButton: {
+    flex: 1,
+    minHeight: 42,
+    borderWidth: 1,
+    borderColor: '#D9E2EC',
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FBFDFF',
+  },
+  countryButtonActive: { borderColor: '#3195F5', backgroundColor: '#EEF7FF' },
+  countryText: { color: '#344054', fontSize: 13, fontWeight: '600' },
+  inputGroup: { marginBottom: 13 },
+  label: { color: '#344054', fontSize: 14, fontWeight: '600', marginBottom: 7 },
   input: {
     height: 50,
     borderWidth: 1,
-    borderColor: "#D9E2EC",
-    borderRadius: 15,
-    backgroundColor: "#FFFFFF",
-    paddingHorizontal: 16,
+    borderColor: '#D9E2EC',
+    borderRadius: 14,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 15,
     fontSize: 16,
-    lineHeight: 20,
-    color: "#101828",
-    elevation: 1,
-    includeFontPadding: false,
-    ...ANDROID_INPUT_TEXT_FIX,
+    color: '#101828',
   },
-
-  passwordInputContainer: {
-    position: "relative",
-  },
-
-  passwordInput: {
-    paddingRight: 56,
-  },
-
-  passwordVisibilityButton: {
-    position: "absolute",
-    top: 0,
+  passwordWrap: { position: 'relative' },
+  passwordInput: { paddingRight: 52 },
+  eyeButton: {
+    position: 'absolute',
     right: 0,
+    top: 0,
     width: 50,
     height: 50,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-
-  forgotButton: {
-    alignSelf: "flex-end",
-    marginTop: -2,
-    marginBottom: 16,
-  },
-
-  forgotText: {
-    color: "#3195F5",
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: "600",
-    includeFontPadding: false,
-  },
-
-  loginButton: {
+  codeInput: { textAlign: 'center', letterSpacing: 8, fontSize: 21, fontWeight: '700' },
+  forgotButton: { alignSelf: 'flex-end', marginTop: -2, marginBottom: 14 },
+  forgotText: { color: '#3195F5', fontSize: 14, fontWeight: '600' },
+  primaryButton: {
     height: 52,
     borderRadius: 14,
-    backgroundColor: "#3195F5",
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000000",
-    shadowOffset: {
-      width: 0,
-      height: 6,
-    },
-    shadowOpacity: 0.22,
-    shadowRadius: 12,
-    elevation: 5,
+    backgroundColor: '#3195F5',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-
-  buttonPressed: {
-    opacity: 0.82,
-    transform: [{ scale: 0.985 }],
-  },
-
-  loginButtonText: {
-    color: "#FFFFFF",
-    fontSize: 17,
-    lineHeight: 21,
-    fontWeight: "700",
-    includeFontPadding: false,
-  },
-
-  biometricButton: {
+  primaryButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+  codeButton: {
     height: 48,
-    marginTop: 12,
+    marginTop: 10,
     borderWidth: 1,
     borderColor: '#D7E8F8',
     borderRadius: 14,
@@ -829,119 +766,39 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
   },
-
-  biometricText: {
-    color: '#245B8E',
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: '600',
-  },
-
-  /* Divider */
-
-  dividerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginVertical: 18,
-  },
-
-  divider: {
-    flex: 1,
-    height: 1,
-    backgroundColor: "#E5EAF0",
-  },
-
-  dividerText: {
-    marginHorizontal: 11,
-    color: "#98A2B3",
-    fontSize: 12,
-    lineHeight: 16,
-    includeFontPadding: false,
-  },
-
-  /* Social */
-
-  socialRow: {
-    flexDirection: "row",
-    gap: 10,
-  },
-
+  codeButtonText: { color: '#245B8E', fontSize: 14, fontWeight: '600' },
+  backToLoginButton: { alignItems: 'center', paddingVertical: 14 },
+  backToLoginText: { color: '#3195F5', fontSize: 14, fontWeight: '700' },
+  buttonPressed: { opacity: 0.82, transform: [{ scale: 0.99 }] },
+  disabled: { opacity: 0.6 },
+  dividerRow: { flexDirection: 'row', alignItems: 'center', marginVertical: 17 },
+  divider: { flex: 1, height: 1, backgroundColor: '#E5EAF0' },
+  dividerText: { marginHorizontal: 11, color: '#98A2B3', fontSize: 12 },
+  socialRow: { flexDirection: 'row', gap: 10 },
   socialButton: {
     flex: 1,
-    height: 50,
+    height: 48,
     borderWidth: 1,
-    borderColor: "#D9E2EC",
+    borderColor: '#D9E2EC',
     borderRadius: 14,
-    backgroundColor: "#FFFFFF",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
+    backgroundColor: '#FFFFFF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     gap: 8,
   },
-
-  socialPressed: {
-    backgroundColor: "#F5F8FB",
-  },
-
-  googleIcon: {
-    fontSize: 17,
-    lineHeight: 20,
-    fontWeight: ANDROID_EXTRA_BOLD,
-    color: "#4285F4",
-    includeFontPadding: false,
-  },
-
-  socialText: {
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: "600",
-    color: "#344054",
-    includeFontPadding: false,
-  },
-
-  guestNote: {
-    marginTop: 10,
-    paddingHorizontal: 6,
-    textAlign: "center",
-    fontSize: 11,
-    lineHeight: 16,
-    color: "#667085",
-    includeFontPadding: false,
-  },
-
-  /* Sign up */
-
-  signupRow: {
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-    marginTop: 18,
-  },
-
-  signupText: {
-    fontSize: 14,
-    lineHeight: 18,
-    color: "#667085",
-    includeFontPadding: false,
-  },
-
-  signupLink: {
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: "700",
-    color: "#3195F5",
-    includeFontPadding: false,
-  },
-
-  /* Footer */
-
+  socialPressed: { backgroundColor: '#F5F8FB' },
+  googleIcon: { fontSize: 17, fontWeight: ANDROID_EXTRA_BOLD, color: '#4285F4' },
+  socialText: { fontSize: 14, fontWeight: '600', color: '#344054' },
+  signupRow: { flexDirection: 'row', justifyContent: 'center', marginTop: 18 },
+  signupText: { fontSize: 14, color: '#667085' },
+  signupLink: { fontSize: 14, fontWeight: '700', color: '#3195F5' },
   footer: {
-    textAlign: "center",
+    textAlign: 'center',
     fontSize: 11,
     lineHeight: 17,
-    color: "#667085",
+    color: '#667085',
     marginTop: 14,
     paddingHorizontal: 18,
-    includeFontPadding: false,
   },
 });
