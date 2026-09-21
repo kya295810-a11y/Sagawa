@@ -23,7 +23,12 @@ import { apiRequest } from '@/services/api/client';
 import { ApiError } from '@/services/api/errors';
 import { useProfile, useUploadProfileImage } from '@/features/profile/hooks';
 import { registerPushToken } from '@/services/notifications/push-token';
-import { getStoredTokens } from '@/services/auth/token-storage';
+import {
+  clearBiometricCredential,
+  getStoredTokens,
+  hasBiometricCredential,
+  saveBiometricCredential,
+} from '@/services/auth/token-storage';
 import { useAuthStore } from '@/store/auth-store';
 import { useSettingsStore } from '@/store/settings-store';
 import { useAppTheme } from '@/theme/provider';
@@ -43,6 +48,12 @@ const ACCOUNT_ITEMS: MenuItem[] = [
     title: 'Personal Information',
     subtitle: 'Manage your personal details',
     icon: 'person-outline',
+  },
+  {
+    id: 'biometric',
+    title: 'Biometric Login',
+    subtitle: 'Use fingerprint or Face ID on this device',
+    icon: 'finger-print-outline',
   },
   {
     id: 'notifications',
@@ -153,6 +164,17 @@ export default function ProfileScreen() {
   const uploadingImage = imageUpload.isPending;
   const [profileImageFailed, setProfileImageFailed] = useState(false);
   const [profileImageHeaders, setProfileImageHeaders] = useState<Record<string, string>>({});
+  const [biometricEnabled, setBiometricEnabled] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    void hasBiometricCredential().then((enabled) => {
+      if (active) setBiometricEnabled(enabled);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (isGuest) {
@@ -283,10 +305,74 @@ export default function ProfileScreen() {
     }
   };
 
+  const handleBiometricPress = async () => {
+    if (Platform.OS === 'web') {
+      Alert.alert('Unavailable', 'Biometric login is available in the Android and iOS app.');
+      return;
+    }
+
+    if (biometricEnabled) {
+      Alert.alert(
+        'Disable biometric login?',
+        'You will need your email and password the next time you sign in on this device.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Disable',
+            style: 'destructive',
+            onPress: () => {
+              void (async () => {
+                try {
+                  await apiRequest('/api/auth/biometric', {
+                    method: 'DELETE',
+                    body: JSON.stringify({ platform: Platform.OS }),
+                  });
+                } catch {
+                  // Always remove the local protected credential if the user asks to disable it.
+                }
+                await clearBiometricCredential();
+                setBiometricEnabled(false);
+              })();
+            },
+          },
+        ],
+      );
+      return;
+    }
+
+    try {
+      const response = await apiRequest<{
+        success: boolean;
+        data: { credential: string };
+      }>('/api/auth/biometric/enroll', {
+        method: 'POST',
+        body: JSON.stringify({ platform: Platform.OS }),
+      });
+
+      await saveBiometricCredential(response.data.credential);
+      setBiometricEnabled(true);
+      Alert.alert(
+        'Biometric login enabled',
+        'Next time you log out, you can sign in with this device biometric instead of typing your email and password.',
+      );
+    } catch (error) {
+      Alert.alert(
+        'Unable to enable biometrics',
+        error instanceof Error
+          ? error.message
+          : 'Set up fingerprint, Face ID, or a secure device lock and try again.',
+      );
+    }
+  };
+
   const handleMenuPress = (id: string) => {
     switch (id) {
       case 'personal':
         router.push('/perdonal-information');
+        break;
+
+      case 'biometric':
+        void handleBiometricPress();
         break;
 
       case 'notifications':
@@ -362,7 +448,11 @@ export default function ProfileScreen() {
                 {item.title}
               </Text>
               <Text style={styles.menuSubtitle} allowFontScaling={false} numberOfLines={1}>
-                {item.subtitle}
+                {item.id === 'biometric'
+                  ? biometricEnabled
+                    ? 'Enabled on this device'
+                    : item.subtitle
+                  : item.subtitle}
               </Text>
             </View>
 
