@@ -1,5 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Alert,
   KeyboardAvoidingView,
@@ -20,6 +20,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { apiRequest } from '@/services/api/client';
 import { useAuthStore } from '@/store/auth-store';
+import { getBiometricCredential, hasBiometricCredential } from '@/services/auth/token-storage';
 import SagawaFlowerLogo from '../../assets/images/sagawa-flower-logo.svg';
 
 const LOGIN_BACKGROUND = require("../../assets/images/login-bg.jpg");
@@ -40,7 +41,19 @@ export default function LoginScreen() {
   const [loggingIn, setLoggingIn] = useState(false);
   const [googleLoggingIn, setGoogleLoggingIn] = useState(false);
   const [guestContinuing, setGuestContinuing] = useState(false);
+  const [biometricAvailable, setBiometricAvailable] = useState(false);
+  const [biometricLoggingIn, setBiometricLoggingIn] = useState(false);
   const passwordInputRef = useRef<TextInput>(null);
+
+  useEffect(() => {
+    let active = true;
+    void hasBiometricCredential().then((enabled) => {
+      if (active) setBiometricAvailable(enabled);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const togglePasswordVisibility = () => {
     setShowPassword((current) => !current);
@@ -268,6 +281,54 @@ export default function LoginScreen() {
     }
   };
 
+  const handleBiometricLogin = async () => {
+    if (biometricLoggingIn) return;
+    try {
+      setBiometricLoggingIn(true);
+      const credential = await getBiometricCredential();
+      if (!credential) {
+        setBiometricAvailable(false);
+        Alert.alert('Biometric sign in unavailable', 'Enable biometric sign in again from your Sagawa profile.');
+        return;
+      }
+
+      const response = await apiRequest<{
+        success: boolean;
+        data: {
+          accessToken: string;
+          refreshToken: string;
+          expiresAt: string;
+          profileCompleted: boolean;
+          user: { id: string; email: string };
+        };
+      }>('/api/auth/biometric/login', {
+        method: 'POST',
+        body: JSON.stringify({ credential, platform: Platform.OS }),
+      });
+
+      await useAuthStore.getState().setSession(
+        {
+          expiresAt: response.data.expiresAt,
+          profileCompleted: Boolean(response.data.profileCompleted),
+          user: response.data.user,
+        },
+        {
+          accessToken: response.data.accessToken,
+          refreshToken: response.data.refreshToken,
+        },
+      );
+
+      router.replace((response.data.profileCompleted ? '/(tabs)' : '/complete-profile') as Href);
+    } catch (error) {
+      Alert.alert(
+        'Biometric sign in failed',
+        error instanceof Error ? error.message : 'Unable to sign in with biometrics.',
+      );
+    } finally {
+      setBiometricLoggingIn(false);
+    }
+  };
+
   const handleGuestContinue = async () => {
     if (guestContinuing || googleLoggingIn || loggingIn) {
       return;
@@ -445,6 +506,21 @@ export default function LoginScreen() {
                     {loggingIn ? "Signing in..." : "Log in"}
                   </Text>
                 </Pressable>
+
+                {biometricAvailable && (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Sign in with device biometrics"
+                    onPress={() => void handleBiometricLogin()}
+                    disabled={biometricLoggingIn || loggingIn || googleLoggingIn || guestContinuing}
+                    style={({ pressed }) => [styles.biometricButton, pressed && styles.socialPressed]}
+                  >
+                    <Ionicons name="finger-print-outline" size={20} color="#3195F5" />
+                    <Text style={styles.biometricText} allowFontScaling={false}>
+                      {biometricLoggingIn ? 'Checking...' : 'Sign in with biometrics'}
+                    </Text>
+                  </Pressable>
+                )}
               </View>
 
               {/* Divider */}
@@ -494,7 +570,7 @@ export default function LoginScreen() {
                     (guestContinuing || googleLoggingIn || loggingIn) && { opacity: 0.6 },
                   ]}
                 >
-                  <Ionicons name="person-outline" size={18} color="#FFFFFF" />
+                  <Ionicons name="person-outline" size={18} color="#344054" />
                   <Text style={styles.socialText} allowFontScaling={false}>
                     {guestContinuing ? "Opening..." : "Guest"}
                   </Text>
@@ -546,7 +622,7 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: "#071A31",
+    backgroundColor: "#F4F9FF",
   },
 
   background: {
@@ -563,7 +639,7 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     left: 0,
-    backgroundColor: "rgba(241,248,255,0.72)",
+    backgroundColor: "rgba(244,249,255,0.84)",
   },
 
   safeArea: {
@@ -607,8 +683,8 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     borderRadius: 28,
     paddingHorizontal: 22,
-    paddingTop: 25,
-    paddingBottom: 24,
+    paddingTop: 22,
+    paddingBottom: 20,
     borderWidth: 1,
     borderColor: "rgba(49,149,245,0.20)",
     backgroundColor: Platform.OS === "android" ? "rgba(255,255,255,0.98)" : "rgba(255,255,255,0.88)",
@@ -626,13 +702,13 @@ const styles = StyleSheet.create({
   /* Header */
 
   header: {
-    marginBottom: 26,
+    marginBottom: 20,
   },
 
   title: {
     color: "#101828",
-    fontSize: 30,
-    lineHeight: 37,
+    fontSize: 28,
+    lineHeight: 34,
     fontWeight: ANDROID_EXTRA_BOLD,
     letterSpacing: -0.8,
     marginBottom: 9,
@@ -653,7 +729,7 @@ const styles = StyleSheet.create({
   },
 
   inputGroup: {
-    marginBottom: 18,
+    marginBottom: 14,
   },
 
   label: {
@@ -666,7 +742,7 @@ const styles = StyleSheet.create({
   },
 
   input: {
-    height: 54,
+    height: 50,
     borderWidth: 1,
     borderColor: "#D9E2EC",
     borderRadius: 15,
@@ -692,8 +768,8 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: 0,
     right: 0,
-    width: 54,
-    height: 54,
+    width: 50,
+    height: 50,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -701,7 +777,7 @@ const styles = StyleSheet.create({
   forgotButton: {
     alignSelf: "flex-end",
     marginTop: -2,
-    marginBottom: 22,
+    marginBottom: 16,
   },
 
   forgotText: {
@@ -713,8 +789,8 @@ const styles = StyleSheet.create({
   },
 
   loginButton: {
-    height: 54,
-    borderRadius: 15,
+    height: 52,
+    borderRadius: 14,
     backgroundColor: "#3195F5",
     alignItems: "center",
     justifyContent: "center",
@@ -741,12 +817,32 @@ const styles = StyleSheet.create({
     includeFontPadding: false,
   },
 
+  biometricButton: {
+    height: 48,
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: '#D7E8F8',
+    borderRadius: 14,
+    backgroundColor: '#F7FBFF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+
+  biometricText: {
+    color: '#245B8E',
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+
   /* Divider */
 
   dividerRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginVertical: 24,
+    marginVertical: 18,
   },
 
   divider: {
@@ -819,7 +915,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
-    marginTop: 25,
+    marginTop: 18,
   },
 
   signupText: {
@@ -833,7 +929,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 18,
     fontWeight: "700",
-    color: "#C9E6FF",
+    color: "#3195F5",
     includeFontPadding: false,
   },
 
@@ -844,7 +940,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 17,
     color: "#667085",
-    marginTop: 20,
+    marginTop: 14,
     paddingHorizontal: 18,
     includeFontPadding: false,
   },
