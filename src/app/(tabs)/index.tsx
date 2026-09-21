@@ -16,6 +16,8 @@ import { StatusBar } from 'expo-status-bar';
 import { useFocusEffect, useRouter } from 'expo-router';
 
 import { trackContentEvent } from '@/services/analytics/content-analytics';
+import { fetchNews } from '@/services/news/news-service';
+import type { NewsArticle } from '@/features/news/types';
 import { useAppTheme } from '@/theme/provider';
 import { useSettingsStore } from '@/store/settings-store';
 import { useAuthStore } from '@/store/auth-store';
@@ -32,15 +34,7 @@ const KL_NIGHT = require('../../../assets/images/kl-night.png');
 
 const API_BASE_URL = env.EXPO_PUBLIC_API_URL;
 
-type NewsItem = {
-  id: number | string;
-  title: string;
-  description?: string;
-  image?: string;
-  video?: string;
-  published?: boolean;
-  date?: string;
-};
+type NewsItem = NewsArticle;
 
 type ExchangeResponse = {
   success: boolean;
@@ -76,43 +70,12 @@ export default function HomeScreen() {
   const loadLatestNews = useCallback(async () => {
     try {
       setNewsError(false);
-
-      const response = await fetch(`${API_BASE_URL}/api/news`);
-
-      if (!response.ok) {
-        throw new Error(`News API returned ${response.status}`);
-      }
-
-      const payload: unknown = await response.json();
-
-      if (
-        typeof payload !== 'object' ||
-        payload === null ||
-        !('success' in payload) ||
-        !('data' in payload)
-      ) {
-        throw new Error('Invalid news API response');
-      }
-
-      const data = (payload as { data: unknown }).data;
-
-      if (!Array.isArray(data)) {
-        throw new Error('News API data is not an array');
-      }
-
-      const latest = data
-        .filter((item): item is NewsItem => {
-          if (typeof item !== 'object' || item === null) return false;
-          const value = item as Record<string, unknown>;
-          return (
-            (typeof value.id === 'number' || typeof value.id === 'string') &&
-            typeof value.title === 'string'
-          );
-        })
-        .filter((item) => item.published !== false)
-        .slice(0, 2);
-
-      setNews(latest);
+      const response = await fetchNews();
+      setNews(
+        response.items
+          .filter((item) => item.published)
+          .slice(0, 2),
+      );
     } catch (error) {
       console.error('Home news API error:', error);
       setNewsError(true);
@@ -582,16 +545,28 @@ export default function HomeScreen() {
                   pressed && styles.cardPressed,
                 ]}
               >
-                {item.image ? (
-                  <Image
-                    source={{ uri: item.image }}
-                    style={styles.newsImage}
-                    resizeMode="cover"
-                  />
+                {(item.mediaType === 'video' ? item.thumbnailUrl : item.imageUrl) ? (
+                  <View style={styles.newsMediaWrap}>
+                    <Image
+                      source={{
+                        uri:
+                          (item.mediaType === 'video'
+                            ? item.thumbnailUrl
+                            : item.imageUrl) ?? '',
+                      }}
+                      style={styles.newsImage}
+                      resizeMode="cover"
+                    />
+                    {item.mediaType === 'video' ? (
+                      <View style={styles.videoBadge}>
+                        <Ionicons name="play" size={11} color="#FFFFFF" />
+                      </View>
+                    ) : null}
+                  </View>
                 ) : (
                   <View style={styles.newsIconBox}>
                     <Ionicons
-                      name="newspaper"
+                      name={item.mediaType === 'video' ? 'videocam' : 'newspaper'}
                       size={21}
                       color={theme.colors.primary}
                     />
@@ -603,7 +578,7 @@ export default function HomeScreen() {
                     style={styles.newsCategory}
                     allowFontScaling={false}
                   >
-                    Malaysia
+                    {item.category || 'Latest'}
                   </Text>
 
                   <Text
@@ -1073,12 +1048,32 @@ const createStyles = (
       marginBottom: 11,
     },
 
-    newsImage: {
+    newsMediaWrap: {
       width: 72,
       height: 70,
       borderRadius: 14,
       marginRight: 12,
+      overflow: 'hidden',
+      position: 'relative',
       backgroundColor: colors.primarySoft,
+    },
+
+    newsImage: {
+      width: '100%',
+      height: '100%',
+      backgroundColor: colors.primarySoft,
+    },
+
+    videoBadge: {
+      position: 'absolute',
+      right: 6,
+      bottom: 6,
+      width: 22,
+      height: 22,
+      borderRadius: 11,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: 'rgba(0,0,0,0.72)',
     },
 
     newsStateCard: {
