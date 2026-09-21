@@ -45,17 +45,20 @@ const {
 } = require('./auth');
 const {
   consumeOAuthHandoff,
+  createBiometricCredential,
   createMobileSessionForUser,
   createOAuthHandoff,
   getMobileSession,
   loginOrRegisterGoogleUser,
   loginUser,
+  loginWithBiometricCredential,
   logoutMobileSession,
   normalizeEmail,
   refreshMobileSession,
   registerUser,
   requestMobilePasswordReset,
   resetMobilePassword,
+  revokeBiometricCredential,
   requireMobileUser,
 } = require('./user-auth');
 const { isEmailConfigured, sendVerificationCode, sendPasswordResetCode } = require('./email');
@@ -557,11 +560,11 @@ app.use(
 
 app.post('/api/auth/register', async (req, res) => {
   try {
-    const result = await registerUser(req.body?.email, req.body?.password, req.body?.age);
+    const result = await registerUser(req.body?.email, req.body?.password, req.body?.age, req.body?.name);
     scheduleUserSheetSync(result.user.id, { platform: req.body?.platform || 'Mobile' });
     return res.status(201).json({
       success: true,
-      data: { ...result, profileCompleted: false },
+      data: { ...result, profileCompleted: true },
     });
   } catch (error) {
     const status = Number(error.statusCode) || 500;
@@ -570,6 +573,39 @@ app.post('/api/auth/register', async (req, res) => {
       success: false,
       message: status >= 500 ? 'Unable to create account.' : error.message,
     });
+  }
+});
+
+app.post('/api/auth/biometric/enroll', requireMobileUser, async (req, res) => {
+  try {
+    const credential = await createBiometricCredential(req.mobileUser.id, req.body?.platform);
+    return res.status(201).json({ success: true, data: { credential } });
+  } catch (error) {
+    console.error('[Auth] Biometric enrollment failed:', error.message);
+    return res.status(500).json({ success: false, message: 'Unable to enable biometric sign-in.' });
+  }
+});
+
+app.post('/api/auth/biometric/login', async (req, res) => {
+  try {
+    const session = await loginWithBiometricCredential(req.body?.credential, req.body?.platform);
+    if (!session) {
+      return res.status(401).json({ success: false, message: 'Biometric sign-in is no longer available on this device.' });
+    }
+    return res.json({ success: true, data: session });
+  } catch (error) {
+    console.error('[Auth] Biometric login failed:', error.message);
+    return res.status(500).json({ success: false, message: 'Unable to sign in with biometrics.' });
+  }
+});
+
+app.delete('/api/auth/biometric', requireMobileUser, async (req, res) => {
+  try {
+    await revokeBiometricCredential(req.mobileUser.id, req.body?.platform);
+    return res.status(204).end();
+  } catch (error) {
+    console.error('[Auth] Biometric removal failed:', error.message);
+    return res.status(500).json({ success: false, message: 'Unable to disable biometric sign-in.' });
   }
 });
 
