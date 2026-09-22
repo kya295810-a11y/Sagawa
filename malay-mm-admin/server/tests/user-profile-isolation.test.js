@@ -20,6 +20,7 @@ let apiBase;
 let server;
 let applicationPool;
 const uploadedPaths = [];
+const deliveredVerificationCodes = new Map();
 
 async function request(pathname, options = {}) {
   const response = await fetch(`${apiBase}${pathname}`, options);
@@ -30,6 +31,37 @@ async function request(pathname, options = {}) {
     // Tests below assert JSON only where expected.
   }
   return { response, body };
+}
+
+async function loginMobileWithPassword(email, password) {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  const started = await request('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: normalizedEmail, password, accountType: 'mobile' }),
+  });
+
+  assert.equal(started.response.status, 202);
+  assert.equal(started.body?.data?.verificationRequired, true);
+  assert.match(started.body?.data?.challengeId || '', /^[0-9a-f-]{36}$/i);
+
+  const code = deliveredVerificationCodes.get(normalizedEmail);
+  assert.match(code || '', /^\d{6}$/);
+
+  const verified = await request('/api/auth/login/code/verify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      challengeId: started.body.data.challengeId,
+      code,
+      platform: 'CI',
+    }),
+  });
+
+  deliveredVerificationCodes.delete(normalizedEmail);
+  assert.equal(verified.response.status, 200);
+  assert.equal(verified.body?.data?.authenticated, true);
+  return verified;
 }
 
 test.before(async () => {
@@ -63,6 +95,16 @@ test.before(async () => {
   }
 
   process.env.PGOPTIONS = `-c search_path=${schema}`;
+
+  // Password login now requires a real second step. Stub only the email transport
+  // in this integration test so we still exercise challenge creation and
+  // verification without calling an external email provider from CI.
+  const emailModule = require('../email');
+  emailModule.sendUserVerificationCode = async (toEmail, code) => {
+    deliveredVerificationCodes.set(String(toEmail || '').trim().toLowerCase(), String(code));
+    return true;
+  };
+
   const app = require('../server');
   applicationPool = require('../db');
   server = app.listen(0, '127.0.0.1');
@@ -125,13 +167,8 @@ test('profiles remain isolated and server ignores client-supplied user IDs', asy
   assert.equal((await getProfile(alice.accessToken)).body.data.name, 'Alice Updated');
   assert.equal((await getProfile(bob.accessToken)).body.data.name, 'Bob');
 
-  const login = async (email) => request('/api/auth/login', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password: 'ValidPass123!' }),
-  });
-  const aliceLogin = await login('alice.integration@example.com');
-  const bobLogin = await login('bob.integration@example.com');
+  const aliceLogin = await loginMobileWithPassword('alice.integration@example.com', 'ValidPass123!');
+  const bobLogin = await loginMobileWithPassword('bob.integration@example.com', 'ValidPass123!');
   assert.equal(aliceLogin.response.status, 200);
   assert.equal(aliceLogin.body.data.profileCompleted, true);
   assert.equal((await getProfile(aliceLogin.body.data.accessToken)).body.data.name, 'Alice Updated');
@@ -140,10 +177,9 @@ test('profiles remain isolated and server ignores client-supplied user IDs', asy
   assert.equal((await getProfile(bobLogin.body.data.accessToken)).body.data.name, 'Bob');
 
   let latestAlice = aliceLogin.body.data;
+  const { createMobileSessionForUser } = require('../user-auth');
   for (let attempt = 0; attempt < 7; attempt += 1) {
-    const nextLogin = await login('alice.integration@example.com');
-    assert.equal(nextLogin.response.status, 200);
-    latestAlice = nextLogin.body.data;
+    latestAlice = await createMobileSessionForUser(alice.user.id);
   }
   const sessionCount = await applicationPool.query(
     'SELECT COUNT(*)::int AS count FROM user_sessions WHERE user_id = $1',
@@ -242,14 +278,10 @@ test('mobile password reset codes are expiring, one-time, and revoke existing se
   const oldLogin = await request('/api/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password: originalPassword }),
+    body: JSON.stringify({ email, password: originalPassword, accountType: 'mobile' }),
   });
   assert.equal(oldLogin.response.status, 401);
 
-  const nextLogin = await request('/api/auth/login', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password: nextPassword, accountType: 'mobile' }),
-  });
+  const nextLogin = await loginMobileWithPassword(email, nextPassword);
   assert.equal(nextLogin.response.status, 200);
 });
