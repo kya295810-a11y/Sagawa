@@ -11,6 +11,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const db = require('./db');
+const contentCache = require('./content-cache');
 const { savePushToken, sendContentPush } = require('./push-notifications');
 const {
   ADMIN_EMAIL,
@@ -87,6 +88,16 @@ const {
 } = require('./news-media');
 
 const app = express();
+
+function boundedCacheTtl(value, fallback, max) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.min(max, Math.trunc(parsed));
+}
+
+const NEWS_CACHE_TTL_MS = boundedCacheTtl(process.env.NEWS_CACHE_TTL_MS, 30000, 300000);
+const SERVICES_CACHE_TTL_MS = boundedCacheTtl(process.env.SERVICES_CACHE_TTL_MS, 60000, 300000);
+const EXCHANGE_CACHE_TTL_MS = boundedCacheTtl(process.env.EXCHANGE_CACHE_TTL_MS, 15000, 60000);
 
 const trustProxyHops = Number(process.env.TRUST_PROXY_HOPS || 0);
 if (Number.isInteger(trustProxyHops) && trustProxyHops > 0) {
@@ -1807,6 +1818,32 @@ app.get('/', (req, res) => {
 });
 app.get('/api/news', async (req, res) => {
   try {
+    const isAdmin = isAdminAuthenticated(req);
+
+    if (!isAdmin) {
+      const data = await contentCache.getOrLoad('news:list:public', NEWS_CACHE_TTL_MS, async () => {
+        const result = await db.query(`
+          SELECT
+            id,
+            title,
+            description,
+            media_type,
+            image_url,
+            image_name,
+            video_url,
+            thumbnail_url,
+            published,
+            date
+          FROM news
+          WHERE published = TRUE
+          ORDER BY created_at DESC
+        `);
+        return result.rows.map(mapNewsRow);
+      });
+
+      return res.json({ success: true, data });
+    }
+
     const result = await db.query(`
       SELECT
         id,
@@ -1826,17 +1863,16 @@ app.get('/api/news', async (req, res) => {
       LEFT JOIN content_analytics
         ON content_analytics.content_type = 'news'
        AND content_analytics.content_id = news.id
-      ${isAdminAuthenticated(req) ? '' : 'WHERE news.published = TRUE'}
       ORDER BY news.created_at DESC
     `);
 
-    res.json({
+    return res.json({
       success: true,
       data: result.rows.map(mapNewsRow),
     });
   } catch (error) {
     console.error('[News] GET failed:', error.message);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Failed to load news.',
     });
@@ -1845,6 +1881,45 @@ app.get('/api/news', async (req, res) => {
 
 app.get('/api/news/:id', async (req, res) => {
   try {
+    const id = String(req.params.id);
+    const isAdmin = isAdminAuthenticated(req);
+
+    if (!isAdmin) {
+      const data = await contentCache.getOrLoad(
+        `news:item:public:${id}`,
+        NEWS_CACHE_TTL_MS,
+        async () => {
+          const result = await db.query(
+            `SELECT
+              id,
+              title,
+              description,
+              media_type,
+              image_url,
+              image_name,
+              video_url,
+              thumbnail_url,
+              published,
+              date
+             FROM news
+             WHERE id = $1
+               AND published = TRUE`,
+            [id],
+          );
+          return result.rows[0] ? mapNewsRow(result.rows[0]) : null;
+        },
+      );
+
+      if (!data) {
+        return res.status(404).json({
+          success: false,
+          message: 'News not found.',
+        });
+      }
+
+      return res.json({ success: true, data });
+    }
+
     const result = await db.query(
       `SELECT
         id,
@@ -1864,9 +1939,8 @@ app.get('/api/news/:id', async (req, res) => {
        LEFT JOIN content_analytics
          ON content_analytics.content_type = 'news'
         AND content_analytics.content_id = news.id
-       WHERE news.id = $1
-         ${isAdminAuthenticated(req) ? '' : 'AND news.published = TRUE'}`,
-      [String(req.params.id)],
+       WHERE news.id = $1`,
+      [id],
     );
 
     if (result.rows.length === 0) {
@@ -1876,27 +1950,13 @@ app.get('/api/news/:id', async (req, res) => {
       });
     }
 
-    const updatedNews = mapNewsRow(result.rows[0]);
-
-    if (!current.published && updatedNews.published) {
-      void sendContentPush({
-        type: 'news',
-        id: updatedNews.id,
-        title: updatedNews.title,
-      }).then((delivery) => {
-        console.log('[Push] News notification sent:', delivery);
-      }).catch((pushError) => {
-        console.error('[Push] News notification failed:', pushError.message);
-      });
-    }
-
-    res.json({
+    return res.json({
       success: true,
-      data: updatedNews,
+      data: mapNewsRow(result.rows[0]),
     });
   } catch (error) {
     console.error('[News] GET by id failed:', error.message);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Failed to load news.',
     });
@@ -1978,6 +2038,7 @@ app.post('/api/news', newsUploadMiddleware, async (req, res) => {
     );
 
     const createdNews = mapNewsRow(result.rows[0]);
+    contentCache.clearPrefix('news:');
 
     if (createdNews.published) {
       void sendContentPush({
@@ -2103,9 +2164,24 @@ app.put('/api/news/:id', newsUploadMiddleware, async (req, res) => {
     if (req.files?.video?.[0] || nextMediaType !== 'video') removeStoredNewsMedia(current.video_url);
     if (req.files?.thumbnail?.[0] || nextMediaType !== 'video') removeStoredNewsMedia(current.thumbnail_url);
 
+    const updatedNews = mapNewsRow(result.rows[0]);
+    contentCache.clearPrefix('news:');
+
+    if (!current.published && updatedNews.published) {
+      void sendContentPush({
+        type: 'news',
+        id: updatedNews.id,
+        title: updatedNews.title,
+      }).then((delivery) => {
+        console.log('[Push] News notification sent:', delivery);
+      }).catch((pushError) => {
+        console.error('[Push] News notification failed:', pushError.message);
+      });
+    }
+
     res.json({
       success: true,
-      data: mapNewsRow(result.rows[0]),
+      data: updatedNews,
     });
   } catch (error) {
     removeUploadedFiles(req.files);
@@ -2137,6 +2213,7 @@ app.delete('/api/news/:id', async (req, res) => {
       result.rows[0].thumbnail_url,
     );
     await deleteAnalyticsForContent('news', result.rows[0].id);
+    contentCache.clearPrefix('news:');
 
     res.json({
       success: true,
@@ -2153,42 +2230,73 @@ app.delete('/api/news/:id', async (req, res) => {
 
 app.get('/api/services', async (req, res) => {
   try {
-    const result = await db.query(`
-        SELECT
-          id,
-          title,
-          description,
-          icon,
-          details,
-          contact,
-          location,
-          opening_hours AS "openingHours",
-          website,
-          published,
-          date,
-          image_name AS "imageName",
-          image_name AS image,
-          phone,
-          created_at AS "createdAt",
-          services.updated_at AS "updatedAt",
-          COALESCE(content_analytics.views, 0) AS views,
-          COALESCE(content_analytics.clicks, 0) AS clicks,
-          COALESCE(content_analytics.reach, 0) AS reach
-        FROM services
-        LEFT JOIN content_analytics
-          ON content_analytics.content_type = 'service'
-         AND content_analytics.content_id = services.id
-        ${isAdminAuthenticated(req) ? '' : 'WHERE services.published = TRUE'}
-        ORDER BY services.created_at DESC
-      `);
+    const isAdmin = isAdminAuthenticated(req);
 
-    res.json({
+    if (!isAdmin) {
+      const data = await contentCache.getOrLoad('services:list:public', SERVICES_CACHE_TTL_MS, async () => {
+        const result = await db.query(`
+          SELECT
+            id,
+            title,
+            description,
+            icon,
+            details,
+            contact,
+            location,
+            opening_hours AS "openingHours",
+            website,
+            published,
+            date,
+            image_name AS "imageName",
+            image_name AS image,
+            phone,
+            created_at AS "createdAt",
+            updated_at AS "updatedAt"
+          FROM services
+          WHERE published = TRUE
+          ORDER BY created_at DESC
+        `);
+        return result.rows;
+      });
+
+      return res.json({ success: true, data });
+    }
+
+    const result = await db.query(`
+      SELECT
+        id,
+        title,
+        description,
+        icon,
+        details,
+        contact,
+        location,
+        opening_hours AS "openingHours",
+        website,
+        published,
+        date,
+        image_name AS "imageName",
+        image_name AS image,
+        phone,
+        created_at AS "createdAt",
+        services.updated_at AS "updatedAt",
+        COALESCE(content_analytics.views, 0) AS views,
+        COALESCE(content_analytics.clicks, 0) AS clicks,
+        COALESCE(content_analytics.reach, 0) AS reach
+      FROM services
+      LEFT JOIN content_analytics
+        ON content_analytics.content_type = 'service'
+       AND content_analytics.content_id = services.id
+      ORDER BY services.created_at DESC
+    `);
+
+    return res.json({
       success: true,
       data: result.rows,
     });
   } catch (error) {
     console.error('[Services] GET failed:', error.message);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Failed to load services.',
     });
@@ -2252,6 +2360,7 @@ app.post('/api/services', async (req, res) => {
     );
 
     const createdService = result.rows[0];
+    contentCache.clearPrefix('services:');
 
     if (createdService.published) {
       void sendContentPush({
@@ -2372,6 +2481,7 @@ app.put('/api/services/:id', async (req, res) => {
     }
 
     const updatedService = result.rows[0];
+    contentCache.clearPrefix('services:');
 
     if (!wasPublished && updatedService.published) {
       void sendContentPush({
@@ -2415,6 +2525,7 @@ app.delete('/api/services/:id', async (req, res) => {
     }
 
     await deleteAnalyticsForContent('service', result.rows[0].id);
+    contentCache.clearPrefix('services:');
 
     res.json({
       success: true,
@@ -2595,6 +2706,7 @@ async function saveExchangeRate(req, res) {
     );
 
     const savedRate = Number(result.rows[0].rate);
+    contentCache.clearPrefix('exchange:');
     if (
       previousRate !== null &&
       Number.isFinite(previousRate) &&
@@ -2625,7 +2737,14 @@ async function saveExchangeRate(req, res) {
 
 app.get('/api/exchange', async (req, res) => {
   try {
-    const exchange = await getExchangeRate(isAdminAuthenticated(req));
+    const isAdmin = isAdminAuthenticated(req);
+    const exchange = isAdmin
+      ? await getExchangeRate(true)
+      : await contentCache.getOrLoad(
+          'exchange:public',
+          EXCHANGE_CACHE_TTL_MS,
+          () => getExchangeRate(false),
+        );
 
     res.json({
       success: true,
@@ -2642,7 +2761,14 @@ app.get('/api/exchange', async (req, res) => {
 
 app.get('/api/exchange-rate', async (req, res) => {
   try {
-    const exchange = await getExchangeRate(isAdminAuthenticated(req));
+    const isAdmin = isAdminAuthenticated(req);
+    const exchange = isAdmin
+      ? await getExchangeRate(true)
+      : await contentCache.getOrLoad(
+          'exchange:public',
+          EXCHANGE_CACHE_TTL_MS,
+          () => getExchangeRate(false),
+        );
 
     res.json({
       success: true,
@@ -2701,6 +2827,7 @@ app.post('/api/exchange-providers', exchangeProviderUploadMiddleware, async (req
       ],
     );
 
+    contentCache.clearPrefix('exchange:');
     return res.status(201).json({ success: true, data: mapExchangeProvider(result.rows[0]) });
   } catch (error) {
     if (req.file?.path) {
@@ -2772,6 +2899,7 @@ app.put('/api/exchange-providers/:id', exchangeProviderUploadMiddleware, async (
       removeStoredExchangeProviderLogo(current.logo_url);
     }
 
+    contentCache.clearPrefix('exchange:');
     return res.json({ success: true, data: mapExchangeProvider(result.rows[0]) });
   } catch (error) {
     if (req.file?.path) {
@@ -2799,6 +2927,7 @@ app.delete('/api/exchange-providers/:id', async (req, res) => {
       return res.status(404).json({ success: false, message: 'Comparison provider not found.' });
     }
     removeStoredExchangeProviderLogo(result.rows[0].logo_url);
+    contentCache.clearPrefix('exchange:');
     return res.json({ success: true, data: { id: String(result.rows[0].id) } });
   } catch (error) {
     console.error('[Exchange] Provider delete failed:', error.message);
