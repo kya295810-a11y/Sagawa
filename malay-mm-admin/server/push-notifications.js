@@ -92,8 +92,8 @@ async function sendExpoBatch(messages) {
   }
 }
 
-async function sendContentPush({ type, id, title }) {
-  if (!['news', 'service'].includes(type)) {
+async function sendContentPush({ type, id, title, rate }) {
+  if (!['news', 'service', 'exchange'].includes(type)) {
     throw new Error('Unsupported push content type.');
   }
 
@@ -103,12 +103,22 @@ async function sendContentPush({ type, id, title }) {
   }
 
   const cleanTitle = String(title || '').trim().slice(0, 160);
-  const notificationTitle = type === 'news' ? 'New Sagawa News' : 'New Sagawa Service';
+  const cleanRate = Number(rate);
+  const notificationTitle =
+    type === 'news'
+      ? 'New Sagawa News'
+      : type === 'service'
+        ? 'New Sagawa Service'
+        : 'Sagawa Exchange Rate Updated';
   const body =
-    cleanTitle ||
-    (type === 'news'
-      ? 'A new news update is available in Sagawa.'
-      : 'A new service is available in Sagawa.');
+    type === 'exchange'
+      ? Number.isFinite(cleanRate) && cleanRate > 0
+        ? `1 RM = ${cleanRate.toLocaleString('en-US', { maximumFractionDigits: 4 })} MMK`
+        : 'The RM to MMK exchange rate has been updated.'
+      : cleanTitle ||
+        (type === 'news'
+          ? 'A new news update is available in Sagawa.'
+          : 'A new service is available in Sagawa.');
 
   let sent = 0;
   const staleTokens = [];
@@ -124,7 +134,9 @@ async function sendContentPush({ type, id, title }) {
       data:
         type === 'news'
           ? { type: 'news', newsId: String(id) }
-          : { type: 'service', serviceId: String(id) },
+          : type === 'service'
+            ? { type: 'service', serviceId: String(id) }
+            : { type: 'exchange', rate: Number.isFinite(cleanRate) ? String(cleanRate) : '' },
     }));
 
     const tickets = await sendExpoBatch(messages);

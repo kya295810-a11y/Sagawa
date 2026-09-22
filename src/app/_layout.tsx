@@ -74,6 +74,12 @@ function RootNavigator() {
               params: { id: String(serviceId) },
             });
             Notifications.clearLastNotificationResponse();
+            return;
+          }
+
+          if (type === 'exchange') {
+            router.push('/(tabs)/exchange');
+            Notifications.clearLastNotificationResponse();
           }
         };
 

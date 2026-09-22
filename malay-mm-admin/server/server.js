@@ -2574,6 +2574,15 @@ async function saveExchangeRate(req, res) {
       });
     }
 
+    const previousResult = await db.query(
+      `SELECT rate
+         FROM exchange_rates
+        ORDER BY updated_at DESC, id DESC
+        LIMIT 1`,
+    );
+    const previousRate =
+      previousResult.rows.length > 0 ? Number(previousResult.rows[0].rate) : null;
+
     const result = await db.query(
       `INSERT INTO exchange_rates (rate, updated_at)
        VALUES ($1, NOW())
@@ -2583,6 +2592,22 @@ async function saveExchangeRate(req, res) {
          updated_at AS "updatedAt"`,
       [numericRate],
     );
+
+    const savedRate = Number(result.rows[0].rate);
+    if (
+      previousRate !== null &&
+      Number.isFinite(previousRate) &&
+      previousRate !== savedRate
+    ) {
+      void sendContentPush({
+        type: 'exchange',
+        rate: savedRate,
+      }).then((delivery) => {
+        console.log('[Push] Exchange rate notification sent:', delivery);
+      }).catch((pushError) => {
+        console.error('[Push] Exchange rate notification failed:', pushError.message);
+      });
+    }
 
     res.json({
       success: true,
