@@ -1704,6 +1704,7 @@ app.use('/api', (req, res, next) => {
   if (req.path === '/profile' || req.path.startsWith('/profile/')) return next();
   if (req.path === '/support' && req.method === 'POST') return next();
   if (req.path === '/analytics/event' && req.method === 'POST') return next();
+  if (req.path === '/notifications/register-token' && req.method === 'POST') return next();
   if (req.method === 'GET') return next();
   return requireAdmin(req, res, next);
 });
@@ -3012,7 +3013,7 @@ app.post('/api/support', supportLimiter, (req, res) => {
   }
 });
 
-app.post('/api/notifications/register-token', async (req, res) => {
+app.post('/api/notifications/register-token', requireMobileUser, async (req, res) => {
   try {
     const record = await savePushToken(req.body?.token, req.body?.platform);
     return res.status(201).json({

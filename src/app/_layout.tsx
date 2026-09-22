@@ -25,12 +25,12 @@ function RootNavigator() {
   const canUseApp = isGuest || (isAuthenticated && profileCompleted);
 
   useEffect(() => {
-    if (!canUseApp) return;
+    if (!isAuthenticated || !profileCompleted) return;
 
     void registerPushToken().catch((error) => {
       console.warn('Push registration unavailable:', error);
     });
-  }, [canUseApp]);
+  }, [isAuthenticated, profileCompleted]);
 
   useEffect(() => {
     if (!canUseApp) return;
