@@ -446,7 +446,20 @@ export default function LoginScreen() {
 
                   <View style={styles.inputGroup}>
                     <Text style={styles.label}>{channel === 'email' ? 'Email' : 'Phone number'}</Text>
-                    
+                    <TextInput
+                      value={identifier}
+                      onChangeText={setIdentifier}
+                      placeholder={channel === 'email' ? 'Enter your email' : 'Enter your phone number'}
+                      placeholderTextColor="#98A2B3"
+                      keyboardType={channel === 'email' ? 'email-address' : 'phone-pad'}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      autoComplete={channel === 'email' ? 'email' : 'tel'}
+                      textContentType={channel === 'email' ? 'emailAddress' : 'telephoneNumber'}
+                      returnKeyType="next"
+                      onSubmitEditing={() => passwordInputRef.current?.focus()}
+                      style={styles.input}
+                    />
                   </View>
 
                   <View style={styles.inputGroup}>
