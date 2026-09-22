@@ -98,6 +98,7 @@ function boundedCacheTtl(value, fallback, max) {
 const NEWS_CACHE_TTL_MS = boundedCacheTtl(process.env.NEWS_CACHE_TTL_MS, 30000, 300000);
 const SERVICES_CACHE_TTL_MS = boundedCacheTtl(process.env.SERVICES_CACHE_TTL_MS, 60000, 300000);
 const EXCHANGE_CACHE_TTL_MS = boundedCacheTtl(process.env.EXCHANGE_CACHE_TTL_MS, 15000, 60000);
+const ANALYTICS_CONTENT_CACHE_TTL_MS = boundedCacheTtl(process.env.ANALYTICS_CONTENT_CACHE_TTL_MS, 60000, 300000);
 
 const trustProxyHops = Number(process.env.TRUST_PROXY_HOPS || 0);
 if (Number.isInteger(trustProxyHops) && trustProxyHops > 0) {
@@ -425,12 +426,17 @@ function analyticsViewerHash(viewerId) {
 }
 
 async function analyticsContentExists(contentType, contentId) {
-  const table = contentType === 'news' ? 'news' : 'services';
-  const result = await db.query(
-    `SELECT 1 FROM ${table} WHERE id = $1 AND published = TRUE LIMIT 1`,
-    [String(contentId)],
-  );
-  return result.rows.length > 0;
+  const normalizedId = String(contentId);
+  const cacheKey = `analytics:published:${contentType}:${normalizedId}`;
+
+  return contentCache.getOrLoad(cacheKey, ANALYTICS_CONTENT_CACHE_TTL_MS, async () => {
+    const table = contentType === 'news' ? 'news' : 'services';
+    const result = await db.query(
+      `SELECT 1 FROM ${table} WHERE id = $1 AND published = TRUE LIMIT 1`,
+      [normalizedId],
+    );
+    return result.rows.length > 0;
+  });
 }
 
 async function recordAnalyticsEvent({ contentType, contentId, eventType, viewerId }) {
@@ -449,11 +455,11 @@ async function recordAnalyticsEvent({ contentType, contentId, eventType, viewerI
         (content_type, content_id, viewer_hash, first_seen_at, last_seen_at)
        VALUES ($1, $2, $3, NOW(), NOW())
        ON CONFLICT (content_type, content_id, viewer_hash)
-       DO UPDATE SET last_seen_at = NOW()
-       RETURNING (xmax = 0) AS inserted`,
+       DO NOTHING
+       RETURNING 1 AS inserted`,
       [contentType, String(contentId), viewerHash],
     );
-    reachIncrement = reachResult.rows[0]?.inserted === true ? 1 : 0;
+    reachIncrement = reachResult.rows.length > 0 ? 1 : 0;
   }
 
   const viewIncrement = eventType === 'view' ? 1 : 0;
@@ -2039,6 +2045,7 @@ app.post('/api/news', newsUploadMiddleware, async (req, res) => {
 
     const createdNews = mapNewsRow(result.rows[0]);
     contentCache.clearPrefix('news:');
+    contentCache.clearPrefix('analytics:');
 
     if (createdNews.published) {
       void sendContentPush({
@@ -2166,6 +2173,7 @@ app.put('/api/news/:id', newsUploadMiddleware, async (req, res) => {
 
     const updatedNews = mapNewsRow(result.rows[0]);
     contentCache.clearPrefix('news:');
+    contentCache.clearPrefix('analytics:');
 
     if (!current.published && updatedNews.published) {
       void sendContentPush({
@@ -2214,6 +2222,7 @@ app.delete('/api/news/:id', async (req, res) => {
     );
     await deleteAnalyticsForContent('news', result.rows[0].id);
     contentCache.clearPrefix('news:');
+    contentCache.clearPrefix('analytics:');
 
     res.json({
       success: true,
@@ -2361,6 +2370,7 @@ app.post('/api/services', async (req, res) => {
 
     const createdService = result.rows[0];
     contentCache.clearPrefix('services:');
+    contentCache.clearPrefix('analytics:');
 
     if (createdService.published) {
       void sendContentPush({
@@ -2482,6 +2492,7 @@ app.put('/api/services/:id', async (req, res) => {
 
     const updatedService = result.rows[0];
     contentCache.clearPrefix('services:');
+    contentCache.clearPrefix('analytics:');
 
     if (!wasPublished && updatedService.published) {
       void sendContentPush({
@@ -2526,6 +2537,7 @@ app.delete('/api/services/:id', async (req, res) => {
 
     await deleteAnalyticsForContent('service', result.rows[0].id);
     contentCache.clearPrefix('services:');
+    contentCache.clearPrefix('analytics:');
 
     res.json({
       success: true,
