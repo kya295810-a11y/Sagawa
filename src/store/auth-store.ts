@@ -6,6 +6,7 @@ import { AuthSession, AuthStatus, AuthTokens } from '@/features/auth/types';
 import { queryClient } from '@/lib/query-client';
 import { apiRequest } from '@/services/api/client';
 import { clearTokens, getStoredTokens, saveTokens } from '@/services/auth/token-storage';
+import { useSettingsStore } from '@/store/settings-store';
 
 const GUEST_MODE_KEY = 'auth.guestMode';
 
@@ -23,6 +24,12 @@ type AuthState = {
 
 async function clearGuestMode() {
   await AsyncStorage.removeItem(GUEST_MODE_KEY);
+}
+
+function applyLightThemeForOnboarding(profileCompleted: boolean) {
+  if (!profileCompleted) {
+    useSettingsStore.getState().setThemePreference('light');
+  }
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
@@ -87,6 +94,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       });
 
       await Promise.all([saveTokens(response.data), clearGuestMode()]);
+      applyLightThemeForOnboarding(response.data.profileCompleted);
       set({
         hydrated: true,
         session: {
@@ -120,6 +128,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   setSession: async (session, tokens) => {
     queryClient.clear();
     await Promise.all([saveTokens(tokens), clearGuestMode()]);
+    applyLightThemeForOnboarding(session.profileCompleted);
     set({
       hydrated: true,
       session,
