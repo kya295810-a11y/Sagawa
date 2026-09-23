@@ -12,7 +12,7 @@ const fs = require('fs');
 const path = require('path');
 const db = require('./db');
 const contentCache = require('./content-cache');
-const { savePushToken, sendContentPush } = require('./push-notifications');
+const { savePushToken, removePushTokens, sendContentPush } = require('./push-notifications');
 const {
   ADMIN_EMAIL,
   ADMIN_NAME,
@@ -1722,6 +1722,7 @@ app.use('/api', (req, res, next) => {
   if (req.path === '/support' && req.method === 'POST') return next();
   if (req.path === '/analytics/event' && req.method === 'POST') return next();
   if (req.path === '/notifications/register-token' && req.method === 'POST') return next();
+  if (req.path === '/notifications/unregister-token' && req.method === 'POST') return next();
   if (req.method === 'GET') return next();
   return requireAdmin(req, res, next);
 });
@@ -3170,6 +3171,18 @@ app.post('/api/notifications/register-token', requireMobileUser, async (req, res
       success: false,
       message: status >= 500 ? 'Unable to register notifications.' : error.message,
     });
+  }
+});
+
+app.post('/api/notifications/unregister-token', requireMobileUser, async (req, res) => {
+  try {
+    const token = String(req.body?.token || '').trim();
+    if (!token) return res.status(400).json({ success: false, message: 'Push token is required.' });
+    await removePushTokens([token]);
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('[Push] Token removal failed:', error.message);
+    return res.status(500).json({ success: false, message: 'Unable to disable notifications.' });
   }
 });
 
