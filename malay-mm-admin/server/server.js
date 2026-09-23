@@ -81,6 +81,7 @@ const {
   verifyGoogleIdToken,
 } = require('./google-auth');
 const { scheduleUserSheetSync, verifySheetAccess } = require('./google-sheets-sync');
+const r2Media = require('./r2-media');
 const {
   VIDEO_LIMIT_BYTES,
   fileMatchesSignature,
@@ -499,8 +500,8 @@ function parseBoolean(value, fallback) {
   return /^(1|true|yes|on)$/i.test(String(value));
 }
 
-function newsFileUrl(file) {
-  return file ? `/uploads/content/news/${file.filename}` : '';
+async function newsFileUrl(file) {
+  return file ? r2Media.uploadFile(file, 'news') : '';
 }
 
 function normalizeMediaType(value, imageUrl, videoUrl) {
@@ -539,12 +540,12 @@ function localNewsFilePath(mediaUrl) {
   return candidate.startsWith(`${newsUploadDir}${path.sep}`) ? candidate : null;
 }
 
-function removeStoredNewsMedia(...urls) {
+async function removeStoredNewsMedia(...urls) {
   for (const url of new Set(urls.filter(Boolean))) {
-    const filePath = localNewsFilePath(url);
-    if (!filePath) continue;
     try {
-      fs.unlinkSync(filePath);
+      if (await r2Media.deleteFile(url)) continue;
+      const filePath = localNewsFilePath(url);
+      if (filePath) fs.unlinkSync(filePath);
     } catch (error) {
       if (error.code !== 'ENOENT') console.error('[News] Media cleanup failed:', error.message);
     }
@@ -1979,9 +1980,9 @@ app.post('/api/news', newsUploadMiddleware, async (req, res) => {
     const legacyImage = cleanMediaUrl(req.body?.imageUrl || req.body?.image, 'Image URL');
     const legacyVideo = cleanMediaUrl(req.body?.videoUrl || req.body?.video, 'Video URL');
     const legacyThumbnail = cleanMediaUrl(req.body?.thumbnailUrl, 'Thumbnail URL');
-    const imageUrl = newsFileUrl(req.files?.image?.[0]) || legacyImage;
-    const videoUrl = newsFileUrl(req.files?.video?.[0]) || legacyVideo;
-    const thumbnailUrl = newsFileUrl(req.files?.thumbnail?.[0]) || legacyThumbnail;
+    const imageUrl = (await newsFileUrl(req.files?.image?.[0])) || legacyImage;
+    const videoUrl = (await newsFileUrl(req.files?.video?.[0])) || legacyVideo;
+    const thumbnailUrl = (await newsFileUrl(req.files?.thumbnail?.[0])) || legacyThumbnail;
     const mediaType = normalizeMediaType(req.body?.mediaType || req.body?.media_type, imageUrl, videoUrl);
 
     if (!cleanTitle) {
@@ -2108,9 +2109,9 @@ app.put('/api/news/:id', newsUploadMiddleware, async (req, res) => {
     }
 
     const current = existing.rows[0];
-    const nextImageUrl = newsFileUrl(req.files?.image?.[0]) || (body.imageUrl ?? current.image_url ?? current.image_name ?? '');
-    const nextVideoUrl = newsFileUrl(req.files?.video?.[0]) || (body.videoUrl ?? current.video_url ?? '');
-    const nextThumbnailUrl = newsFileUrl(req.files?.thumbnail?.[0]) || (body.thumbnailUrl ?? current.thumbnail_url ?? '');
+    const nextImageUrl = (await newsFileUrl(req.files?.image?.[0])) || (body.imageUrl ?? current.image_url ?? current.image_name ?? '');
+    const nextVideoUrl = (await newsFileUrl(req.files?.video?.[0])) || (body.videoUrl ?? current.video_url ?? '');
+    const nextThumbnailUrl = (await newsFileUrl(req.files?.thumbnail?.[0])) || (body.thumbnailUrl ?? current.thumbnail_url ?? '');
     const nextMediaType = normalizeMediaType(
       body.mediaType || body.media_type || current.media_type,
       nextImageUrl,
@@ -2167,10 +2168,10 @@ app.put('/api/news/:id', newsUploadMiddleware, async (req, res) => {
     );
 
     if (req.files?.image?.[0] || nextMediaType !== 'image') {
-      removeStoredNewsMedia(current.image_url, current.image_name);
+      await removeStoredNewsMedia(current.image_url, current.image_name);
     }
-    if (req.files?.video?.[0] || nextMediaType !== 'video') removeStoredNewsMedia(current.video_url);
-    if (req.files?.thumbnail?.[0] || nextMediaType !== 'video') removeStoredNewsMedia(current.thumbnail_url);
+    if (req.files?.video?.[0] || nextMediaType !== 'video') await removeStoredNewsMedia(current.video_url);
+    if (req.files?.thumbnail?.[0] || nextMediaType !== 'video') await removeStoredNewsMedia(current.thumbnail_url);
 
     const updatedNews = mapNewsRow(result.rows[0]);
     contentCache.clearPrefix('news:');
@@ -2215,7 +2216,7 @@ app.delete('/api/news/:id', async (req, res) => {
       });
     }
 
-    removeStoredNewsMedia(
+    await removeStoredNewsMedia(
       result.rows[0].image_url,
       result.rows[0].image_name,
       result.rows[0].video_url,
@@ -2606,8 +2607,8 @@ async function getExchangeRate(includeUnpublishedProviders = false) {
   };
 }
 
-function exchangeProviderFileUrl(file) {
-  return file ? `/uploads/content/exchange-providers/${file.filename}` : '';
+async function exchangeProviderFileUrl(file) {
+  return file ? r2Media.uploadFile(file, 'exchange-providers') : '';
 }
 
 function localExchangeProviderFilePath(mediaPath) {
@@ -2617,15 +2618,13 @@ function localExchangeProviderFilePath(mediaPath) {
   return candidate.startsWith(`${exchangeProviderUploadDir}${path.sep}`) ? candidate : null;
 }
 
-function removeStoredExchangeProviderLogo(mediaPath) {
-  const filePath = localExchangeProviderFilePath(mediaPath);
-  if (!filePath) return;
+async function removeStoredExchangeProviderLogo(mediaPath) {
   try {
-    fs.unlinkSync(filePath);
+    if (await r2Media.deleteFile(mediaPath)) return;
+    const filePath = localExchangeProviderFilePath(mediaPath);
+    if (filePath) fs.unlinkSync(filePath);
   } catch (error) {
-    if (error.code !== 'ENOENT') {
-      console.error('[Exchange] Provider logo cleanup failed:', error.message);
-    }
+    if (error.code !== 'ENOENT') console.error('[Exchange] Provider logo cleanup failed:', error.message);
   }
 }
 
@@ -2816,7 +2815,7 @@ app.post('/api/exchange-providers', exchangeProviderUploadMiddleware, async (req
     }
 
     const provider = validateExchangeProvider(req.body || {});
-    const logoUrl = exchangeProviderFileUrl(req.file);
+    const logoUrl = await exchangeProviderFileUrl(req.file);
     const result = await db.query(
       `INSERT INTO exchange_provider_rates
         (name, rate, logo_url, website_url, published, display_order, updated_at)
@@ -2873,7 +2872,7 @@ app.put('/api/exchange-providers/:id', exchangeProviderUploadMiddleware, async (
     const provider = validateExchangeProvider(req.body || {}, current);
     const removeLogo = parseBoolean(req.body?.removeLogo, false);
     const nextLogoUrl = req.file
-      ? exchangeProviderFileUrl(req.file)
+      ? await exchangeProviderFileUrl(req.file)
       : removeLogo
         ? ''
         : current.logo_url;
@@ -2909,7 +2908,7 @@ app.put('/api/exchange-providers/:id', exchangeProviderUploadMiddleware, async (
     );
 
     if ((req.file || removeLogo) && current.logo_url !== nextLogoUrl) {
-      removeStoredExchangeProviderLogo(current.logo_url);
+      await removeStoredExchangeProviderLogo(current.logo_url);
     }
 
     contentCache.clearPrefix('exchange:');
@@ -2939,7 +2938,7 @@ app.delete('/api/exchange-providers/:id', async (req, res) => {
     if (result.rows.length === 0) {
       return res.status(404).json({ success: false, message: 'Comparison provider not found.' });
     }
-    removeStoredExchangeProviderLogo(result.rows[0].logo_url);
+    await removeStoredExchangeProviderLogo(result.rows[0].logo_url);
     contentCache.clearPrefix('exchange:');
     return res.json({ success: true, data: { id: String(result.rows[0].id) } });
   } catch (error) {
