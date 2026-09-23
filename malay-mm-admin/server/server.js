@@ -253,11 +253,6 @@ const newsUploadDir = path.resolve(
 );
 fs.mkdirSync(newsUploadDir, { recursive: true });
 
-if (process.env.NODE_ENV === 'production' && !process.env.NEWS_UPLOAD_DIR) {
-  console.warn(
-    '[News] NEWS_UPLOAD_DIR is not configured. Uploaded media may be lost on an ephemeral host.',
-  );
-}
 
 const newsStorage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, newsUploadDir),
@@ -337,11 +332,6 @@ const exchangeProviderUploadDir = path.resolve(
 );
 fs.mkdirSync(exchangeProviderUploadDir, { recursive: true });
 
-if (process.env.NODE_ENV === 'production' && !process.env.EXCHANGE_PROVIDER_UPLOAD_DIR) {
-  console.warn(
-    '[Exchange] EXCHANGE_PROVIDER_UPLOAD_DIR is not configured. Uploaded provider logos may be lost on an ephemeral host.',
-  );
-}
 
 const exchangeProviderStorage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, exchangeProviderUploadDir),
