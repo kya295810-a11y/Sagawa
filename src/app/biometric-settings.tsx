@@ -69,12 +69,17 @@ export default function BiometricSettingsScreen() {
         <View style={styles.headerSpacer} />
       </View>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.heroIcon}>
-          <Ionicons name="finger-print" size={40} color="#FFFFFF" />
+        <View style={styles.intro}>
+          <View style={styles.heroIcon}>
+            <Ionicons name="finger-print" size={32} color="#FFFFFF" />
+          </View>
+          <View style={styles.introText}>
+            <Text style={styles.title}>Quick & secure</Text>
+            <Text style={styles.description}>Unlock Sagawa with your device biometrics.</Text>
+          </View>
         </View>
-        <Text style={styles.title}>Biometric Login</Text>
-        <Text style={styles.description}>Sign in to Sagawa faster using the biometric authentication supported by this device.</Text>
 
+        <Text style={styles.sectionLabel}>PREFERENCES</Text>
         <View style={styles.card}>
           <View style={styles.row}>
             <View style={styles.rowIcon}><Ionicons name="finger-print-outline" size={23} color={theme.colors.primary} /></View>
@@ -91,8 +96,12 @@ export default function BiometricSettingsScreen() {
               ios_backgroundColor={theme.isDark ? '#3A3A3C' : '#E5E5EA'}
             />
           </View>
+          <View style={styles.divider} />
+          <View style={styles.infoRow}>
+            <Ionicons name="shield-checkmark-outline" size={18} color={theme.colors.textMuted} />
+            <Text style={styles.footnote}>Biometric data stays on your device.</Text>
+          </View>
         </View>
-        <Text style={styles.footnote}>Biometric data stays on your device.</Text>
       </ScrollView>
     </SafeAreaView>
   );
@@ -104,15 +113,20 @@ const createStyles = (colors: any) => StyleSheet.create({
   back: { width: 44, height: 44, justifyContent: 'center' },
   headerTitle: { flex: 1, textAlign: 'center', color: colors.text, fontSize: 17, fontWeight: '600' },
   headerSpacer: { width: 44 },
-  content: { paddingHorizontal: 16, paddingTop: 30, paddingBottom: 40, alignItems: 'center' },
-  heroIcon: { width: 72, height: 72, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primary, marginBottom: 18, ...Platform.select({ android: { elevation: 2 } }) },
-  title: { color: colors.text, fontSize: 24, lineHeight: 30, fontWeight: '700', letterSpacing: -0.5 },
-  description: { color: colors.textMuted, fontSize: 14, lineHeight: 21, textAlign: 'center', maxWidth: 340, marginTop: 8, marginBottom: 30 },
-  card: { width: '100%', borderRadius: 16, overflow: 'hidden', backgroundColor: colors.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
-  row: { minHeight: 78, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 10 },
+  content: { paddingHorizontal: 18, paddingTop: 22, paddingBottom: 40 },
+  intro: { flexDirection: 'row', alignItems: 'center', marginBottom: 30 },
+  heroIcon: { width: 62, height: 62, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primary, ...Platform.select({ ios: { shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 10, shadowOffset: { width: 0, height: 5 } }, android: { elevation: 4 } }) },
+  introText: { flex: 1, marginLeft: 16 },
+  title: { color: colors.text, fontSize: 22, lineHeight: 28, fontWeight: '700', letterSpacing: -0.4 },
+  description: { color: colors.textMuted, fontSize: 13, lineHeight: 19, marginTop: 3 },
+  sectionLabel: { color: colors.textMuted, fontSize: 11, lineHeight: 15, fontWeight: '600', letterSpacing: 0.7, marginLeft: 12, marginBottom: 8 },
+  card: { width: '100%', borderRadius: 20, overflow: 'hidden', backgroundColor: colors.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, ...Platform.select({ ios: { shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 12, shadowOffset: { width: 0, height: 5 } }, android: { elevation: 2 } }) },
+  row: { minHeight: 82, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12 },
   rowIcon: { width: 38 },
   rowText: { flex: 1, paddingRight: 12 },
   rowTitle: { color: colors.text, fontSize: 16, fontWeight: '600' },
   rowSubtitle: { color: colors.textMuted, fontSize: 12, lineHeight: 17, marginTop: 2 },
-  footnote: { alignSelf: 'stretch', color: colors.textMuted, fontSize: 12, lineHeight: 18, marginTop: 10, marginHorizontal: 12 },
+  divider: { height: StyleSheet.hairlineWidth, marginLeft: 16, backgroundColor: colors.border },
+  infoRow: { minHeight: 50, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 11, gap: 9 },
+  footnote: { flex: 1, color: colors.textMuted, fontSize: 12, lineHeight: 17 },
 });
