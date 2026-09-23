@@ -523,21 +523,12 @@ function mapNewsRow(row) {
   };
 }
 
-function localNewsFilePath(mediaUrl) {
-  const prefix = '/uploads/content/news/';
-  if (!mediaUrl || !String(mediaUrl).startsWith(prefix)) return null;
-  const candidate = path.resolve(newsUploadDir, path.basename(String(mediaUrl)));
-  return candidate.startsWith(`${newsUploadDir}${path.sep}`) ? candidate : null;
-}
-
 async function removeStoredNewsMedia(...urls) {
   for (const url of new Set(urls.filter(Boolean))) {
     try {
-      if (await r2Media.deleteFile(url)) continue;
-      const filePath = localNewsFilePath(url);
-      if (filePath) fs.unlinkSync(filePath);
+      await r2Media.deleteFile(url);
     } catch (error) {
-      if (error.code !== 'ENOENT') console.error('[News] Media cleanup failed:', error.message);
+      console.error('[News] Media cleanup failed:', error.message);
     }
   }
 }
@@ -635,27 +626,6 @@ app.get('/health', async (req, res) => {
 
 app.use(['/api/news', '/api/services'], express.json({ limit: '32mb' }));
 app.use(express.json({ limit: '256kb' }));
-app.use('/uploads/content/news', express.static(newsUploadDir, {
-  index: false,
-  dotfiles: 'deny',
-  setHeaders(res) {
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-  },
-}));
-app.use('/uploads/content/exchange-providers', express.static(exchangeProviderUploadDir, {
-  index: false,
-  dotfiles: 'deny',
-  setHeaders(res) {
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-  },
-}));
-app.use('/uploads/content', express.static(defaultContentUploadDir, {
-  index: false,
-  dotfiles: 'deny',
-  setHeaders(res) {
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-  },
-}));
 app.use(
   express.urlencoded({
     extended: true,
@@ -2601,20 +2571,11 @@ async function exchangeProviderFileUrl(file) {
   return file ? r2Media.uploadFile(file, 'exchange-providers') : '';
 }
 
-function localExchangeProviderFilePath(mediaPath) {
-  const prefix = '/uploads/content/exchange-providers/';
-  if (!mediaPath || !String(mediaPath).startsWith(prefix)) return null;
-  const candidate = path.resolve(exchangeProviderUploadDir, path.basename(String(mediaPath)));
-  return candidate.startsWith(`${exchangeProviderUploadDir}${path.sep}`) ? candidate : null;
-}
-
 async function removeStoredExchangeProviderLogo(mediaPath) {
   try {
-    if (await r2Media.deleteFile(mediaPath)) return;
-    const filePath = localExchangeProviderFilePath(mediaPath);
-    if (filePath) fs.unlinkSync(filePath);
+    await r2Media.deleteFile(mediaPath);
   } catch (error) {
-    if (error.code !== 'ENOENT') console.error('[Exchange] Provider logo cleanup failed:', error.message);
+    console.error('[Exchange] Provider logo cleanup failed:', error.message);
   }
 }
 
