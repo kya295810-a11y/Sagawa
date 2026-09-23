@@ -22,7 +22,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { apiRequest } from '@/services/api/client';
 import { ApiError } from '@/services/api/errors';
 import { useProfile, useUploadProfileImage } from '@/features/profile/hooks';
-import { getStoredTokens } from '@/services/auth/token-storage';
 import { useAuthStore } from '@/store/auth-store';
 import { useSettingsStore } from '@/store/settings-store';
 import { useAppTheme } from '@/theme/provider';
@@ -158,25 +157,6 @@ export default function ProfileScreen() {
   const loading = !isGuest && profileQuery.isLoading;
   const uploadingImage = imageUpload.isPending;
   const [profileImageFailed, setProfileImageFailed] = useState(false);
-  const [profileImageHeaders, setProfileImageHeaders] = useState<Record<string, string>>({});
-
-  useEffect(() => {
-    if (isGuest) {
-      return;
-    }
-
-    let active = true;
-    void getStoredTokens().then((tokens) => {
-      if (active && tokens?.accessToken) {
-        setProfileImageHeaders({ Authorization: `Bearer ${tokens.accessToken}` });
-      }
-    });
-    return () => {
-      active = false;
-    };
-  }, [isGuest, profile.profileImage]);
-
-  const profileImageRequestHeaders = isGuest ? undefined : profileImageHeaders;
 
   const toggleTheme = () => {
     useSettingsStore.setState({
@@ -467,6 +447,9 @@ export default function ProfileScreen() {
   };
 
   const avatarUri = getMediaUrl(profile.profileImage);
+  const avatarSourceUri = avatarUri
+    ? `${avatarUri}${avatarUri.includes('?') ? '&' : '?'}v=${encodeURIComponent(profile.updatedAt || profile.profileImage)}`
+    : undefined;
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
@@ -495,7 +478,7 @@ export default function ProfileScreen() {
             <View style={styles.avatar}>
               {avatarUri && !profileImageFailed ? (
                 <Image
-                  source={{ uri: avatarUri, headers: profileImageRequestHeaders }}
+                  source={{ uri: avatarSourceUri }}
                   style={styles.avatarImage}
                   onError={() => setProfileImageFailed(true)}
                 />
