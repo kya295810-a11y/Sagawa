@@ -22,13 +22,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { apiRequest } from '@/services/api/client';
 import { ApiError } from '@/services/api/errors';
 import { useProfile, useUploadProfileImage } from '@/features/profile/hooks';
-import { registerPushToken } from '@/services/notifications/push-token';
-import {
-  clearBiometricCredential,
-  getStoredTokens,
-  hasBiometricCredential,
-  saveBiometricCredential,
-} from '@/services/auth/token-storage';
+import { getStoredTokens } from '@/services/auth/token-storage';
 import { useAuthStore } from '@/store/auth-store';
 import { useSettingsStore } from '@/store/settings-store';
 import { useAppTheme } from '@/theme/provider';
@@ -165,17 +159,6 @@ export default function ProfileScreen() {
   const uploadingImage = imageUpload.isPending;
   const [profileImageFailed, setProfileImageFailed] = useState(false);
   const [profileImageHeaders, setProfileImageHeaders] = useState<Record<string, string>>({});
-  const [biometricEnabled, setBiometricEnabled] = useState(false);
-
-  useEffect(() => {
-    let active = true;
-    void hasBiometricCredential().then((enabled) => {
-      if (active) setBiometricEnabled(enabled);
-    });
-    return () => {
-      active = false;
-    };
-  }, []);
 
   useEffect(() => {
     if (isGuest) {
@@ -274,98 +257,6 @@ export default function ProfileScreen() {
     }
   };
 
-  const handleNotificationsPress = async () => {
-    try {
-      const result = await registerPushToken();
-
-      if (result.status === 'registered') {
-        Alert.alert(
-          'Notifications Enabled',
-          'You will now receive push notifications from Sagawa.',
-        );
-        return;
-      }
-
-      if (result.status === 'denied') {
-        Alert.alert(
-          'Notifications Disabled',
-          'Notification permission was not granted. You can enable it later from your device settings.',
-        );
-        return;
-      }
-
-      Alert.alert(
-        'Notifications Unavailable',
-        result.reason === 'expo-go'
-          ? 'Android push notifications require a development build or production build, not Expo Go.'
-          : 'Push notifications are not available in the web version of Sagawa.',
-      );
-    } catch (error) {
-      console.error('Push notification registration error:', error);
-      Alert.alert('Notifications Error', 'Unable to register for push notifications right now.');
-    }
-  };
-
-  const handleBiometricPress = async () => {
-    if (Platform.OS === 'web') {
-      Alert.alert('Unavailable', 'Biometric login is available in the Android and iOS app.');
-      return;
-    }
-
-    if (biometricEnabled) {
-      Alert.alert(
-        'Disable biometric login?',
-        'You will need your email and password the next time you sign in on this device.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Disable',
-            style: 'destructive',
-            onPress: () => {
-              void (async () => {
-                try {
-                  await apiRequest('/api/auth/biometric', {
-                    method: 'DELETE',
-                    body: JSON.stringify({ platform: Platform.OS }),
-                  });
-                } catch {
-                  // Always remove the local protected credential if the user asks to disable it.
-                }
-                await clearBiometricCredential();
-                setBiometricEnabled(false);
-              })();
-            },
-          },
-        ],
-      );
-      return;
-    }
-
-    try {
-      const response = await apiRequest<{
-        success: boolean;
-        data: { credential: string };
-      }>('/api/auth/biometric/enroll', {
-        method: 'POST',
-        body: JSON.stringify({ platform: Platform.OS }),
-      });
-
-      await saveBiometricCredential(response.data.credential);
-      setBiometricEnabled(true);
-      Alert.alert(
-        'Biometric login enabled',
-        'Next time you log out, you can sign in with this device biometric instead of typing your email and password.',
-      );
-    } catch (error) {
-      Alert.alert(
-        'Unable to enable biometrics',
-        error instanceof Error
-          ? error.message
-          : 'Set up fingerprint, Face ID, or a secure device lock and try again.',
-      );
-    }
-  };
-
   const handleMenuPress = (id: string) => {
     switch (id) {
       case 'personal':
@@ -373,11 +264,11 @@ export default function ProfileScreen() {
         break;
 
       case 'biometric':
-        void handleBiometricPress();
+        router.push('/biometric-settings');
         break;
 
       case 'notifications':
-        handleNotificationsPress();
+        router.push('/notification-settings');
         break;
 
       case 'support':
@@ -449,11 +340,7 @@ export default function ProfileScreen() {
                 {item.title}
               </Text>
               <Text style={styles.menuSubtitle} allowFontScaling={false} numberOfLines={1}>
-                {item.id === 'biometric'
-                  ? biometricEnabled
-                    ? 'Enabled on this device'
-                    : item.subtitle
-                  : item.subtitle}
+                {item.subtitle}
               </Text>
             </View>
 
