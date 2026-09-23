@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
@@ -9,6 +10,8 @@ import {
   type RemoteNotificationsUnsupportedReason,
 } from '@/services/notifications/runtime';
 import { ApiResponse } from '@/types/profile';
+
+const NOTIFICATION_PREFERENCE_KEY = 'notifications.enabled';
 
 let notificationHandlerRegistered = false;
 let pushTokenRegistrationPromise: Promise<RegisterPushTokenResult> | null = null;
@@ -38,7 +41,10 @@ export type RegisterPushTokenResult =
       reason: RemoteNotificationsUnsupportedReason;
     };
 
-async function registerPushTokenOnce(): Promise<RegisterPushTokenResult> {
+async function registerPushTokenOnce(force = false): Promise<RegisterPushTokenResult> {
+  if (!force && (await AsyncStorage.getItem(NOTIFICATION_PREFERENCE_KEY)) === '0') {
+    return { status: 'denied' };
+  }
   const unsupportedReason = getRemoteNotificationsUnsupportedReason();
 
   if (unsupportedReason) {
@@ -101,12 +107,12 @@ async function registerPushTokenOnce(): Promise<RegisterPushTokenResult> {
   return { status: 'registered', token };
 }
 
-export async function registerPushToken(): Promise<RegisterPushTokenResult> {
+export async function registerPushToken(force = false): Promise<RegisterPushTokenResult> {
   if (pushTokenRegistrationPromise) {
     return pushTokenRegistrationPromise;
   }
 
-  const registrationPromise = registerPushTokenOnce();
+  const registrationPromise = registerPushTokenOnce(force);
   pushTokenRegistrationPromise = registrationPromise;
 
   try {
@@ -116,4 +122,35 @@ export async function registerPushToken(): Promise<RegisterPushTokenResult> {
       pushTokenRegistrationPromise = null;
     }
   }
+}
+
+
+export async function getNotificationPreference() {
+  return (await AsyncStorage.getItem(NOTIFICATION_PREFERENCE_KEY)) !== '0';
+}
+
+export async function enablePushNotifications() {
+  const result = await registerPushToken(true);
+  if (result.status === 'registered') {
+    await AsyncStorage.setItem(NOTIFICATION_PREFERENCE_KEY, '1');
+  }
+  return result;
+}
+
+export async function disablePushNotifications() {
+  await AsyncStorage.setItem(NOTIFICATION_PREFERENCE_KEY, '0');
+
+  const unsupportedReason = getRemoteNotificationsUnsupportedReason();
+  if (unsupportedReason) return;
+  const Notifications = await loadNotificationsModule();
+  if (!Notifications) return;
+  const permissions = await Notifications.getPermissionsAsync();
+  if (permissions.status !== 'granted') return;
+  const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
+  if (!projectId) return;
+  const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
+  await apiRequest('/api/notifications/unregister-token', {
+    method: 'POST',
+    body: JSON.stringify({ token }),
+  });
 }
