@@ -82,7 +82,7 @@ export default function NotificationSettingsScreen() {
             />
           </View>
         </View>
-        <Text style={styles.footnote}>Your phone's system notification permission is separate. If you previously blocked Sagawa in Android or iOS Settings, you must allow it there before this switch can enable push notifications.</Text>
+        <Text style={styles.footnote}>System notification permission must also be enabled.</Text>
       </ScrollView>
     </SafeAreaView>
   );
