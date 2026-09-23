@@ -134,6 +134,8 @@ function RootNavigator() {
 
         <Stack.Protected guard={isAuthenticated && profileCompleted}>
           <Stack.Screen name="perdonal-information" />
+          <Stack.Screen name="notification-settings" />
+          <Stack.Screen name="biometric-settings" />
         </Stack.Protected>
 
         <Stack.Screen name="help-support" />
