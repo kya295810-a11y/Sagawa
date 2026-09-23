@@ -170,5 +170,6 @@ async function sendContentPush({ type, id, title, rate }) {
 module.exports = {
   isExpoPushToken,
   savePushToken,
+  removePushTokens,
   sendContentPush,
 };
