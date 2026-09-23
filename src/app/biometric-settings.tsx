@@ -92,7 +92,7 @@ export default function BiometricSettingsScreen() {
             />
           </View>
         </View>
-        <Text style={styles.footnote}>Biometric data stays with your phone. Sagawa stores only the protected sign-in credential required for this device.</Text>
+        <Text style={styles.footnote}>Biometric data stays on your device.</Text>
       </ScrollView>
     </SafeAreaView>
   );
