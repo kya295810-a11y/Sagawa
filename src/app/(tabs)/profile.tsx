@@ -19,6 +19,7 @@ import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { BrandedLoader } from '@/components/common/branded-loader';
 import { apiRequest } from '@/services/api/client';
 import { ApiError } from '@/services/api/errors';
 import { useProfile, useUploadProfileImage } from '@/features/profile/hooks';
@@ -407,9 +408,7 @@ export default function ProfileScreen() {
     return (
       <SafeAreaView style={styles.safeArea}>
         <StatusBar style={theme.statusBarStyle} />
-        <View style={styles.loadingContainer}>
-          <Text style={styles.loadingText}>Loading profile...</Text>
-        </View>
+        <BrandedLoader message="Loading your profile…" />
       </SafeAreaView>
     );
   }
