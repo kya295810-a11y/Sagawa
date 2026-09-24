@@ -16,6 +16,8 @@ export interface ExchangeRateSnapshot {
 
 export interface ExchangeProviderRate {
   id: string;
+  countryCode?: 'MY' | 'SG' | 'TH';
+  baseCurrency?: 'MYR' | 'SGD' | 'THB';
   name: string;
   rate: number;
   logoUrl: string;
@@ -27,6 +29,9 @@ export interface ExchangeRateResponse {
   success?: boolean;
   data?: {
     id?: number | string | null;
+    countryCode?: 'MY' | 'SG' | 'TH';
+    baseCurrency?: 'MYR' | 'SGD' | 'THB';
+    countryName?: string;
     rate?: number | string | null;
     updatedAt?: string | null;
     rates?: {

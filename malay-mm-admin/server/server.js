@@ -2517,6 +2517,8 @@ app.delete('/api/services/:id', async (req, res) => {
 function mapExchangeProvider(row) {
   return {
     id: String(row.id),
+    countryCode: row.countryCode ?? row.country_code ?? 'MY',
+    baseCurrency: row.baseCurrency ?? row.base_currency ?? 'MYR',
     name: row.name,
     rate: row.rate,
     logoUrl: row.logoUrl ?? row.logo_url ?? '',
@@ -2527,10 +2529,26 @@ function mapExchangeProvider(row) {
   };
 }
 
-async function getExchangeProviders(includeUnpublished = false) {
+const EXCHANGE_MARKETS = {
+  MY: { countryCode: 'MY', baseCurrency: 'MYR', countryName: 'Malaysia' },
+  SG: { countryCode: 'SG', baseCurrency: 'SGD', countryName: 'Singapore' },
+  TH: { countryCode: 'TH', baseCurrency: 'THB', countryName: 'Thailand' },
+};
+
+function normalizeExchangeCountry(value) {
+  const countryCode = String(value || 'MY').trim().toUpperCase();
+  return EXCHANGE_MARKETS[countryCode] ? countryCode : 'MY';
+}
+
+async function getExchangeProviders(includeUnpublished = false, country = 'MY') {
+  const countryCode = normalizeExchangeCountry(country);
+  const params = [countryCode];
+  const visibilityClause = includeUnpublished ? '' : 'AND published = TRUE';
   const result = await db.query(`
     SELECT
       id,
+      country_code AS "countryCode",
+      base_currency AS "baseCurrency",
       name,
       rate,
       logo_url AS "logoUrl",
@@ -2539,30 +2557,43 @@ async function getExchangeProviders(includeUnpublished = false) {
       display_order AS "displayOrder",
       updated_at AS "updatedAt"
     FROM exchange_provider_rates
-    ${includeUnpublished ? '' : 'WHERE published = TRUE'}
+    WHERE country_code = $1
+    ${visibilityClause}
     ORDER BY display_order ASC, id ASC
     LIMIT 2
-  `);
+  `, params);
 
   return result.rows.map(mapExchangeProvider);
 }
 
-async function getExchangeRate(includeUnpublishedProviders = false) {
+async function getExchangeRate(includeUnpublishedProviders = false, country = 'MY') {
+  const countryCode = normalizeExchangeCountry(country);
+  const market = EXCHANGE_MARKETS[countryCode];
   const [result, providers] = await Promise.all([
     db.query(`
       SELECT
         id,
+        country_code AS "countryCode",
+        base_currency AS "baseCurrency",
         rate,
         updated_at AS "updatedAt"
       FROM exchange_rates
+      WHERE country_code = $1
       ORDER BY updated_at DESC, id DESC
       LIMIT 1
-    `),
-    getExchangeProviders(includeUnpublishedProviders),
+    `, [countryCode]),
+    getExchangeProviders(includeUnpublishedProviders, countryCode),
   ]);
 
   return {
-    ...(result.rows[0] || { id: null, rate: null, updatedAt: null }),
+    ...(result.rows[0] || {
+      id: null,
+      countryCode,
+      baseCurrency: market.baseCurrency,
+      rate: null,
+      updatedAt: null,
+    }),
+    countryName: market.countryName,
     providers,
   };
 }
@@ -2580,6 +2611,8 @@ async function removeStoredExchangeProviderLogo(mediaPath) {
 }
 
 function validateExchangeProvider(body, current = {}) {
+  const countryCode = normalizeExchangeCountry(body.countryCode ?? current.country_code ?? 'MY');
+  const market = EXCHANGE_MARKETS[countryCode];
   const name = boundedText(body.name ?? current.name, 80, 'Provider name');
   const rateText = String(body.rate ?? current.rate ?? '').trim().replace(/,/g, '');
   const websiteUrl = boundedText(body.websiteUrl ?? current.website_url ?? '', 2048, 'Website URL');
@@ -2612,6 +2645,8 @@ function validateExchangeProvider(body, current = {}) {
   }
 
   return {
+    countryCode,
+    baseCurrency: market.baseCurrency,
     name,
     rate: Number(rateText),
     websiteUrl,
@@ -2623,6 +2658,8 @@ function validateExchangeProvider(body, current = {}) {
 async function saveExchangeRate(req, res) {
   try {
     const body = req.body || {};
+    const countryCode = normalizeExchangeCountry(body.countryCode);
+    const market = EXCHANGE_MARKETS[countryCode];
     const rate = String(body.rate ?? '').trim();
     const cleanRate = rate.replace(/,/g, '');
 
@@ -2652,20 +2689,24 @@ async function saveExchangeRate(req, res) {
     const previousResult = await db.query(
       `SELECT rate
          FROM exchange_rates
+        WHERE country_code = $1
         ORDER BY updated_at DESC, id DESC
         LIMIT 1`,
+      [countryCode],
     );
     const previousRate =
       previousResult.rows.length > 0 ? Number(previousResult.rows[0].rate) : null;
 
     const result = await db.query(
-      `INSERT INTO exchange_rates (rate, updated_at)
-       VALUES ($1, NOW())
+      `INSERT INTO exchange_rates (country_code, base_currency, rate, updated_at)
+       VALUES ($1, $2, $3, NOW())
        RETURNING
          id,
+         country_code AS "countryCode",
+         base_currency AS "baseCurrency",
          rate,
          updated_at AS "updatedAt"`,
-      [numericRate],
+      [countryCode, market.baseCurrency, numericRate],
     );
 
     const savedRate = Number(result.rows[0].rate);
@@ -2678,6 +2719,8 @@ async function saveExchangeRate(req, res) {
       void sendContentPush({
         type: 'exchange',
         rate: savedRate,
+        currency: market.baseCurrency,
+        countryCode,
       }).then((delivery) => {
         console.log('[Push] Exchange rate notification sent:', delivery);
       }).catch((pushError) => {
@@ -2701,12 +2744,14 @@ async function saveExchangeRate(req, res) {
 app.get('/api/exchange', async (req, res) => {
   try {
     const isAdmin = isAdminAuthenticated(req);
+    const countryCode = normalizeExchangeCountry(req.query.country);
+    const cacheKey = `exchange:public:${countryCode}`;
     const exchange = isAdmin
-      ? await getExchangeRate(true)
+      ? await getExchangeRate(true, countryCode)
       : await contentCache.getOrLoad(
-          'exchange:public',
+          cacheKey,
           EXCHANGE_CACHE_TTL_MS,
-          () => getExchangeRate(false),
+          () => getExchangeRate(false, countryCode),
         );
 
     res.json({
@@ -2756,7 +2801,11 @@ app.put('/api/exchange-rate', saveExchangeRate);
 
 app.post('/api/exchange-providers', exchangeProviderUploadMiddleware, async (req, res) => {
   try {
-    const countResult = await db.query('SELECT COUNT(*)::int AS count FROM exchange_provider_rates');
+    const provider = validateExchangeProvider(req.body || {});
+    const countResult = await db.query(
+      'SELECT COUNT(*)::int AS count FROM exchange_provider_rates WHERE country_code = $1',
+      [provider.countryCode],
+    );
     if (countResult.rows[0].count >= 2) {
       if (req.file?.path) fs.unlinkSync(req.file.path);
       return res.status(409).json({
@@ -2765,14 +2814,15 @@ app.post('/api/exchange-providers', exchangeProviderUploadMiddleware, async (req
       });
     }
 
-    const provider = validateExchangeProvider(req.body || {});
     const logoUrl = await exchangeProviderFileUrl(req.file);
     const result = await db.query(
       `INSERT INTO exchange_provider_rates
-        (name, rate, logo_url, website_url, published, display_order, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, NOW())
+        (country_code, base_currency, name, rate, logo_url, website_url, published, display_order, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
        RETURNING
          id,
+         country_code AS "countryCode",
+         base_currency AS "baseCurrency",
          name,
          rate,
          logo_url AS "logoUrl",
@@ -2781,6 +2831,8 @@ app.post('/api/exchange-providers', exchangeProviderUploadMiddleware, async (req
          display_order AS "displayOrder",
          updated_at AS "updatedAt"`,
       [
+        provider.countryCode,
+        provider.baseCurrency,
         provider.name,
         provider.rate,
         logoUrl,
@@ -2830,16 +2882,20 @@ app.put('/api/exchange-providers/:id', exchangeProviderUploadMiddleware, async (
 
     const result = await db.query(
       `UPDATE exchange_provider_rates
-       SET name = $1,
-           rate = $2,
-           logo_url = $3,
-           website_url = $4,
-           published = $5,
-           display_order = $6,
+       SET country_code = $1,
+           base_currency = $2,
+           name = $3,
+           rate = $4,
+           logo_url = $5,
+           website_url = $6,
+           published = $7,
+           display_order = $8,
            updated_at = NOW()
-       WHERE id = $7
+       WHERE id = $9
        RETURNING
          id,
+         country_code AS "countryCode",
+         base_currency AS "baseCurrency",
          name,
          rate,
          logo_url AS "logoUrl",
@@ -2848,6 +2904,8 @@ app.put('/api/exchange-providers/:id', exchangeProviderUploadMiddleware, async (
          display_order AS "displayOrder",
          updated_at AS "updatedAt"`,
       [
+        provider.countryCode,
+        provider.baseCurrency,
         provider.name,
         provider.rate,
         nextLogoUrl,

@@ -6221,3 +6221,89 @@ body {
     justify-content: flex-end;
   }
 }
+
+
+/* Regional exchange country selector */
+.exchange-country-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0 0 18px;
+}
+
+.exchange-country-tab {
+  min-height: 76px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  border: 1px solid var(--admin-border, #dbe5f0);
+  border-radius: 16px;
+  background: var(--admin-surface, #ffffff);
+  color: var(--admin-text, #172033);
+  cursor: pointer;
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease, background 160ms ease;
+}
+
+.exchange-country-tab:hover:not(:disabled) {
+  border-color: #78b8ff;
+  transform: translateY(-1px);
+}
+
+.exchange-country-tab.active {
+  border-color: #1688ff;
+  background: linear-gradient(135deg, rgba(22, 136, 255, 0.12), rgba(22, 136, 255, 0.04));
+  box-shadow: 0 8px 24px rgba(22, 136, 255, 0.14);
+}
+
+.exchange-country-tab:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.exchange-country-flag {
+  font-size: 31px;
+  line-height: 1;
+}
+
+.exchange-country-tab > span:last-child {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.exchange-country-tab strong {
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+.exchange-country-tab small {
+  color: var(--admin-text-soft, #7c8798);
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+@media (max-width: 760px) {
+  .exchange-country-tabs {
+    gap: 8px;
+  }
+
+  .exchange-country-tab {
+    min-height: 68px;
+    padding: 11px 10px;
+    gap: 8px;
+  }
+
+  .exchange-country-flag {
+    font-size: 25px;
+  }
+
+  .exchange-country-tab strong {
+    font-size: 12px;
+  }
+
+  .exchange-country-tab small {
+    font-size: 10px;
+  }
+}
