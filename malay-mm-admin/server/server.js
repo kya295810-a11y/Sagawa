@@ -3012,6 +3012,12 @@ app.get('/api/profile/image', requireMobileUser, async (req, res, next) => {
   try {
     const result = await db.query('SELECT profile_image FROM profiles WHERE user_id = $1', [req.mobileUser.id]);
     const storedPath = String(result.rows[0]?.profile_image || '');
+
+    if (/^https:\/\//i.test(storedPath)) {
+      res.setHeader('Cache-Control', 'private, no-store');
+      return res.redirect(302, storedPath);
+    }
+
     const filename = path.basename(storedPath);
     if (!storedPath.startsWith('/uploads/profile/') || !/^profile-[a-f0-9-]+\.(?:jpg|png|webp)$/i.test(filename)) {
       return res.status(404).end();
@@ -3057,6 +3063,7 @@ app.put('/api/profile', requireMobileUser, async (req, res) => {
 });
 
 app.post('/api/profile/image', requireMobileUser, profileUploadMiddleware, async (req, res) => {
+  let uploadedProfileImage = '';
   try {
     if (!req.file) {
       return res.status(400).json({
@@ -3065,7 +3072,8 @@ app.post('/api/profile/image', requireMobileUser, profileUploadMiddleware, async
       });
     }
 
-    const profileImage = `/uploads/profile/${req.file.filename}`;
+    uploadedProfileImage = await r2Media.uploadFile(req.file, 'profiles');
+    const profileImage = uploadedProfileImage;
 
     const currentResult = await db.query(profileSelect, [req.mobileUser.id]);
     const currentProfile = currentResult.rows[0];
@@ -3086,7 +3094,7 @@ app.post('/api/profile/image', requireMobileUser, profileUploadMiddleware, async
     );
 
     if (!result.rows[0]) {
-      fs.unlinkSync(req.file.path);
+      await r2Media.deleteFile(uploadedProfileImage);
       return res.status(404).json({
         success: false,
         message: 'Profile not found.',
@@ -3094,9 +3102,13 @@ app.post('/api/profile/image', requireMobileUser, profileUploadMiddleware, async
     }
 
     const previousImage = String(currentProfile?.profileImage || '');
-    if (previousImage.startsWith('/uploads/profile/')) {
+    if (/^https:\/\//i.test(previousImage)) {
+      await r2Media.deleteFile(previousImage).catch((cleanupError) => {
+        console.error('[Profile] Previous R2 image cleanup failed:', cleanupError.message);
+      });
+    } else if (previousImage.startsWith('/uploads/profile/')) {
       const previousPath = path.join(profileUploadDir, path.basename(previousImage));
-      if (previousPath !== req.file.path && fs.existsSync(previousPath)) fs.unlinkSync(previousPath);
+      if (fs.existsSync(previousPath)) fs.unlinkSync(previousPath);
     }
 
     return res.json({
@@ -3105,6 +3117,9 @@ app.post('/api/profile/image', requireMobileUser, profileUploadMiddleware, async
       message: 'Profile image uploaded successfully.',
     });
   } catch (error) {
+    if (uploadedProfileImage) {
+      await r2Media.deleteFile(uploadedProfileImage).catch(() => {});
+    }
     if (req.file?.path && fs.existsSync(req.file.path)) {
       try {
         fs.unlinkSync(req.file.path);
