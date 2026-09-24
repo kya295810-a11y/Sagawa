@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { BrandedLoader } from '@/components/common/branded-loader';
 import { MediaViewer } from '@/components/media/media-viewer';
 import { trackContentEvent } from '@/services/analytics/content-analytics';
 import { apiRequest } from '@/services/api/client';
@@ -138,7 +139,7 @@ export default function ServiceDetailScreen() {
         </Pressable>
       </View>
       {serviceId && loading ? (
-        <State text="Loading service..." styles={styles} />
+        <BrandedLoader message="Loading service…" />
       ) : error || !service ? (
         <State text={error || 'Service not found.'} styles={styles} />
       ) : (
