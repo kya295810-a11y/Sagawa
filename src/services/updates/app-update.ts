@@ -46,6 +46,10 @@ function isNewerVersion(latest: string, current: string) {
   return false;
 }
 
+export async function getLastUpdateCheckAt() {
+  return AsyncStorage.getItem(LAST_UPDATE_CHECK_KEY);
+}
+
 export async function checkForAppUpdate(force = false): Promise<AppUpdateStatus | null> {
   if (!force) {
     const lastChecked = await AsyncStorage.getItem(LAST_UPDATE_CHECK_KEY);
