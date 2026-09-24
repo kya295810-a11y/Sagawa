@@ -2,7 +2,6 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
     Image,
     Pressable,
     ScrollView,
@@ -205,7 +204,6 @@ function State({
 }) {
   return (
     <View style={styles.state}>
-      <ActivityIndicator />
       <Text style={styles.body}>{message}</Text>
     </View>
   );
