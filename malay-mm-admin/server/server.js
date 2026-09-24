@@ -2965,7 +2965,9 @@ function profilePayload(row) {
     age: row.age == null ? null : Number(row.age),
     gender: row.gender || null,
     location: row.location || '',
-    profileImage: row.profileImage ? '/api/profile/image' : '',
+    profileImage: row.profileImage
+      ? (/^https:\/\//i.test(String(row.profileImage)) ? row.profileImage : '/api/profile/image')
+      : '',
     profileCompleted: Boolean(row.profileCompleted),
     updatedAt: row.updatedAt,
   };
