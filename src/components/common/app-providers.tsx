@@ -1,6 +1,6 @@
 import { QueryClientProvider } from '@tanstack/react-query';
 import { PropsWithChildren, useEffect } from 'react';
-import { AppState } from 'react-native';
+import { Alert, AppState } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
@@ -12,7 +12,7 @@ import { useAuthStore } from '@/store/auth-store';
 import { useSettingsStore } from '@/store/settings-store';
 import { AppThemeProvider, useAppTheme } from '@/theme/provider';
 import { runScheduledCacheCleanup } from '@/services/storage/cache-maintenance';
-import { checkForAppUpdate } from '@/services/updates/app-update';
+import { checkForAppUpdate, openAppStoreUpdate } from '@/services/updates/app-update';
 
 function ProviderEffects({ children }: PropsWithChildren) {
   const hydrated = useSettingsStore((state) => state.hydrated);
@@ -38,9 +38,29 @@ function ProviderEffects({ children }: PropsWithChildren) {
     if (!hydrated || !autoUpdateEnabled) return;
 
     const check = () => {
-      void checkForAppUpdate(false).catch((error) => {
-        console.warn('Automatic update check unavailable:', error);
-      });
+      void checkForAppUpdate(false)
+        .then((result) => {
+          if (!result?.available) return;
+
+          Alert.alert(
+            'Sagawa update available',
+            `Version ${result.latestVersion} is ready.`,
+            [
+              { text: 'Later', style: 'cancel' },
+              {
+                text: 'Update',
+                onPress: () => {
+                  void openAppStoreUpdate(result.storeUrl).catch((error) => {
+                    console.warn('App store update link unavailable:', error);
+                  });
+                },
+              },
+            ],
+          );
+        })
+        .catch((error) => {
+          console.warn('Automatic update check unavailable:', error);
+        });
     };
 
     check();
