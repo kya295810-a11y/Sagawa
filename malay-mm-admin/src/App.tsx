@@ -73,14 +73,29 @@ type ServiceItem = {
   reach?: number;
 };
 
+type ExchangeCountryCode = 'MY' | 'SG' | 'TH';
+
 type ExchangeItem = {
-  currency: 'MYR → MMK';
+  currency: string;
   rate: string;
   updatedAt?: string;
 };
 
+const EXCHANGE_MARKETS: Record<ExchangeCountryCode, {
+  country: string;
+  flag: string;
+  currency: 'MYR' | 'SGD' | 'THB';
+  currencyName: string;
+}> = {
+  MY: { country: 'Malaysia', flag: '🇲🇾', currency: 'MYR', currencyName: 'Malaysian Ringgit' },
+  SG: { country: 'Singapore', flag: '🇸🇬', currency: 'SGD', currencyName: 'Singapore Dollar' },
+  TH: { country: 'Thailand', flag: '🇹🇭', currency: 'THB', currencyName: 'Thai Baht' },
+};
+
 type ExchangeProviderItem = {
   id: string;
+  countryCode?: ExchangeCountryCode;
+  baseCurrency?: 'MYR' | 'SGD' | 'THB';
   name: string;
   rate: string;
   logoUrl: string;
@@ -92,6 +107,12 @@ type ExchangeProviderItem = {
 
 const normalizeExchangeProvider = (item: Record<string, unknown>): ExchangeProviderItem => ({
   id: String(item.id ?? ''),
+  countryCode: ['MY', 'SG', 'TH'].includes(String(item.countryCode ?? item.country_code))
+    ? String(item.countryCode ?? item.country_code) as ExchangeCountryCode
+    : 'MY',
+  baseCurrency: ['MYR', 'SGD', 'THB'].includes(String(item.baseCurrency ?? item.base_currency))
+    ? String(item.baseCurrency ?? item.base_currency) as 'MYR' | 'SGD' | 'THB'
+    : 'MYR',
   name: typeof item.name === 'string' ? item.name : '',
   rate: formatRate(item.rate as string | number | null | undefined),
   logoUrl: typeof item.logoUrl === 'string'
@@ -1051,6 +1072,9 @@ function App() {
   const [activePage, setActivePage] =
     useState<Page>('dashboard');
 
+  const [selectedExchangeCountry, setSelectedExchangeCountry] =
+    useState<ExchangeCountryCode>('MY');
+
   const [modal, setModal] =
     useState<ModalMode>('none');
 
@@ -1500,7 +1524,7 @@ function App() {
         await Promise.all([
           adminFetch(apiUrl('/api/news')),
           adminFetch(apiUrl('/api/services')),
-          adminFetch(apiUrl('/api/exchange-rate')),
+          adminFetch(apiUrl(`/api/exchange-rate?country=${selectedExchangeCountry}`)),
           adminFetch(apiUrl('/api/admin/analytics')),
         ]);
 
@@ -1581,7 +1605,7 @@ function App() {
           (item: Partial<ExchangeItem> & {
             buy?: string | number;
             sell?: string | number;
-          }) => item.currency === 'MYR → MMK',
+          }) => item.currency === `${EXCHANGE_MARKETS[selectedExchangeCountry].currency} → MMK`,
         );
 
         loadedRate = formatRate(
@@ -1627,7 +1651,7 @@ function App() {
           loadedRate !== 'undefined'
         ) {
           const loadedExchange: ExchangeItem = {
-            currency: 'MYR → MMK',
+            currency: `${EXCHANGE_MARKETS[selectedExchangeCountry].currency} → MMK`,
             rate: loadedRate,
             updatedAt: typeof rawExchange?.updatedAt === 'string' ? rawExchange.updatedAt : undefined,
           };
@@ -1672,7 +1696,7 @@ function App() {
   return () => {
     cancelled = true;
   };
-}, [authenticated, recordDiagnostic]);
+}, [authenticated, recordDiagnostic, selectedExchangeCountry]);
 
   /* =========================================================
      MENU
@@ -2368,11 +2392,29 @@ function App() {
      EXCHANGE
   ========================================================= */
 
+  const selectedExchangeMarket = EXCHANGE_MARKETS[selectedExchangeCountry];
+
   const updateExchange = (value: string) => {
     setExchangeDraft({
-      currency: 'MYR → MMK',
+      currency: `${selectedExchangeMarket.currency} → MMK`,
       rate: value,
     });
+  };
+
+  const changeExchangeCountry = (country: ExchangeCountryCode) => {
+    if (country === selectedExchangeCountry) return;
+    setSelectedExchangeCountry(country);
+    const market = EXCHANGE_MARKETS[country];
+    const emptyRate: ExchangeItem = {
+      currency: `${market.currency} → MMK`,
+      rate: '',
+    };
+    setExchangeRate(emptyRate);
+    setExchangeDraft(emptyRate);
+    setExchangeProviders([]);
+    setExchangeProviderDrafts([]);
+    setExchangeProviderLogoFiles({});
+    setExchangeProviderLogoPreviews({});
   };
 
   const openExchangePreview = () => {
@@ -2405,6 +2447,7 @@ function App() {
             Accept: 'application/json',
           },
           body: JSON.stringify({
+            countryCode: selectedExchangeCountry,
             rate,
           }),
         },
@@ -2426,7 +2469,7 @@ function App() {
           : formatRate(rate);
 
       const savedExchange: ExchangeItem = {
-        currency: 'MYR → MMK',
+        currency: `${selectedExchangeMarket.currency} → MMK`,
         rate: returnedRate,
         updatedAt: typeof result?.data?.updatedAt === 'string' ? result.data.updatedAt : new Date().toISOString(),
       };
@@ -2439,7 +2482,7 @@ function App() {
         baseUrl: API_BASE || '(missing)',
         endpoint: apiUrl('/api/exchange-rate'),
         method: 'PUT',
-        body: { rate },
+        body: { countryCode: selectedExchangeCountry, rate },
         error,
       });
       setApiError(
@@ -2481,6 +2524,8 @@ function App() {
       ...current,
       {
         id,
+        countryCode: selectedExchangeCountry,
+        baseCurrency: selectedExchangeMarket.currency,
         name: '',
         rate: '',
         logoUrl: '',
@@ -2555,6 +2600,7 @@ function App() {
     const isNew = provider.id.startsWith('new-');
     const savedProvider = exchangeProviders.find((item) => item.id === provider.id);
     const formData = new FormData();
+    formData.append('countryCode', selectedExchangeCountry);
     formData.append('name', name);
     formData.append('rate', rate);
     formData.append('websiteUrl', websiteUrl);
@@ -3412,15 +3458,39 @@ function App() {
         </button>
       </div>
 
+      <div className="exchange-country-tabs" role="tablist" aria-label="Exchange market">
+        {(Object.keys(EXCHANGE_MARKETS) as ExchangeCountryCode[]).map((code) => {
+          const market = EXCHANGE_MARKETS[code];
+          const active = selectedExchangeCountry === code;
+          return (
+            <button
+              key={code}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              className={`exchange-country-tab${active ? ' active' : ''}`}
+              onClick={() => changeExchangeCountry(code)}
+              disabled={apiLoading}
+            >
+              <span className="exchange-country-flag" aria-hidden="true">{market.flag}</span>
+              <span>
+                <strong>{market.country}</strong>
+                <small>{market.currency} → MMK</small>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
       <div className="exchange-panel">
         <div className="exchange-header">
           <div>
             <strong>
-              MYR → MMK
+              {selectedExchangeMarket.currency} → MMK
             </strong>
 
             <span>
-              1 Malaysian Ringgit to Myanmar Kyat
+              1 {selectedExchangeMarket.currencyName} to Myanmar Kyat
             </span>
           </div>
 
@@ -3442,7 +3512,7 @@ function App() {
             </strong>
 
             <span>
-              Malaysian Ringgit
+              {selectedExchangeMarket.currencyName}
             </span>
 
             <input
@@ -3453,14 +3523,14 @@ function App() {
                 )
               }
               inputMode="decimal"
-              aria-label="MYR to MMK exchange rate"
+              aria-label={`${selectedExchangeMarket.currency} to MMK exchange rate`}
             />
           </div>
         </div>
 
         <div className="exchange-footer">
           <span>
-            Current saved rate: 1 MYR ={' '}
+            Current saved rate: 1 {selectedExchangeMarket.currency} ={' '}
             {exchangeRate.rate} MMK
           </span>
 
@@ -3477,8 +3547,8 @@ function App() {
       <div className="exchange-panel provider-rate-panel">
         <div className="exchange-header provider-rate-header">
           <div>
-            <strong>Trusted provider comparison</strong>
-            <span>Up to two published providers appear in the mobile Exchange hero.</span>
+            <strong>Trusted provider comparison — {selectedExchangeMarket.country}</strong>
+            <span>Up to two published providers appear for {selectedExchangeMarket.currency} → MMK.</span>
           </div>
 
           <button
@@ -3552,7 +3622,7 @@ function App() {
                   </label>
 
                   <label>
-                    MYR → MMK rate
+                    {selectedExchangeMarket.currency} → MMK rate
                     <input
                       value={provider.rate}
                       inputMode="decimal"
@@ -4565,7 +4635,7 @@ function App() {
               </strong>
 
               <span>
-                Malaysian Ringgit to Myanmar Kyat
+                {selectedExchangeMarket.currencyName} to Myanmar Kyat
               </span>
             </div>
 
