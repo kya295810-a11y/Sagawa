@@ -276,10 +276,7 @@ export default function ExchangeScreen() {
       style={styles.safeArea}
       edges={[]}
     >
-      <StatusBar
-        style="light"
-        backgroundColor="transparent"
-      />
+      <StatusBar style="light" />
 
       <KeyboardAvoidingView
         style={styles.keyboard}
