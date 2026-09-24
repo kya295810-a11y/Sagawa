@@ -57,16 +57,10 @@ const ACCOUNT_ITEMS: MenuItem[] = [
     icon: 'notifications-outline',
   },
   {
-    id: 'auto-update',
-    title: 'Auto Update',
-    subtitle: 'Keep Sagawa current',
-    icon: 'cloud-download-outline',
-  },
-  {
-    id: 'storage-cache',
-    title: 'Storage & Cache',
-    subtitle: 'Manage temporary app storage',
-    icon: 'server-outline',
+    id: 'settings',
+    title: 'Settings',
+    subtitle: 'Updates, storage and cache',
+    icon: 'settings-outline',
   },
 ];
 
@@ -285,12 +279,8 @@ export default function ProfileScreen() {
         router.push('/notification-settings');
         break;
 
-      case 'auto-update':
-        router.push('/auto-update');
-        break;
-
-      case 'storage-cache':
-        router.push('/storage-cache');
+      case 'settings':
+        router.push('/settings');
         break;
 
       case 'support':
