@@ -1196,6 +1196,7 @@ function App() {
     useState<Record<string, string>>({});
 
   const [apiLoading, setApiLoading] = useState(false);
+  const [savingExchangeProviderId, setSavingExchangeProviderId] = useState<string | null>(null);
   const [apiError, setApiError] = useState('');
   const [backendHealth, setBackendHealth] = useState<'checking' | 'healthy' | 'error'>('checking');
   const [diagnostics, setDiagnostics] = useState<DiagnosticEntry[]>([]);
@@ -1575,6 +1576,10 @@ function App() {
       const loadedProviders = Array.isArray(rawExchange?.providers)
         ? rawExchange.providers
             .map((item: Record<string, unknown>) => normalizeExchangeProvider(item))
+            .filter((item: ExchangeProviderItem) =>
+              item.countryCode === selectedExchangeCountry &&
+              item.baseCurrency === EXCHANGE_MARKETS[selectedExchangeCountry].currency
+            )
             .sort((left: ExchangeProviderItem, right: ExchangeProviderItem) =>
               left.displayOrder - right.displayOrder)
         : [];
@@ -2615,7 +2620,7 @@ function App() {
 
     try {
       setApiError('');
-      setApiLoading(true);
+      setSavingExchangeProviderId(provider.id);
       const result = await readApiResponse<Record<string, unknown>>(
         await adminFetch(
           apiUrl(isNew ? '/api/exchange-providers' : `/api/exchange-providers/${provider.id}`),
@@ -2651,7 +2656,7 @@ function App() {
       setApiError(message);
       alert(message);
     } finally {
-      setApiLoading(false);
+      setSavingExchangeProviderId(null);
     }
   };
 
@@ -3684,7 +3689,7 @@ function App() {
                       onClick={() => saveExchangeProvider({ ...provider, displayOrder: provider.displayOrder ?? index })}
                       disabled={apiLoading}
                     >
-                      {apiLoading ? 'Saving…' : 'Save provider'}
+                      {savingExchangeProviderId === provider.id ? 'Saving…' : 'Save provider'}
                     </button>
                   </div>
                 </div>
