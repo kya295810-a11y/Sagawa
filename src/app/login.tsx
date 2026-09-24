@@ -19,6 +19,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 
 import SagawaFlowerLogo from '../../assets/images/sagawa-flower-logo.svg';
+import { BrandedLoader } from '@/components/common/branded-loader';
 import { apiRequest } from '@/services/api/client';
 import {
   getBiometricCredential,
@@ -30,6 +31,8 @@ type Channel = 'email' | 'phone';
 
 const LOGIN_BACKGROUND = require('../../assets/images/login-bg.jpg');
 const ANDROID_EXTRA_BOLD = Platform.OS === 'android' ? '700' : '800';
+
+WebBrowser.maybeCompleteAuthSession();
 
 export default function LoginScreen() {
   const [stage, setStage] = useState<'login' | 'verify'>('login');
@@ -75,7 +78,10 @@ export default function LoginScreen() {
         refreshToken: data.refreshToken,
       },
     );
-    router.replace((data.profileCompleted ? '/(tabs)' : '/complete-profile') as Href);
+    // Route through the stable root after auth state changes. This avoids a
+    // protected-route race that can leave Android on a blank screen when
+    // returning from Google/browser authentication.
+    router.replace('/' as Href);
   };
 
   const handlePasswordLogin = async () => {
@@ -381,7 +387,7 @@ export default function LoginScreen() {
     try {
       setGuestContinuing(true);
       await useAuthStore.getState().continueAsGuest();
-      router.replace('/(tabs)' as Href);
+      router.replace('/' as Href);
     } catch {
       Alert.alert('Unable to continue', 'Guest mode could not be started.');
     } finally {
@@ -390,6 +396,15 @@ export default function LoginScreen() {
   };
 
   const busy = loggingIn || googleLoggingIn || guestContinuing || biometricLoggingIn;
+  const busyMessage = googleLoggingIn
+    ? 'Finishing Google sign in…'
+    : biometricLoggingIn
+      ? 'Signing in securely…'
+      : guestContinuing
+        ? 'Opening Sagawa…'
+        : stage === 'verify'
+          ? 'Verifying your code…'
+          : 'Signing you in…';
 
   return (
     <View style={styles.screen}>
@@ -620,12 +635,26 @@ export default function LoginScreen() {
           </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
+
+      {busy ? (
+        <View style={styles.loadingOverlay} pointerEvents="auto">
+          <BrandedLoader message={busyMessage} style={styles.loadingSurface} />
+        </View>
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#F4F9FF' },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 50,
+    elevation: 50,
+  },
+  loadingSurface: {
+    backgroundColor: 'rgba(244,249,255,0.97)',
+  },
   overlay: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(244,249,255,0.88)' },
   safeArea: { flex: 1 },
   keyboardView: { flex: 1 },
