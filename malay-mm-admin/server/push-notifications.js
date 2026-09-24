@@ -92,7 +92,7 @@ async function sendExpoBatch(messages) {
   }
 }
 
-async function sendContentPush({ type, id, title, rate }) {
+async function sendContentPush({ type, id, title, rate, currency = 'MYR', countryCode = 'MY' }) {
   if (!['news', 'service', 'exchange'].includes(type)) {
     throw new Error('Unsupported push content type.');
   }
@@ -104,6 +104,12 @@ async function sendContentPush({ type, id, title, rate }) {
 
   const cleanTitle = String(title || '').trim().slice(0, 160);
   const cleanRate = Number(rate);
+  const cleanCurrency = ['MYR', 'SGD', 'THB'].includes(String(currency).toUpperCase())
+    ? String(currency).toUpperCase()
+    : 'MYR';
+  const cleanCountryCode = ['MY', 'SG', 'TH'].includes(String(countryCode).toUpperCase())
+    ? String(countryCode).toUpperCase()
+    : 'MY';
   const notificationTitle =
     type === 'news'
       ? 'New Sagawa News'
@@ -113,8 +119,8 @@ async function sendContentPush({ type, id, title, rate }) {
   const body =
     type === 'exchange'
       ? Number.isFinite(cleanRate) && cleanRate > 0
-        ? `1 RM = ${cleanRate.toLocaleString('en-US', { maximumFractionDigits: 4 })} MMK`
-        : 'The RM to MMK exchange rate has been updated.'
+        ? `1 ${cleanCurrency} = ${cleanRate.toLocaleString('en-US', { maximumFractionDigits: 4 })} MMK`
+        : `The ${cleanCurrency} to MMK exchange rate has been updated.`
       : cleanTitle ||
         (type === 'news'
           ? 'A new news update is available in Sagawa.'
@@ -136,7 +142,12 @@ async function sendContentPush({ type, id, title, rate }) {
           ? { type: 'news', newsId: String(id) }
           : type === 'service'
             ? { type: 'service', serviceId: String(id) }
-            : { type: 'exchange', rate: Number.isFinite(cleanRate) ? String(cleanRate) : '' },
+            : {
+                type: 'exchange',
+                countryCode: cleanCountryCode,
+                currency: cleanCurrency,
+                rate: Number.isFinite(cleanRate) ? String(cleanRate) : '',
+              },
     }));
 
     const tickets = await sendExpoBatch(messages);
