@@ -3066,6 +3066,7 @@ app.put('/api/profile', requireMobileUser, async (req, res) => {
 
 app.post('/api/profile/image', requireMobileUser, profileUploadMiddleware, async (req, res) => {
   let uploadedProfileImage = '';
+  let previousImage = '';
   try {
     if (!req.file) {
       return res.status(400).json({
@@ -3074,14 +3075,24 @@ app.post('/api/profile/image', requireMobileUser, profileUploadMiddleware, async
       });
     }
 
-    const usePersistentProfileStorage = r2Media.isConfigured();
-    uploadedProfileImage = usePersistentProfileStorage
-      ? await r2Media.uploadFile(req.file, 'profiles')
-      : `/uploads/profile/${req.file.filename}`;
-    const profileImage = uploadedProfileImage;
-
     const currentResult = await db.query(profileSelect, [req.mobileUser.id]);
     const currentProfile = currentResult.rows[0];
+    previousImage = String(currentProfile?.profileImage || '');
+
+    const usePersistentProfileStorage = r2Media.isConfigured();
+    if (usePersistentProfileStorage) {
+      const profileKeyHash = crypto
+        .createHash('sha256')
+        .update(String(req.mobileUser.id))
+        .digest('hex');
+      uploadedProfileImage = await r2Media.uploadFileToKey(
+        req.file,
+        `profiles/${profileKeyHash}/avatar`,
+      );
+    } else {
+      uploadedProfileImage = `/uploads/profile/${req.file.filename}`;
+    }
+    const profileImage = uploadedProfileImage;
     const result = await db.query(
       `UPDATE profiles
          SET profile_image = $1,
@@ -3110,8 +3121,7 @@ app.post('/api/profile/image', requireMobileUser, profileUploadMiddleware, async
       });
     }
 
-    const previousImage = String(currentProfile?.profileImage || '');
-    if (/^https:\/\//i.test(previousImage)) {
+    if (/^https:\/\//i.test(previousImage) && previousImage !== profileImage) {
       await r2Media.deleteFile(previousImage).catch((cleanupError) => {
         console.error('[Profile] Previous R2 image cleanup failed:', cleanupError.message);
       });
@@ -3126,7 +3136,10 @@ app.post('/api/profile/image', requireMobileUser, profileUploadMiddleware, async
       message: 'Profile image uploaded successfully.',
     });
   } catch (error) {
-    if (/^https:\/\//i.test(uploadedProfileImage)) {
+    if (
+      /^https:\/\//i.test(uploadedProfileImage) &&
+      uploadedProfileImage !== previousImage
+    ) {
       await r2Media.deleteFile(uploadedProfileImage).catch(() => {});
     }
     if (req.file?.path && fs.existsSync(req.file.path)) {
