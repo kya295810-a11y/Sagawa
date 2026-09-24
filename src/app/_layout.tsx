@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 
 import { AppProviders } from '@/components/common/app-providers';
+import { BrandedLoader } from '@/components/common/branded-loader';
 import { useAppBootstrap } from '@/hooks/use-app-bootstrap';
 import { useAppTheme } from '@/theme/provider';
 import { useAuthStore } from '@/store/auth-store';
@@ -159,7 +160,7 @@ function AppBootstrapper() {
   }, [isReady]);
 
   if (!isReady) {
-    return null;
+    return <BrandedLoader message="Preparing Sagawa…" />;
   }
 
   return <RootNavigator />;

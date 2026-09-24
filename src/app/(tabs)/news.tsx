@@ -3,7 +3,6 @@ import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   FlatList,
   Image,
@@ -17,6 +16,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { BrandedLoader } from '@/components/common/branded-loader';
 import type { NewsArticle } from '@/features/news/types';
 import { fetchNews } from '@/services/news/news-service';
 import { trackContentEvent } from '@/services/analytics/content-analytics';
@@ -366,10 +366,7 @@ export default function NewsScreen() {
         ==================================================== */}
 
         {loading ? (
-          <View style={styles.stateContainer}>
-            <ActivityIndicator size="small" color={theme.colors.primary} />
-            <Text style={styles.stateText}>Loading latest news...</Text>
-          </View>
+          <BrandedLoader compact message="Loading latest news…" />
         ) : error ? (
           <View style={styles.stateContainer}>
             <Text style={styles.stateTitle}>News unavailable</Text>
