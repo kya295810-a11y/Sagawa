@@ -2,6 +2,16 @@ const crypto = require('crypto');
 const fs = require('fs/promises');
 const path = require('path');
 
+function isConfigured() {
+  return Boolean(
+    String(process.env.R2_ACCOUNT_ID || '').trim() &&
+    String(process.env.R2_ACCESS_KEY_ID || '').trim() &&
+    String(process.env.R2_SECRET_ACCESS_KEY || '').trim() &&
+    String(process.env.R2_BUCKET_NAME || '').trim() &&
+    String(process.env.R2_PUBLIC_URL || '').trim()
+  );
+}
+
 function getConfig() {
   const cfg = {
     accountId: String(process.env.R2_ACCOUNT_ID || '').trim(),
@@ -69,4 +79,4 @@ async function deleteFile(value) {
   return true;
 }
 
-module.exports = { uploadFile, deleteFile };
+module.exports = { uploadFile, deleteFile, isConfigured };
