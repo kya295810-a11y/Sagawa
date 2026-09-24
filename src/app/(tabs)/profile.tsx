@@ -164,7 +164,6 @@ export default function ProfileScreen() {
   useEffect(() => {
     let active = true;
     if (isGuest) {
-      setProfileImageAuthHeader({});
       return () => {
         active = false;
       };
