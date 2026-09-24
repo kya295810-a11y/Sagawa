@@ -498,7 +498,12 @@ export default function ProfileScreen() {
             <View style={styles.avatar}>
               {avatarUri && !profileImageFailed ? (
                 <Image
-                  source={{ uri: avatarSourceUri, headers: profileImageAuthHeader }}
+                  source={{
+                    uri: avatarSourceUri,
+                    ...(profile.profileImage.startsWith('/api/')
+                      ? { headers: profileImageAuthHeader }
+                      : {}),
+                  }}
                   style={styles.avatarImage}
                   onError={() => setProfileImageFailed(true)}
                 />
