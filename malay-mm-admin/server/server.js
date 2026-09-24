@@ -2719,6 +2719,8 @@ async function saveExchangeRate(req, res) {
       void sendContentPush({
         type: 'exchange',
         rate: savedRate,
+        currency: market.baseCurrency,
+        countryCode,
       }).then((delivery) => {
         console.log('[Push] Exchange rate notification sent:', delivery);
       }).catch((pushError) => {
