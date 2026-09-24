@@ -52,15 +52,20 @@ async function request(method, key, body = Buffer.alloc(0), contentType = '') {
   if (!response.ok) throw new Error(`R2 ${method} failed (${response.status}).`);
 }
 
-async function uploadFile(file, folder) {
+async function uploadFileToKey(file, key) {
   if (!file?.path) return '';
   const cfg = getConfig();
-  const extension = path.extname(file.filename || file.originalname || '').toLowerCase();
-  const key = `${folder}/${crypto.randomUUID()}${extension}`;
+  const normalizedKey = String(key || '').replace(/^\/+/, '');
+  if (!normalizedKey || normalizedKey.includes('..')) throw new Error('Invalid R2 object key.');
   const body = await fs.readFile(file.path);
-  await request('PUT', key, body, file.mimetype || 'application/octet-stream');
+  await request('PUT', normalizedKey, body, file.mimetype || 'application/octet-stream');
   await fs.unlink(file.path).catch(() => {});
-  return `${cfg.publicUrl}/${encodeKey(key)}`;
+  return `${cfg.publicUrl}/${encodeKey(normalizedKey)}`;
+}
+
+async function uploadFile(file, folder) {
+  const extension = path.extname(file?.filename || file?.originalname || '').toLowerCase();
+  return uploadFileToKey(file, `${folder}/${crypto.randomUUID()}${extension}`);
 }
 
 function keyFromPublicUrl(value) {
@@ -79,4 +84,4 @@ async function deleteFile(value) {
   return true;
 }
 
-module.exports = { uploadFile, deleteFile, isConfigured };
+module.exports = { uploadFile, uploadFileToKey, deleteFile, isConfigured };
