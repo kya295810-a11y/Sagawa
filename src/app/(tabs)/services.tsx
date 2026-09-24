@@ -18,6 +18,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { BrandedLoader } from '@/components/common/branded-loader';
 import { trackContentEvent } from '@/services/analytics/content-analytics';
 import { apiRequest } from '@/services/api/client';
 import { useAppTheme } from '@/theme/provider';
@@ -345,12 +346,7 @@ export default function ServicesScreen() {
         )}
 
         {loading ? (
-          <View style={styles.centerState}>
-            <ActivityIndicator size="small" color={theme.colors.primary} />
-            <Text style={styles.stateText} allowFontScaling={false}>
-              Loading services...
-            </Text>
-          </View>
+          <BrandedLoader compact message="Loading services…" />
         ) : (
           <FlatList
             data={filteredServices}
