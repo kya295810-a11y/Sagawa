@@ -14,7 +14,7 @@ import {
   useWindowDimensions,
   ActivityIndicator,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Image } from 'expo-image';
 import * as Linking from 'expo-linking';
@@ -37,10 +37,26 @@ const ANDROID_INPUT_TEXT_FIX = Platform.select({
 const KL_EXCHANGE = require('../../../assets/images/kl-exchange-premium.png');
 const MERCHANTRADE_LOGO = require('../../../assets/images/merchantrade-logo.png');
 
+type ExchangeCountryCode = 'MY' | 'SG' | 'TH';
+
+const EXCHANGE_COUNTRIES: {
+  code: ExchangeCountryCode;
+  country: string;
+  currency: 'MYR' | 'SGD' | 'THB';
+  currencyName: string;
+  flag: string;
+}[] = [
+  { code: 'MY', country: 'Malaysia', currency: 'MYR', currencyName: 'Malaysian Ringgit', flag: '🇲🇾' },
+  { code: 'SG', country: 'Singapore', currency: 'SGD', currencyName: 'Singapore Dollar', flag: '🇸🇬' },
+  { code: 'TH', country: 'Thailand', currency: 'THB', currencyName: 'Thai Baht', flag: '🇹🇭' },
+];
+
 export default function ExchangeScreen() {
   const { theme } = useAppTheme();
   const { height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
 
+  const [selectedCountry, setSelectedCountry] = useState<ExchangeCountryCode>('MY');
   const [amount, setAmount] = useState('100');
   const [reverse, setReverse] = useState(false);
   const [exchangeRate, setExchangeRate] = useState<number | null>(null);
@@ -50,7 +66,9 @@ export default function ExchangeScreen() {
 
   const loadExchangeRate = useCallback(async () => {
     try {
-      const payload = await apiRequest<ExchangeRateResponse>('/api/exchange-rate');
+      const payload = await apiRequest<ExchangeRateResponse>(
+        `/api/exchange-rate?country=${selectedCountry}`,
+      );
 
       const directRate = Number(payload.data?.rate);
       const firstRate = Number(payload.data?.rates?.[0]?.buy);
@@ -61,10 +79,6 @@ export default function ExchangeScreen() {
           : Number.isFinite(firstRate) && firstRate > 0
             ? firstRate
             : NaN;
-
-      if (!Number.isFinite(nextRate) || nextRate <= 0) {
-        throw new Error('Invalid exchange rate received from API');
-      }
 
       const nextProviders = (payload.data?.providers ?? [])
         .map((provider, index) => ({
@@ -80,13 +94,13 @@ export default function ExchangeScreen() {
         .sort((left, right) => left.displayOrder - right.displayOrder)
         .slice(0, 2);
 
-      setExchangeRate(nextRate);
+      setExchangeRate(Number.isFinite(nextRate) && nextRate > 0 ? nextRate : null);
       setUpdatedAt(payload.data?.updatedAt ?? null);
       setProviderRates(nextProviders);
     } catch (error) {
       console.error('Exchange API error:', error);
     }
-  }, []);
+  }, [selectedCountry]);
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -121,7 +135,11 @@ export default function ExchangeScreen() {
         ? 340
         : 360;
 
-  const heroHeight = baseHeroHeight + (providerRates.length > 1 ? 72 : providerRates.length === 1 ? 8 : 0);
+  const heroHeight =
+    baseHeroHeight +
+    62 +
+    insets.top +
+    (providerRates.length > 1 ? 72 : providerRates.length === 1 ? 8 : 0);
 
   /*
    * ============================================================
@@ -129,19 +147,31 @@ export default function ExchangeScreen() {
    * ============================================================
    */
 
-  const fromCurrency = reverse ? 'MMK' : 'MYR';
-  const toCurrency = reverse ? 'MYR' : 'MMK';
+  const selectedMarket =
+    EXCHANGE_COUNTRIES.find((item) => item.code === selectedCountry) ?? EXCHANGE_COUNTRIES[0];
 
-  const fromFlag = reverse ? '🇲🇲' : '🇲🇾';
-  const toFlag = reverse ? '🇲🇾' : '🇲🇲';
+  const fromCurrency = reverse ? 'MMK' : selectedMarket.currency;
+  const toCurrency = reverse ? selectedMarket.currency : 'MMK';
+
+  const fromFlag = reverse ? '🇲🇲' : selectedMarket.flag;
+  const toFlag = reverse ? selectedMarket.flag : '🇲🇲';
 
   const fromName = reverse
     ? 'Myanmar Kyat'
-    : 'Malaysian Ringgit';
+    : selectedMarket.currencyName;
 
   const toName = reverse
-    ? 'Malaysian Ringgit'
+    ? selectedMarket.currencyName
     : 'Myanmar Kyat';
+
+  const selectCountry = (countryCode: ExchangeCountryCode) => {
+    if (countryCode === selectedCountry) return;
+    setSelectedCountry(countryCode);
+    setReverse(false);
+    setExchangeRate(null);
+    setUpdatedAt(null);
+    setProviderRates([]);
+  };
 
   /*
    * ============================================================
@@ -244,10 +274,12 @@ export default function ExchangeScreen() {
   return (
     <SafeAreaView
       style={styles.safeArea}
-      edges={['top']}
+      edges={[]}
     >
       <StatusBar
-        style={theme.statusBarStyle}
+        style="light"
+        translucent
+        backgroundColor="transparent"
       />
 
       <KeyboardAvoidingView
@@ -290,6 +322,7 @@ export default function ExchangeScreen() {
               style={[
                 styles.heroOverlay,
                 {
+                  paddingTop: insets.top + 10,
                   backgroundColor:
                     theme.isDark
                       ? 'rgba(5,12,22,0.42)'
@@ -378,6 +411,45 @@ export default function ExchangeScreen() {
                     />
                   )}
                 </Pressable>
+              </View>
+
+              <View style={styles.countrySelector} accessibilityRole="tablist">
+                {EXCHANGE_COUNTRIES.map((market) => {
+                  const active = selectedCountry === market.code;
+                  return (
+                    <Pressable
+                      key={market.code}
+                      accessibilityRole="tab"
+                      accessibilityState={{ selected: active }}
+                      accessibilityLabel={`${market.country}, ${market.currency}`}
+                      onPress={() => selectCountry(market.code)}
+                      style={({ pressed }) => [
+                        styles.countryOption,
+                        active && styles.countryOptionActive,
+                        pressed && styles.countryOptionPressed,
+                      ]}
+                    >
+                      <Text style={styles.countryFlag} allowFontScaling={false}>
+                        {market.flag}
+                      </Text>
+                      <View style={styles.countryTextWrap}>
+                        <Text
+                          style={[styles.countryName, active && styles.countryNameActive]}
+                          numberOfLines={1}
+                          allowFontScaling={false}
+                        >
+                          {market.country}
+                        </Text>
+                        <Text
+                          style={[styles.countryCurrency, active && styles.countryCurrencyActive]}
+                          allowFontScaling={false}
+                        >
+                          {market.currency}
+                        </Text>
+                      </View>
+                    </Pressable>
+                  );
+                })}
               </View>
 
               {/* ==================================================
@@ -1229,6 +1301,76 @@ const createStyles = (colors: {
 
       alignItems: 'center',
       justifyContent: 'center',
+    },
+
+    countrySelector: {
+      flexDirection: 'row',
+      alignItems: 'stretch',
+      marginTop: 15,
+      padding: 4,
+      borderRadius: 20,
+      borderWidth: 1,
+      borderColor: 'rgba(173,205,241,0.28)',
+      backgroundColor: 'rgba(8,24,42,0.76)',
+    },
+
+    countryOption: {
+      flex: 1,
+      minWidth: 0,
+      minHeight: 52,
+      borderRadius: 16,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 7,
+      gap: 6,
+    },
+
+    countryOptionActive: {
+      backgroundColor: '#2E8FFF',
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.58)',
+      shadowColor: '#1688FF',
+      shadowOffset: { width: 0, height: 3 },
+      shadowOpacity: 0.35,
+      shadowRadius: 8,
+      elevation: 5,
+    },
+
+    countryOptionPressed: {
+      opacity: 0.78,
+    },
+
+    countryFlag: {
+      fontSize: 23,
+    },
+
+    countryTextWrap: {
+      minWidth: 0,
+      flexShrink: 1,
+    },
+
+    countryName: {
+      color: 'rgba(255,255,255,0.90)',
+      fontSize: 10,
+      lineHeight: 13,
+      fontWeight: ANDROID_EXTRA_BOLD,
+    },
+
+    countryNameActive: {
+      color: '#FFFFFF',
+    },
+
+    countryCurrency: {
+      color: 'rgba(196,215,237,0.74)',
+      fontSize: 8,
+      lineHeight: 11,
+      fontWeight: '600',
+      marginTop: 1,
+    },
+
+    countryCurrencyActive: {
+      color: 'rgba(255,255,255,0.90)',
     },
 
     /* ==========================================================
