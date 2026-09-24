@@ -3072,7 +3072,10 @@ app.post('/api/profile/image', requireMobileUser, profileUploadMiddleware, async
       });
     }
 
-    uploadedProfileImage = await r2Media.uploadFile(req.file, 'profiles');
+    const usePersistentProfileStorage = r2Media.isConfigured();
+    uploadedProfileImage = usePersistentProfileStorage
+      ? await r2Media.uploadFile(req.file, 'profiles')
+      : `/uploads/profile/${req.file.filename}`;
     const profileImage = uploadedProfileImage;
 
     const currentResult = await db.query(profileSelect, [req.mobileUser.id]);
@@ -3094,7 +3097,11 @@ app.post('/api/profile/image', requireMobileUser, profileUploadMiddleware, async
     );
 
     if (!result.rows[0]) {
-      await r2Media.deleteFile(uploadedProfileImage);
+      if (/^https:\/\//i.test(uploadedProfileImage)) {
+        await r2Media.deleteFile(uploadedProfileImage).catch(() => {});
+      } else if (req.file?.path && fs.existsSync(req.file.path)) {
+        fs.unlinkSync(req.file.path);
+      }
       return res.status(404).json({
         success: false,
         message: 'Profile not found.',
@@ -3117,7 +3124,7 @@ app.post('/api/profile/image', requireMobileUser, profileUploadMiddleware, async
       message: 'Profile image uploaded successfully.',
     });
   } catch (error) {
-    if (uploadedProfileImage) {
+    if (/^https:\/\//i.test(uploadedProfileImage)) {
       await r2Media.deleteFile(uploadedProfileImage).catch(() => {});
     }
     if (req.file?.path && fs.existsSync(req.file.path)) {
