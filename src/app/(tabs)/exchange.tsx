@@ -278,7 +278,6 @@ export default function ExchangeScreen() {
     >
       <StatusBar
         style="light"
-        translucent
         backgroundColor="transparent"
       />
 
