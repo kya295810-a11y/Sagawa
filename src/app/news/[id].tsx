@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { BrandedLoader } from '@/components/common/branded-loader';
 import type { NewsArticle } from '@/features/news/types';
 import { trackContentEvent } from '@/services/analytics/content-analytics';
 import { fetchNewsById } from '@/services/news/news-service';
@@ -140,9 +141,7 @@ export default function NewsDetailScreen() {
       </View>
 
       {loading ? (
-        <View style={styles.state}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
-        </View>
+        <BrandedLoader message="Loading news…" />
       ) : error || !article ? (
         <View style={styles.state}>
           <Text style={styles.errorText}>Unable to load this news</Text>
