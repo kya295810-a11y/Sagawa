@@ -22,6 +22,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { BrandedLoader } from '@/components/common/branded-loader';
 import { apiRequest } from '@/services/api/client';
 import { ApiError } from '@/services/api/errors';
+import { getStoredTokens } from '@/services/auth/token-storage';
 import { useProfile, useUploadProfileImage } from '@/features/profile/hooks';
 import { useAuthStore } from '@/store/auth-store';
 import { useSettingsStore } from '@/store/settings-store';
@@ -158,6 +159,27 @@ export default function ProfileScreen() {
   const loading = !isGuest && profileQuery.isLoading;
   const uploadingImage = imageUpload.isPending;
   const [profileImageFailed, setProfileImageFailed] = useState(false);
+  const [profileImageAuthHeader, setProfileImageAuthHeader] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    let active = true;
+    if (isGuest) {
+      setProfileImageAuthHeader({});
+      return () => {
+        active = false;
+      };
+    }
+
+    void getStoredTokens().then((tokens) => {
+      if (active && tokens?.accessToken) {
+        setProfileImageAuthHeader({ Authorization: `Bearer ${tokens.accessToken}` });
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [isGuest, authUser?.id]);
 
   const toggleTheme = () => {
     useSettingsStore.setState({
@@ -477,7 +499,7 @@ export default function ProfileScreen() {
             <View style={styles.avatar}>
               {avatarUri && !profileImageFailed ? (
                 <Image
-                  source={{ uri: avatarSourceUri }}
+                  source={{ uri: avatarSourceUri, headers: profileImageAuthHeader }}
                   style={styles.avatarImage}
                   onError={() => setProfileImageFailed(true)}
                 />
