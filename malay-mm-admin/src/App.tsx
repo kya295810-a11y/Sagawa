@@ -3687,7 +3687,11 @@ function App() {
                       className="primary-button"
                       type="button"
                       onClick={() => saveExchangeProvider({ ...provider, displayOrder: provider.displayOrder ?? index })}
-                      disabled={apiLoading}
+                      disabled={
+                        savingExchangeProviderId !== null ||
+                        !provider.name.trim() ||
+                        !provider.rate.trim()
+                      }
                     >
                       {savingExchangeProviderId === provider.id ? 'Saving…' : 'Save provider'}
                     </button>
