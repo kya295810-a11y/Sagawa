@@ -2786,12 +2786,14 @@ app.get('/api/exchange', async (req, res) => {
 app.get('/api/exchange-rate', async (req, res) => {
   try {
     const isAdmin = isAdminAuthenticated(req);
+    const countryCode = normalizeExchangeCountry(req.query.country);
+    const cacheKey = `exchange:public:${countryCode}`;
     const exchange = isAdmin
-      ? await getExchangeRate(true)
+      ? await getExchangeRate(true, countryCode)
       : await contentCache.getOrLoad(
-          'exchange:public',
+          cacheKey,
           EXCHANGE_CACHE_TTL_MS,
-          () => getExchangeRate(false),
+          () => getExchangeRate(false, countryCode),
         );
 
     res.json({
@@ -2888,7 +2890,19 @@ app.put('/api/exchange-providers/:id', exchangeProviderUploadMiddleware, async (
     }
 
     const current = existing.rows[0];
-    const provider = validateExchangeProvider(req.body || {}, current);
+    const requestedCountry = normalizeExchangeCountry(req.body?.countryCode ?? current.country_code);
+    if (requestedCountry !== current.country_code) {
+      if (req.file?.path) fs.unlinkSync(req.file.path);
+      return res.status(409).json({
+        success: false,
+        message: 'This provider belongs to a different exchange market. Refresh the page and try again.',
+      });
+    }
+
+    const provider = validateExchangeProvider(
+      { ...(req.body || {}), countryCode: current.country_code },
+      current,
+    );
     const removeLogo = parseBoolean(req.body?.removeLogo, false);
     const nextLogoUrl = req.file
       ? await exchangeProviderFileUrl(req.file)
