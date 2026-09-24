@@ -137,6 +137,8 @@ function RootNavigator() {
           <Stack.Screen name="perdonal-information" />
           <Stack.Screen name="notification-settings" />
           <Stack.Screen name="biometric-settings" />
+          <Stack.Screen name="settings" />
+          <Stack.Screen name="auto-update" />
         </Stack.Protected>
 
         <Stack.Screen name="help-support" />

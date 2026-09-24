@@ -56,6 +56,12 @@ const ACCOUNT_ITEMS: MenuItem[] = [
     subtitle: 'Manage your notifications',
     icon: 'notifications-outline',
   },
+  {
+    id: 'settings',
+    title: 'Settings',
+    subtitle: 'Updates, storage and cache',
+    icon: 'settings-outline',
+  },
 ];
 
 const SUPPORT_ITEMS: MenuItem[] = [
@@ -271,6 +277,10 @@ export default function ProfileScreen() {
 
       case 'notifications':
         router.push('/notification-settings');
+        break;
+
+      case 'settings':
+        router.push('/settings');
         break;
 
       case 'support':

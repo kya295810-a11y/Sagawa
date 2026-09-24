@@ -614,6 +614,22 @@ app.use((req, res, next) => {
   next();
 });
 
+app.get('/api/app-update', (_req, res) => {
+  const latestVersion = String(process.env.APP_LATEST_VERSION || '1.0.0').trim();
+  const minimumVersion = String(process.env.APP_MIN_VERSION || latestVersion).trim();
+  const androidUrl = String(
+    process.env.ANDROID_STORE_URL ||
+      'https://play.google.com/store/apps/details?id=com.kyawsanlin.sagawa',
+  ).trim();
+  const iosUrl = String(process.env.IOS_STORE_URL || '').trim();
+
+  res.setHeader('Cache-Control', 'public, max-age=300');
+  return res.json({
+    success: true,
+    data: { latestVersion, minimumVersion, androidUrl, iosUrl },
+  });
+});
+
 app.get('/health', async (req, res) => {
   try {
     await db.query('SELECT 1');
