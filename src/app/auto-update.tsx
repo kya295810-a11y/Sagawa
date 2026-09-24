@@ -83,7 +83,7 @@ export default function AutoUpdateScreen() {
 
         <View style={styles.note}>
           <Ionicons name="information-circle-outline" size={19} color={theme.colors.textMuted} />
-          <Text style={styles.noteText}>Native Android/iPhone installation is controlled by Google Play or the App Store. This setting controls Sagawa's own low-frequency update check; store auto-update settings still decide silent installation.</Text>
+          <Text style={styles.noteText}>Native Android/iPhone installation is controlled by Google Play or the App Store. This setting controls Sagawa&apos;s own low-frequency update check; store auto-update settings still decide silent installation.</Text>
         </View>
       </ScrollView>
     </SafeAreaView>
