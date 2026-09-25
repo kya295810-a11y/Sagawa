@@ -141,11 +141,24 @@ function readLoginVerificationTicket(value) {
   }
 }
 
+function maskEmailHint(value) {
+  const email = String(value || '').trim().toLowerCase();
+  const atIndex = email.lastIndexOf('@');
+  if (atIndex <= 0 || atIndex === email.length - 1) return email;
+
+  const name = email.slice(0, atIndex);
+  const domain = email.slice(atIndex + 1);
+
+  if (name.length <= 3) return `${name}***@${domain}`;
+  if (name.length <= 5) return `${name.slice(0, 3)}***@${domain}`;
+  return `${name.slice(0, 3)}***${name.slice(-2)}@${domain}`;
+}
+
 function loginContactOptions(user) {
   const options = [];
   if (user.email) {
     const email = String(user.email).trim().toLowerCase();
-    options.push({ channel: 'email', hint: email.replace(/^(.{1,2}).*(@.*)$/, '$1•••$2') });
+    options.push({ channel: 'email', hint: maskEmailHint(email) });
   }
   if (user.phoneNumber) {
     const phone = String(user.phoneNumber).trim();
