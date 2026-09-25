@@ -647,6 +647,14 @@ const resendLimiter = rateLimit({
   message: { success: false, message: 'Too many code requests. Try again later.' },
 });
 
+const loginCodeLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many code requests. Try again later.' },
+});
+
 const supportLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   limit: 5,
@@ -775,7 +783,7 @@ app.post('/api/auth/register/verify', async (req, res) => {
   }
 });
 
-app.post('/api/auth/login/code/request', resendLimiter, async (req, res) => {
+app.post('/api/auth/login/code/request', loginCodeLimiter, async (req, res) => {
   try {
     const ticket = readLoginVerificationTicket(req.body?.loginTicket);
     if (!ticket) {
