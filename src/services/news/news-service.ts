@@ -33,15 +33,28 @@ export function normalizeNewsItem(item: ApiNewsItem): NewsArticle {
   };
 }
 
-export async function fetchNews(cursor?: string | null) {
-  const queryString = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
-  const response = await apiRequest<{ success?: boolean; data?: ApiNewsItem[] }>(
-    `/api/news${queryString}`,
-  );
+export async function fetchNews(cursor?: string | null, limit = 4) {
+  const safeLimit = Math.min(Math.max(Math.trunc(limit) || 4, 1), 20);
+  const params = [`limit=${safeLimit}`];
+
+  if (cursor) {
+    params.push(`cursor=${encodeURIComponent(cursor)}`);
+  }
+
+  const response = await apiRequest<{
+    success?: boolean;
+    data?: ApiNewsItem[];
+    nextCursor?: string | null;
+  }>(`/api/news?${params.join('&')}`);
+
   if (!response.success || !Array.isArray(response.data)) {
     throw new Error('Invalid news API response.');
   }
-  return { items: response.data.map(normalizeNewsItem), nextCursor: null } satisfies PaginatedNewsResponse;
+
+  return {
+    items: response.data.map(normalizeNewsItem),
+    nextCursor: typeof response.nextCursor === 'string' ? response.nextCursor : null,
+  } satisfies PaginatedNewsResponse;
 }
 
 export async function fetchNewsById(id: string, signal?: AbortSignal) {
