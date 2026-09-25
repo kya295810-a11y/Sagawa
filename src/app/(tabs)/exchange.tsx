@@ -35,9 +35,17 @@ const ANDROID_INPUT_TEXT_FIX = Platform.select({
 });
 
 const KL_EXCHANGE = require('../../../assets/images/kl-exchange-premium.png');
+const SINGAPORE_EXCHANGE = require('../../../assets/images/singapore-exchange.jpg');
+const THAILAND_EXCHANGE = require('../../../assets/images/thailand-exchange.jpg');
 const MERCHANTRADE_LOGO = require('../../../assets/images/merchantrade-logo.png');
 
 type ExchangeCountryCode = 'MY' | 'SG' | 'TH';
+
+const EXCHANGE_BACKGROUNDS = {
+  MY: KL_EXCHANGE,
+  SG: SINGAPORE_EXCHANGE,
+  TH: THAILAND_EXCHANGE,
+} as const;
 
 const EXCHANGE_COUNTRIES: {
   code: ExchangeCountryCode;
@@ -149,6 +157,8 @@ export default function ExchangeScreen() {
 
   const selectedMarket =
     EXCHANGE_COUNTRIES.find((item) => item.code === selectedCountry) ?? EXCHANGE_COUNTRIES[0];
+
+  const heroBackground = EXCHANGE_BACKGROUNDS[selectedCountry];
 
   const fromCurrency = reverse ? 'MMK' : selectedMarket.currency;
   const toCurrency = reverse ? selectedMarket.currency : 'MMK';
@@ -302,7 +312,7 @@ export default function ExchangeScreen() {
           ================================================== */}
 
           <ImageBackground
-            source={KL_EXCHANGE}
+            source={heroBackground}
             style={[
               styles.hero,
               {
