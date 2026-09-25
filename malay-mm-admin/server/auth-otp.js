@@ -71,7 +71,7 @@ function identifierHint(channel, identifier) {
     return `${name.slice(0, 3)}***${name.slice(-2)}@${domain}`;
   }
 
-  return identifier.replace(/^(+\d{2})(\d+)(\d{3})$/, (_m, cc, middle, last) => {
+  return identifier.replace(/^(\+\d{2})(\d+)(\d{3})$/, (_m, cc, middle, last) => {
     return `${cc}••••${last}`;
   });
 }
