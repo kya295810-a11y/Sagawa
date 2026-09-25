@@ -1889,18 +1889,10 @@ function readProfile() {
   return fallback;
 }
 
-app.get('/', (req, res) => {
-  res.json({
+app.get('/', (_req, res) => {
+  return res.json({
     success: true,
-    message: 'Sagawa Local API is running',
-    endpoints: {
-      news: '/api/news',
-      services: '/api/services',
-      exchange: '/api/exchange',
-      exchangeRate: '/api/exchange-rate',
-      profile: '/api/profile',
-      support: '/api/support',
-    },
+    message: 'Sagawa API is running',
   });
 });
 function publicPageParams(req) {
