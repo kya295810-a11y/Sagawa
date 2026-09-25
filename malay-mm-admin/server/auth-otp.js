@@ -97,8 +97,37 @@ async function deliverCode(channel, identifier, code, purpose) {
   await sendVerificationSms(identifier, code);
 }
 
-async function createChallenge({ purpose, channel, identifier, payload }) {
+async function createChallenge({ purpose, channel, identifier, payload, reuseActive = false }) {
   await db.query('DELETE FROM user_auth_challenges WHERE expires_at <= NOW()');
+
+  if (reuseActive) {
+    const activeResult = await db.query(
+      `SELECT id, channel, identifier, payload, attempts, expires_at, resend_after
+         FROM user_auth_challenges
+        WHERE purpose = $1
+          AND channel = $2
+          AND identifier = $3
+          AND expires_at > NOW()
+        ORDER BY created_at DESC
+        LIMIT 1`,
+      [purpose, channel, identifier],
+    );
+    const active = activeResult.rows[0];
+    const sameUser =
+      String(active?.payload?.userId || '') === String(payload?.userId || '');
+
+    if (active && sameUser && Number(active.attempts) < OTP_MAX_ATTEMPTS) {
+      return {
+        challengeId: active.id,
+        channel: active.channel,
+        identifierHint: identifierHint(active.channel, active.identifier),
+        expiresAt: new Date(active.expires_at).toISOString(),
+        resendAfter: new Date(active.resend_after).toISOString(),
+        reused: true,
+      };
+    }
+  }
+
   await assertCooldown(purpose, channel, identifier);
 
   const id = crypto.randomUUID();
@@ -127,6 +156,7 @@ async function createChallenge({ purpose, channel, identifier, payload }) {
     identifierHint: identifierHint(channel, identifier),
     expiresAt: expiresAt.toISOString(),
     resendAfter: resendAfter.toISOString(),
+    reused: false,
   };
 }
 
@@ -192,6 +222,7 @@ async function requestPasswordLoginVerification(user) {
       channel: 'email',
       identifier: email,
       payload: { userId: user.id, verifyContactOnSuccess: true },
+      reuseActive: true,
     });
   }
 
@@ -201,6 +232,7 @@ async function requestPasswordLoginVerification(user) {
       channel: 'phone',
       identifier: phone,
       payload: { userId: user.id, verifyContactOnSuccess: true },
+      reuseActive: true,
     });
   }
 

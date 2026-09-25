@@ -7,6 +7,7 @@ type ApiRequestOptions = Omit<RequestInit, 'body' | 'headers' | 'signal'> & {
   body?: BodyInit | null;
   headers?: HeadersInit;
   signal?: AbortSignal;
+  timeoutMs?: number;
 };
 
 type TokenProvider = () => Promise<string | null>;
@@ -58,6 +59,14 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
     callerSignal?.addEventListener('abort', forwardCallerAbort, { once: true });
   }
 
+  const requestedTimeout = Number(options.timeoutMs);
+  const timeoutMs =
+    Number.isFinite(requestedTimeout) && requestedTimeout > 0
+      ? Math.min(Math.max(Math.trunc(requestedTimeout), 1_000), 60_000)
+      : env.EXPO_PUBLIC_API_TIMEOUT_MS;
+
+  const { timeoutMs: _timeoutMs, ...fetchOptions } = options;
+
   const timeoutId = setTimeout(() => {
     if (controller.signal.aborted) {
       return;
@@ -65,7 +74,7 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
 
     timedOut = true;
     controller.abort();
-  }, env.EXPO_PUBLIC_API_TIMEOUT_MS);
+  }, timeoutMs);
 
   try {
     const accessToken = await getAccessToken();
@@ -87,7 +96,7 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
     }
 
     const response = await fetch(buildApiUrl(path), {
-      ...options,
+      ...fetchOptions,
       headers,
       signal: controller.signal,
     });

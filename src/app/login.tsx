@@ -103,6 +103,7 @@ export default function LoginScreen() {
         };
       }>('/api/auth/login', {
         method: 'POST',
+        timeoutMs: 30_000,
         body: JSON.stringify({
           identifier: identifier.trim(),
           password,
