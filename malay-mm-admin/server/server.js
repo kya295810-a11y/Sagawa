@@ -100,6 +100,62 @@ const NEWS_CACHE_TTL_MS = boundedCacheTtl(process.env.NEWS_CACHE_TTL_MS, 30000, 
 const SERVICES_CACHE_TTL_MS = boundedCacheTtl(process.env.SERVICES_CACHE_TTL_MS, 60000, 300000);
 const EXCHANGE_CACHE_TTL_MS = boundedCacheTtl(process.env.EXCHANGE_CACHE_TTL_MS, 15000, 60000);
 const ANALYTICS_CONTENT_CACHE_TTL_MS = boundedCacheTtl(process.env.ANALYTICS_CONTENT_CACHE_TTL_MS, 60000, 300000);
+const LOGIN_VERIFICATION_TICKET_TTL_MS = 5 * 60 * 1000;
+
+function loginTicketSecret() {
+  const secret = String(process.env.SESSION_SECRET || '');
+  if (secret.length < 32) {
+    throw new Error('SESSION_SECRET must be configured before login verification can be used.');
+  }
+  return secret;
+}
+
+function signLoginVerificationTicket(user) {
+  const payload = {
+    uid: String(user.id),
+    email: user.email ? String(user.email).trim().toLowerCase() : '',
+    phone: user.phoneNumber ? String(user.phoneNumber).trim() : '',
+    exp: Date.now() + LOGIN_VERIFICATION_TICKET_TTL_MS,
+  };
+  const encoded = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const signature = crypto.createHmac('sha256', loginTicketSecret()).update(encoded).digest('base64url');
+  return `${encoded}.${signature}`;
+}
+
+function readLoginVerificationTicket(value) {
+  const token = String(value || '').trim();
+  const [encoded, signature] = token.split('.');
+  if (!encoded || !signature) return null;
+
+  const expected = crypto.createHmac('sha256', loginTicketSecret()).update(encoded).digest('base64url');
+  const a = Buffer.from(signature);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+
+  try {
+    const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'));
+    if (!payload?.uid || !Number.isFinite(payload?.exp) || payload.exp <= Date.now()) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+function loginContactOptions(user) {
+  const options = [];
+  if (user.email) {
+    const email = String(user.email).trim().toLowerCase();
+    options.push({ channel: 'email', hint: email.replace(/^(.{1,2}).*(@.*)$/, '$1•••$2') });
+  }
+  if (user.phoneNumber) {
+    const phone = String(user.phoneNumber).trim();
+    options.push({
+      channel: 'phone',
+      hint: phone.replace(/^(\+\d{2})(\d+)(\d{3})$/, (_m, cc, _middle, last) => `${cc}••••${last}`),
+    });
+  }
+  return options;
+}
 
 const trustProxyHops = Number(process.env.TRUST_PROXY_HOPS || 0);
 if (Number.isInteger(trustProxyHops) && trustProxyHops > 0) {
@@ -591,6 +647,14 @@ const resendLimiter = rateLimit({
   message: { success: false, message: 'Too many code requests. Try again later.' },
 });
 
+const loginCodeLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many code requests. Try again later.' },
+});
+
 const supportLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   limit: 5,
@@ -719,17 +783,28 @@ app.post('/api/auth/register/verify', async (req, res) => {
   }
 });
 
-app.post('/api/auth/login/code/request', resendLimiter, async (req, res) => {
+app.post('/api/auth/login/code/request', loginCodeLimiter, async (req, res) => {
   try {
-    const challenge = await requestLoginVerification({
-      identifierValue: req.body?.identifier ?? req.body?.email ?? req.body?.phone,
-      channelValue: req.body?.channel || (req.body?.phone ? 'phone' : 'email'),
-      country: req.body?.country,
-    });
+    const ticket = readLoginVerificationTicket(req.body?.loginTicket);
+    if (!ticket) {
+      return res.status(401).json({
+        success: false,
+        message: 'Sign in again before requesting a verification code.',
+      });
+    }
+
+    const challenge = await requestPasswordLoginVerification(
+      {
+        id: ticket.uid,
+        email: ticket.email || null,
+        phoneNumber: ticket.phone || null,
+      },
+      req.body?.channel,
+    );
+
     return res.status(202).json({
       success: true,
       data: { ...challenge, verificationRequired: true },
-      message: 'Verification code sent.',
     });
   } catch (error) {
     const status = Number(error.statusCode) || 500;
@@ -977,15 +1052,22 @@ app.post('/api/auth/login', async (req, res) => {
         return res.status(401).json({ success: false, message: 'Invalid email/phone number or password.' });
       }
 
-      const challenge = await requestPasswordLoginVerification(mobileUser);
-      return res.status(202).json({
+      const contacts = loginContactOptions(mobileUser);
+      if (contacts.length === 0) {
+        return res.status(403).json({
+          success: false,
+          message: 'This account does not have a verification contact.',
+        });
+      }
+
+      return res.status(200).json({
         success: true,
         data: {
           authenticated: false,
           verificationRequired: true,
-          ...challenge,
+          loginTicket: signLoginVerificationTicket(mobileUser),
+          contacts,
         },
-        message: 'Verification code sent.',
       });
     }
 

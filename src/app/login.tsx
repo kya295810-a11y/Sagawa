@@ -35,8 +35,11 @@ const ANDROID_EXTRA_BOLD = Platform.OS === 'android' ? '700' : '800';
 WebBrowser.maybeCompleteAuthSession();
 
 export default function LoginScreen() {
-  const [stage, setStage] = useState<'login' | 'verify'>('login');
+  const [stage, setStage] = useState<'login' | 'confirm' | 'verify'>('login');
   const [channel, setChannel] = useState<Channel>('email');
+  const [verificationChannel, setVerificationChannel] = useState<Channel>('email');
+  const [loginTicket, setLoginTicket] = useState('');
+  const [contacts, setContacts] = useState<Array<{ channel: Channel; hint: string }>>([]);
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
@@ -97,9 +100,8 @@ export default function LoginScreen() {
         data: {
           authenticated: boolean;
           verificationRequired: boolean;
-          challengeId: string;
-          identifierHint: string;
-          expiresAt: string;
+          loginTicket: string;
+          contacts: Array<{ channel: Channel; hint: string }>;
         };
       }>('/api/auth/login', {
         method: 'POST',
@@ -112,8 +114,61 @@ export default function LoginScreen() {
         }),
       });
 
+      if (
+        !response.data.verificationRequired ||
+        !response.data.loginTicket ||
+        !Array.isArray(response.data.contacts) ||
+        response.data.contacts.length === 0
+      ) {
+        throw new Error('Verification is unavailable for this account.');
+      }
+
+      const availableContacts = response.data.contacts;
+      const preferred =
+        availableContacts.find((item) => item.channel === channel)?.channel ??
+        availableContacts[0].channel;
+
+      setLoginTicket(response.data.loginTicket);
+      setContacts(availableContacts);
+      setVerificationChannel(preferred);
+      setChallengeId('');
+      setIdentifierHint('');
+      setCode('');
+      setStage('confirm');
+    } catch (error) {
+      Alert.alert('Sign in failed', error instanceof Error ? error.message : 'Unable to sign in.');
+    } finally {
+      setLoggingIn(false);
+    }
+  };
+
+  const sendLoginCode = async () => {
+    if (!loginTicket) {
+      setStage('login');
+      return;
+    }
+
+    try {
+      setLoggingIn(true);
+      const response = await apiRequest<{
+        success: boolean;
+        data: {
+          verificationRequired: boolean;
+          challengeId: string;
+          identifierHint: string;
+          expiresAt: string;
+        };
+      }>('/api/auth/login/code/request', {
+        method: 'POST',
+        timeoutMs: 30_000,
+        body: JSON.stringify({
+          loginTicket,
+          channel: verificationChannel,
+        }),
+      });
+
       if (!response.data.verificationRequired || !response.data.challengeId) {
-        throw new Error('Unable to start two-step verification.');
+        throw new Error('Unable to send verification code.');
       }
 
       setChallengeId(response.data.challengeId);
@@ -121,7 +176,7 @@ export default function LoginScreen() {
       setCode('');
       setStage('verify');
     } catch (error) {
-      Alert.alert('Sign in failed', error instanceof Error ? error.message : 'Unable to sign in.');
+      Alert.alert('Could not send code', error instanceof Error ? error.message : 'Please try again.');
     } finally {
       setLoggingIn(false);
     }
@@ -405,7 +460,9 @@ export default function LoginScreen() {
         ? 'Opening Sagawa…'
         : stage === 'verify'
           ? 'Verifying your code…'
-          : 'Signing you in…';
+          : stage === 'confirm'
+            ? 'Sending code…'
+            : 'Signing you in…';
 
   return (
     <View style={styles.screen}>
@@ -546,11 +603,74 @@ export default function LoginScreen() {
                     </Pressable>
                   )}
                 </>
+              ) : stage === 'confirm' ? (
+                <>
+                  <Text style={styles.title}>Confirm your contact</Text>
+                  <Text style={styles.subtitle}>Choose where to receive your sign-in code.</Text>
+
+                  <View style={styles.contactList}>
+                    {contacts.map((item) => {
+                      const selected = verificationChannel === item.channel;
+                      return (
+                        <Pressable
+                          key={item.channel}
+                          onPress={() => setVerificationChannel(item.channel)}
+                          style={[
+                            styles.contactOption,
+                            selected && styles.contactOptionSelected,
+                          ]}
+                        >
+                          <Ionicons
+                            name={item.channel === 'email' ? 'mail-outline' : 'call-outline'}
+                            size={20}
+                            color={selected ? '#245B8E' : '#667085'}
+                          />
+                          <View style={styles.contactTextWrap}>
+                            <Text style={styles.contactLabel}>
+                              {item.channel === 'email' ? 'Email' : 'Phone'}
+                            </Text>
+                            <Text style={styles.contactHint}>{item.hint}</Text>
+                          </View>
+                          <Ionicons
+                            name={selected ? 'radio-button-on' : 'radio-button-off'}
+                            size={20}
+                            color={selected ? '#245B8E' : '#98A2B3'}
+                          />
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+
+                  <Pressable
+                    onPress={() => void sendLoginCode()}
+                    disabled={busy}
+                    style={({ pressed }) => [
+                      styles.primaryButton,
+                      pressed && styles.buttonPressed,
+                      busy && styles.disabled,
+                    ]}
+                  >
+                    <Text style={styles.primaryButtonText}>
+                      {loggingIn ? 'Sending...' : 'Send verification code'}
+                    </Text>
+                  </Pressable>
+
+                  <Pressable
+                    onPress={() => {
+                      setStage('login');
+                      setLoginTicket('');
+                      setContacts([]);
+                    }}
+                    style={styles.backToLoginButton}
+                  >
+                    <Text style={styles.backToLoginText}>Back</Text>
+                  </Pressable>
+                </>
               ) : (
                 <>
-                  <Text style={styles.title}>Verify it&apos;s you</Text>
+                  <Text style={styles.title}>Enter your code</Text>
                   <Text style={styles.subtitle}>
-                    Enter the 6-digit code sent to {identifierHint || 'your verified contact'}.
+                    Sent to {identifierHint || 'your verified contact'}.
                   </Text>
 
                   <View style={styles.inputGroup}>
@@ -577,19 +697,19 @@ export default function LoginScreen() {
                     ]}
                   >
                     <Text style={styles.primaryButtonText}>
-                      {loggingIn ? 'Verifying...' : 'Verify & log in'}
+                      {loggingIn ? 'Verifying...' : 'Verify'}
                     </Text>
                   </Pressable>
 
                   <Pressable
                     onPress={() => {
-                      setStage('login');
+                      setStage('confirm');
                       setCode('');
                       setChallengeId('');
                     }}
                     style={styles.backToLoginButton}
                   >
-                    <Text style={styles.backToLoginText}>Back to sign in</Text>
+                    <Text style={styles.backToLoginText}>Back</Text>
                   </Pressable>
                 </>
               )}
@@ -728,6 +848,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  contactList: { gap: 10, marginBottom: 18 },
+  contactOption: {
+    minHeight: 66,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E4E7EC',
+    backgroundColor: '#FFFFFF',
+  },
+  contactOptionSelected: {
+    borderColor: '#9CCAF4',
+    backgroundColor: '#F5FAFF',
+  },
+  contactTextWrap: { flex: 1 },
+  contactLabel: { color: '#344054', fontSize: 13, fontWeight: '700' },
+  contactHint: { color: '#667085', fontSize: 13, marginTop: 2 },
   codeInput: { textAlign: 'center', letterSpacing: 8, fontSize: 21, fontWeight: '700' },
   forgotButton: { alignSelf: 'flex-end', marginTop: -2, marginBottom: 14 },
   forgotText: { color: '#3195F5', fontSize: 14, fontWeight: '600' },

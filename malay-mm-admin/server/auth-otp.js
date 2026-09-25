@@ -210,13 +210,14 @@ async function requestSignupVerification({ nameValue, ageValue, identifierValue,
   });
 }
 
-async function requestPasswordLoginVerification(user) {
+async function requestPasswordLoginVerification(user, preferredChannel) {
   const email = String(user?.email || '').trim().toLowerCase();
   const phone = String(user?.phoneNumber || '').trim();
+  const channel = preferredChannel === 'phone' ? 'phone' : 'email';
 
   // Legacy accounts may predate verified_at columns. Sending the code to the
   // stored contact and requiring the code proves ownership during this login.
-  if (email) {
+  if (channel === 'email' && email) {
     return createChallenge({
       purpose: 'login',
       channel: 'email',
@@ -226,7 +227,7 @@ async function requestPasswordLoginVerification(user) {
     });
   }
 
-  if (phone) {
+  if (channel === 'phone' && phone) {
     return createChallenge({
       purpose: 'login',
       channel: 'phone',
@@ -236,8 +237,8 @@ async function requestPasswordLoginVerification(user) {
     });
   }
 
-  const error = new Error('This account does not have an email or phone number for verification.');
-  error.statusCode = 403;
+  const error = new Error('That verification method is not available for this account.');
+  error.statusCode = 400;
   throw error;
 }
 

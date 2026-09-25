@@ -35,15 +35,30 @@ async function request(pathname, options = {}) {
 
 async function loginMobileWithPassword(email, password) {
   const normalizedEmail = String(email || '').trim().toLowerCase();
+  deliveredVerificationCodes.delete(normalizedEmail);
+
   const started = await request('/api/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email: normalizedEmail, password, accountType: 'mobile' }),
   });
 
-  assert.equal(started.response.status, 202);
+  assert.equal(started.response.status, 200);
   assert.equal(started.body?.data?.verificationRequired, true);
-  assert.match(started.body?.data?.challengeId || '', /^[0-9a-f-]{36}$/i);
+  assert.equal(typeof started.body?.data?.loginTicket, 'string');
+  assert.equal(deliveredVerificationCodes.has(normalizedEmail), false);
+
+  const codeRequest = await request('/api/auth/login/code/request', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      loginTicket: started.body.data.loginTicket,
+      channel: 'email',
+    }),
+  });
+
+  assert.equal(codeRequest.response.status, 202);
+  assert.match(codeRequest.body?.data?.challengeId || '', /^[0-9a-f-]{36}$/i);
 
   const code = deliveredVerificationCodes.get(normalizedEmail);
   assert.match(code || '', /^\d{6}$/);
@@ -52,7 +67,7 @@ async function loginMobileWithPassword(email, password) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      challengeId: started.body.data.challengeId,
+      challengeId: codeRequest.body.data.challengeId,
       code,
       platform: 'CI',
     }),
