@@ -141,7 +141,7 @@ export default function NewsDetailScreen() {
       </View>
 
       {loading ? (
-        <BrandedLoader message="Loading news…" />
+        <BrandedLoader />
       ) : error || !article ? (
         <View style={styles.state}>
           <Text style={styles.errorText}>Unable to load this news</Text>
