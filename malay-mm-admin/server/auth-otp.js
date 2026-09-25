@@ -59,8 +59,18 @@ function makeCode() {
 
 function identifierHint(channel, identifier) {
   if (channel === 'email') {
-    return identifier.replace(/^(.{1,2}).*(@.*)$/, '$1•••$2');
+    const email = String(identifier || '').trim().toLowerCase();
+    const atIndex = email.lastIndexOf('@');
+    if (atIndex <= 0 || atIndex === email.length - 1) return email;
+
+    const name = email.slice(0, atIndex);
+    const domain = email.slice(atIndex + 1);
+
+    if (name.length <= 3) return `${name}***@${domain}`;
+    if (name.length <= 5) return `${name.slice(0, 3)}***@${domain}`;
+    return `${name.slice(0, 3)}***${name.slice(-2)}@${domain}`;
   }
+
   return identifier.replace(/^(\+\d{2})(\d+)(\d{3})$/, (_m, cc, middle, last) => {
     return `${cc}••••${last}`;
   });
