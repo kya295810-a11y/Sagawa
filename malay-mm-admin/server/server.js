@@ -599,6 +599,14 @@ const supportLimiter = rateLimit({
   message: { success: false, message: 'Too many support messages. Try again later.' },
 });
 
+app.disable('x-powered-by');
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  next();
+});
 app.use(cors(corsOptions));
 app.options('/{*splat}', cors(corsOptions));
 app.use('/api/auth', authLimiter);
@@ -1800,14 +1808,24 @@ app.get('/', (req, res) => {
     },
   });
 });
+function publicPageParams(req) {
+  const rawLimit = Number.parseInt(String(req.query.limit ?? '4'), 10);
+  const rawOffset = Number.parseInt(String(req.query.cursor ?? '0'), 10);
+  const limit = Number.isInteger(rawLimit) ? Math.min(Math.max(rawLimit, 1), 20) : 4;
+  const offset = Number.isInteger(rawOffset) ? Math.min(Math.max(rawOffset, 0), 10000) : 0;
+  return { limit, offset };
+}
+
 app.get('/api/news', async (req, res) => {
   try {
     const isAdmin = isAdminAuthenticated(req);
 
     if (!isAdmin) {
-      const data = await contentCache.getOrLoad('news:list:public', NEWS_CACHE_TTL_MS, async () => {
-        const result = await db.query(`
-          SELECT
+      const { limit, offset } = publicPageParams(req);
+      const cacheKey = `news:list:public:${limit}:${offset}`;
+      const page = await contentCache.getOrLoad(cacheKey, NEWS_CACHE_TTL_MS, async () => {
+        const result = await db.query(
+          `SELECT
             id,
             title,
             description,
@@ -1820,12 +1838,19 @@ app.get('/api/news', async (req, res) => {
             date
           FROM news
           WHERE published = TRUE
-          ORDER BY created_at DESC
-        `);
-        return result.rows.map(mapNewsRow);
+          ORDER BY created_at DESC, id DESC
+          LIMIT $1 OFFSET $2`,
+          [limit + 1, offset],
+        );
+        const rows = result.rows.map(mapNewsRow);
+        return {
+          data: rows.slice(0, limit),
+          nextCursor: rows.length > limit ? String(offset + limit) : null,
+        };
       });
 
-      return res.json({ success: true, data });
+      res.setHeader('Cache-Control', 'public, max-age=30, stale-while-revalidate=60');
+      return res.json({ success: true, data: page.data, nextCursor: page.nextCursor });
     }
 
     const result = await db.query(`
@@ -1947,7 +1972,7 @@ app.get('/api/news/:id', async (req, res) => {
   }
 });
 
-app.post('/api/news', newsUploadMiddleware, async (req, res) => {
+app.post('/api/news', requireAdmin, newsUploadMiddleware, async (req, res) => {
   try {
     const { title, description = '', published = true } = req.body || {};
 
@@ -2051,7 +2076,7 @@ app.post('/api/news', newsUploadMiddleware, async (req, res) => {
   }
 });
 
-app.put('/api/news/:id', newsUploadMiddleware, async (req, res) => {
+app.put('/api/news/:id', requireAdmin, newsUploadMiddleware, async (req, res) => {
   try {
     const id = String(req.params.id);
     const body = req.body || {};
@@ -2179,7 +2204,7 @@ app.put('/api/news/:id', newsUploadMiddleware, async (req, res) => {
   }
 });
 
-app.delete('/api/news/:id', async (req, res) => {
+app.delete('/api/news/:id', requireAdmin, async (req, res) => {
   try {
     const result = await db.query('DELETE FROM news WHERE id = $1 RETURNING id, image_url, image_name, video_url, thumbnail_url', [
       String(req.params.id),
@@ -2220,9 +2245,11 @@ app.get('/api/services', async (req, res) => {
     const isAdmin = isAdminAuthenticated(req);
 
     if (!isAdmin) {
-      const data = await contentCache.getOrLoad('services:list:public', SERVICES_CACHE_TTL_MS, async () => {
-        const result = await db.query(`
-          SELECT
+      const { limit, offset } = publicPageParams(req);
+      const cacheKey = `services:list:public:${limit}:${offset}`;
+      const page = await contentCache.getOrLoad(cacheKey, SERVICES_CACHE_TTL_MS, async () => {
+        const result = await db.query(
+          `SELECT
             id,
             title,
             description,
@@ -2241,12 +2268,18 @@ app.get('/api/services', async (req, res) => {
             updated_at AS "updatedAt"
           FROM services
           WHERE published = TRUE
-          ORDER BY created_at DESC
-        `);
-        return result.rows;
+          ORDER BY created_at DESC, id DESC
+          LIMIT $1 OFFSET $2`,
+          [limit + 1, offset],
+        );
+        return {
+          data: result.rows.slice(0, limit),
+          nextCursor: result.rows.length > limit ? String(offset + limit) : null,
+        };
       });
 
-      return res.json({ success: true, data });
+      res.setHeader('Cache-Control', 'public, max-age=30, stale-while-revalidate=60');
+      return res.json({ success: true, data: page.data, nextCursor: page.nextCursor });
     }
 
     const result = await db.query(`
@@ -2290,7 +2323,54 @@ app.get('/api/services', async (req, res) => {
   }
 });
 
-app.post('/api/services', async (req, res) => {
+app.get('/api/services/:id', async (req, res) => {
+  try {
+    const id = String(req.params.id || '').trim();
+    if (!id || id.length > 128) {
+      return res.status(400).json({ success: false, message: 'Invalid service id.' });
+    }
+
+    const isAdmin = isAdminAuthenticated(req);
+    const result = await db.query(
+      `SELECT
+        id,
+        title,
+        description,
+        icon,
+        details,
+        contact,
+        location,
+        opening_hours AS "openingHours",
+        website,
+        published,
+        date,
+        image_name AS "imageName",
+        image_name AS image,
+        phone,
+        created_at AS "createdAt",
+        updated_at AS "updatedAt"
+       FROM services
+       WHERE id = $1
+         AND ($2::boolean = TRUE OR published = TRUE)
+       LIMIT 1`,
+      [id, isAdmin],
+    );
+
+    if (!result.rows[0]) {
+      return res.status(404).json({ success: false, message: 'Service not found.' });
+    }
+
+    if (!isAdmin) {
+      res.setHeader('Cache-Control', 'public, max-age=60, stale-while-revalidate=120');
+    }
+    return res.json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    console.error('[Services] GET by id failed:', error.message);
+    return res.status(500).json({ success: false, message: 'Failed to load service.' });
+  }
+});
+
+app.post('/api/services', requireAdmin, async (req, res) => {
   try {
     const body = req.body || {};
 
@@ -2375,7 +2455,7 @@ app.post('/api/services', async (req, res) => {
   }
 });
 
-app.put('/api/services/:id', async (req, res) => {
+app.put('/api/services/:id', requireAdmin, async (req, res) => {
   try {
     const id = String(req.params.id);
     const body = req.body || {};
@@ -2497,7 +2577,7 @@ app.put('/api/services/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/services/:id', async (req, res) => {
+app.delete('/api/services/:id', requireAdmin, async (req, res) => {
   try {
     const result = await db.query(
       `DELETE FROM services
@@ -2809,15 +2889,15 @@ app.get('/api/exchange-rate', async (req, res) => {
   }
 });
 
-app.post('/api/exchange', saveExchangeRate);
+app.post('/api/exchange', requireAdmin, saveExchangeRate);
 
-app.put('/api/exchange', saveExchangeRate);
+app.put('/api/exchange', requireAdmin, saveExchangeRate);
 
-app.post('/api/exchange-rate', saveExchangeRate);
+app.post('/api/exchange-rate', requireAdmin, saveExchangeRate);
 
-app.put('/api/exchange-rate', saveExchangeRate);
+app.put('/api/exchange-rate', requireAdmin, saveExchangeRate);
 
-app.post('/api/exchange-providers', exchangeProviderUploadMiddleware, async (req, res) => {
+app.post('/api/exchange-providers', requireAdmin, exchangeProviderUploadMiddleware, async (req, res) => {
   try {
     const provider = validateExchangeProvider(req.body || {});
     const countResult = await db.query(
@@ -2878,7 +2958,7 @@ app.post('/api/exchange-providers', exchangeProviderUploadMiddleware, async (req
   }
 });
 
-app.put('/api/exchange-providers/:id', exchangeProviderUploadMiddleware, async (req, res) => {
+app.put('/api/exchange-providers/:id', requireAdmin, exchangeProviderUploadMiddleware, async (req, res) => {
   try {
     const existing = await db.query(
       'SELECT * FROM exchange_provider_rates WHERE id = $1',
@@ -2968,7 +3048,7 @@ app.put('/api/exchange-providers/:id', exchangeProviderUploadMiddleware, async (
   }
 });
 
-app.delete('/api/exchange-providers/:id', async (req, res) => {
+app.delete('/api/exchange-providers/:id', requireAdmin, async (req, res) => {
   try {
     const result = await db.query(
       'DELETE FROM exchange_provider_rates WHERE id = $1 RETURNING id, logo_url',
