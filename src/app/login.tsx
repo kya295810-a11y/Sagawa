@@ -678,8 +678,6 @@ export default function LoginScreen() {
                     <TextInput
                       value={code}
                       onChangeText={(value) => setCode(value.replace(/\D/g, '').slice(0, 6))}
-                      placeholder="000000"
-                      placeholderTextColor="#98A2B3"
                       keyboardType="number-pad"
                       autoComplete="one-time-code"
                       maxLength={6}
