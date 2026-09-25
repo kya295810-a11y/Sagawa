@@ -91,8 +91,8 @@ export default function TabsLayout() {
   const refreshContentBadges = useCallback(async () => {
     try {
       const [newsResponse, servicesPayload, seenNews, seenServices] = await Promise.all([
-        fetchNews(),
-        apiRequest<unknown>('/api/services'),
+        fetchNews(null, 4),
+        apiRequest<unknown>('/api/services?limit=4'),
         readSeenIds(SEEN_NEWS_KEY),
         readSeenIds(SEEN_SERVICES_KEY),
       ]);
