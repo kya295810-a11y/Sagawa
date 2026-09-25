@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+    ActivityIndicator,
     FlatList,
     Image,
     Keyboard,
@@ -109,8 +110,13 @@ function parseServices(payload: unknown): ServiceItem[] {
 
   return value
     .map(normalizeService)
-    .filter((item): item is ServiceItem => item !== null)
-    .slice(0, 25);
+    .filter((item): item is ServiceItem => item !== null);
+}
+
+function nextCursorValue(payload: unknown) {
+  if (!payload || typeof payload !== 'object') return null;
+  const value = (payload as Record<string, unknown>).nextCursor;
+  return typeof value === 'string' && value ? value : null;
 }
 
 export default function ServicesScreen() {
@@ -123,6 +129,8 @@ export default function ServicesScreen() {
   const [selectedService, setSelectedService] = useState<ServiceItem | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [searchVisible, setSearchVisible] = useState(false);
   const [searchText, setSearchText] = useState('');
@@ -135,13 +143,35 @@ export default function ServicesScreen() {
     try {
       setError('');
 
-      const payload: unknown = await apiRequest<unknown>('/api/services');
+      const payload: unknown = await apiRequest<unknown>('/api/services?limit=4');
       setServices(parseServices(payload));
+      setNextCursor(nextCursorValue(payload));
     } catch (requestError) {
       console.error('Services API error:', requestError);
-      setError('Unable to load services. Make sure the admin API is running.');
+      setError('Unable to load services.');
     }
   }, []);
+
+  const loadMoreServices = useCallback(async () => {
+    if (!nextCursor || loadingMore || searchText.trim()) return;
+
+    setLoadingMore(true);
+    try {
+      const payload: unknown = await apiRequest<unknown>(
+        `/api/services?limit=4&cursor=${encodeURIComponent(nextCursor)}`,
+      );
+      const incoming = parseServices(payload);
+      setServices((current) => {
+        const existing = new Set(current.map((item) => item.id));
+        return [...current, ...incoming.filter((item) => !existing.has(item.id))];
+      });
+      setNextCursor(nextCursorValue(payload));
+    } catch (requestError) {
+      console.warn('Services load-more failed:', requestError);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, nextCursor, searchText]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -345,7 +375,7 @@ export default function ServicesScreen() {
         )}
 
         {loading ? (
-          <BrandedLoader compact message="Loading services…" />
+          <BrandedLoader compact />
         ) : (
           <FlatList
             data={filteredServices}
@@ -369,6 +399,17 @@ export default function ServicesScreen() {
                 flexGrow: filteredServices.length === 0 ? 1 : 0,
               },
             ]}
+            onEndReached={() => {
+              void loadMoreServices();
+            }}
+            onEndReachedThreshold={0.5}
+            ListFooterComponent={
+              loadingMore ? (
+                <View style={styles.listFooter}>
+                  <ActivityIndicator size="small" color={theme.colors.primary} />
+                </View>
+              ) : null
+            }
             ListEmptyComponent={
               <View style={styles.emptyState}>
                 <View style={styles.emptyIcon}>
@@ -939,6 +980,11 @@ const createStyles = (colors: ThemeColors) =>
     listContent: {
       paddingTop: 1,
       paddingBottom: 30,
+    },
+    listFooter: {
+      minHeight: 48,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
 
     /* ========================================================

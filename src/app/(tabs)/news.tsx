@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   FlatList,
   Image,
@@ -52,6 +53,8 @@ export default function NewsScreen() {
   const [news, setNews] = useState<NewsArticle[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [searchVisible, setSearchVisible] = useState(false);
   const [searchText, setSearchText] = useState('');
@@ -60,19 +63,35 @@ export default function NewsScreen() {
     try {
       setError('');
 
-      const result = await fetchNews();
-      const latestNews = result.items.filter((item) => item.published).slice(0, 10);
-
-      setNews(latestNews);
+      const result = await fetchNews(null, 4);
+      setNews(result.items.filter((item) => item.published));
+      setNextCursor(result.nextCursor ?? null);
     } catch (err) {
       console.error('News API error:', err);
-
-      setError('Unable to load news. Make sure the Local API is running.');
+      setError('Unable to load news.');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   }, []);
+
+  const loadMore = useCallback(async () => {
+    if (!nextCursor || loadingMore || searchText.trim()) return;
+
+    setLoadingMore(true);
+    try {
+      const result = await fetchNews(nextCursor, 4);
+      setNews((current) => {
+        const existing = new Set(current.map((item) => item.id));
+        return [...current, ...result.items.filter((item) => item.published && !existing.has(item.id))];
+      });
+      setNextCursor(result.nextCursor ?? null);
+    } catch (err) {
+      console.warn('News load-more failed:', err);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, nextCursor, searchText]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -366,7 +385,7 @@ export default function NewsScreen() {
         ==================================================== */}
 
         {loading ? (
-          <BrandedLoader compact message="Loading latest news…" />
+          <BrandedLoader compact />
         ) : error ? (
           <View style={styles.stateContainer}>
             <Text style={styles.stateTitle}>News unavailable</Text>
@@ -401,6 +420,17 @@ export default function NewsScreen() {
                 width: contentWidth,
               },
             ]}
+            onEndReached={() => {
+              void loadMore();
+            }}
+            onEndReachedThreshold={0.5}
+            ListFooterComponent={
+              loadingMore ? (
+                <View style={styles.listFooter}>
+                  <ActivityIndicator size="small" color={theme.colors.primary} />
+                </View>
+              ) : null
+            }
             ListEmptyComponent={
               <View style={styles.stateContainer}>
                 <Text style={styles.stateTitle}>No matching news</Text>
@@ -569,6 +599,11 @@ const createStyles = (colors: ThemeColors) =>
     listContent: {
       paddingTop: 1,
       paddingBottom: 14,
+    },
+    listFooter: {
+      minHeight: 48,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
 
     /* ========================================================

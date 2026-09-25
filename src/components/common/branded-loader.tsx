@@ -11,7 +11,7 @@ type BrandedLoaderProps = {
 };
 
 export function BrandedLoader({
-  message = 'Loading Sagawa…',
+  message,
   compact = false,
   style,
 }: BrandedLoaderProps) {
@@ -20,7 +20,7 @@ export function BrandedLoader({
   return (
     <View
       accessibilityRole="progressbar"
-      accessibilityLabel={message}
+      accessibilityLabel={message || 'Loading'}
       style={[
         styles.container,
         compact && styles.compact,
@@ -47,12 +47,14 @@ export function BrandedLoader({
 
       <ActivityIndicator size={compact ? 'small' : 'large'} color={theme.colors.primary} />
 
-      <Text
-        allowFontScaling={false}
-        style={[styles.message, compact && styles.messageCompact, { color: theme.colors.textMuted }]}
-      >
-        {message}
-      </Text>
+      {message ? (
+        <Text
+          allowFontScaling={false}
+          style={[styles.message, compact && styles.messageCompact, { color: theme.colors.textMuted }]}
+        >
+          {message}
+        </Text>
+      ) : null}
     </View>
   );
 }

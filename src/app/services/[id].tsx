@@ -46,21 +46,10 @@ const image = (value: unknown) =>
         )
       : '';
 
-function parseService(payload: unknown, id: string): Service | null {
+function parseService(payload: unknown): Service | null {
   const root = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
-  const data = root.data ?? root.services ?? root.items ?? root.results;
-  const items = Array.isArray(data)
-    ? data
-    : data && typeof data === 'object'
-      ? Object.values(data as Record<string, unknown>)
-      : [];
-  const value = items.find(
-    (item) =>
-      item &&
-      typeof item === 'object' &&
-      String((item as Record<string, unknown>).id ?? (item as Record<string, unknown>)._id) === id,
-  );
-  if (!value || typeof value !== 'object') return null;
+  const value = root.data ?? root.service ?? root;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const item = value as Record<string, unknown>;
   return {
     title: text(item.title, item.name, item.serviceName),
@@ -104,9 +93,9 @@ export default function ServiceDetailScreen() {
     const controller = new AbortController();
     let active = true;
 
-    void apiRequest<unknown>('/api/services', { signal: controller.signal })
+    void apiRequest<unknown>(`/api/services/${encodeURIComponent(serviceId)}`, { signal: controller.signal })
       .then((payload) => {
-        const result = parseService(payload, serviceId);
+        const result = parseService(payload);
         if (!result?.title) throw new Error('Service not found');
         if (active) {
           setService(result);
@@ -138,7 +127,7 @@ export default function ServiceDetailScreen() {
         </Pressable>
       </View>
       {serviceId && loading ? (
-        <BrandedLoader message="Loading service…" />
+        <BrandedLoader />
       ) : error || !service ? (
         <State text={error || 'Service not found.'} styles={styles} />
       ) : (
