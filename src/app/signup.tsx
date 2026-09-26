@@ -1,5 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   Alert, KeyboardAvoidingView, Modal, Platform, Pressable, SafeAreaView,
   ScrollView, StyleSheet, Text, TextInput, View,
@@ -58,6 +58,8 @@ export default function SignupScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [picker, setPicker] = useState<PickerKind>(null);
   const [submitting, setSubmitting] = useState(false);
+  const formScrollRef = useRef<ScrollView>(null);
+  const revealContactField = () => setTimeout(() => formScrollRef.current?.scrollToEnd({ animated: true }), 120);
 
   const dob = useMemo(() => isoDate(birthYear, birthMonth, birthDay), [birthYear, birthMonth, birthDay]);
   const regions = SIGNUP_REGIONS[country];
@@ -142,8 +144,8 @@ export default function SignupScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}>
+        <ScrollView ref={formScrollRef} contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" showsVerticalScrollIndicator={false}>
           <Pressable onPress={goBack} style={styles.backButton} hitSlop={8}>
             <Text style={styles.backIcon}>‹</Text><Text style={styles.backText}>Back</Text>
           </Pressable>
@@ -172,10 +174,10 @@ export default function SignupScreen() {
               </View>
               <Field label={channel==='email'?'Email':'Phone number'}>
                 {channel==='email'
-                  ? <TextInput value={identifier} onChangeText={setIdentifier} placeholder="you@example.com" placeholderTextColor="#98A2B3" keyboardType="email-address" autoCapitalize="none" style={styles.input} />
+                  ? <TextInput value={identifier} onChangeText={setIdentifier} placeholder="you@example.com" placeholderTextColor="#98A2B3" keyboardType="email-address" autoCapitalize="none" onFocus={revealContactField} style={styles.input} />
                   : <View style={styles.phoneWrap}>
                       <View style={styles.phoneCode}><Text style={styles.phoneCodeText}>{PHONE_CODES[country]}</Text></View>
-                      <TextInput value={identifier} onChangeText={v=>setIdentifier(v.replace(/\D/g,''))} placeholder="Phone number" placeholderTextColor="#98A2B3" keyboardType="phone-pad" maxLength={11} style={styles.phoneInput} />
+                      <TextInput value={identifier} onChangeText={v=>setIdentifier(v.replace(/\D/g,''))} placeholder="Phone number" placeholderTextColor="#98A2B3" keyboardType="phone-pad" maxLength={11} onFocus={revealContactField} style={styles.phoneInput} />
                     </View>}
               </Field>
 
@@ -223,19 +225,29 @@ export default function SignupScreen() {
 
 function DateChooser({year,month,day,onChange,onDone}:{year:string;month:string;day:string;onChange:(y:string,m:string,d:string)=>void;onDone:()=>void}) {
   const now=new Date();
-  const selectedYear=Number(year)||now.getFullYear()-18;
+  const maxYear=now.getFullYear()-18;
+  const selectedYear=Number(year)||maxYear;
   const selectedMonth=Number(month)||1;
   const selectedDay=Number(day)||1;
-  const maxYear=now.getFullYear()-18;
-  const minYear=maxYear-102;
+  const [step,setStep]=useState<'year'|'month'|'day'>('year');
+  const monthNames=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const daysInMonth=new Date(selectedYear,selectedMonth,0).getDate();
   const set=(y:number,m:number,d:number)=>onChange(String(y),String(m),String(Math.min(d,new Date(y,m,0).getDate())));
+  const selectedLabel=`${String(selectedDay).padStart(2,'0')} ${monthNames[selectedMonth-1]} ${selectedYear}`;
   return <View>
-    <View style={styles.datePickerRow}>
-      <View style={styles.dateColumn}><Text style={styles.dateCaption}>Day</Text><ScrollView style={styles.dateScroll}>{Array.from({length:daysInMonth},(_,i)=>i+1).map(v=><Pressable key={v} onPress={()=>set(selectedYear,selectedMonth,v)} style={[styles.dateOption,v===selectedDay&&styles.dateOptionActive]}><Text style={v===selectedDay?styles.dateOptionTextActive:styles.dateOptionText}>{v}</Text></Pressable>)}</ScrollView></View>
-      <View style={styles.dateColumn}><Text style={styles.dateCaption}>Month</Text><ScrollView style={styles.dateScroll}>{Array.from({length:12},(_,i)=>i+1).map(v=><Pressable key={v} onPress={()=>set(selectedYear,v,selectedDay)} style={[styles.dateOption,v===selectedMonth&&styles.dateOptionActive]}><Text style={v===selectedMonth?styles.dateOptionTextActive:styles.dateOptionText}>{v}</Text></Pressable>)}</ScrollView></View>
-      <View style={styles.dateColumn}><Text style={styles.dateCaption}>Year</Text><ScrollView style={styles.dateScroll}>{Array.from({length:maxYear-minYear+1},(_,i)=>maxYear-i).map(v=><Pressable key={v} onPress={()=>set(v,selectedMonth,selectedDay)} style={[styles.dateOption,v===selectedYear&&styles.dateOptionActive]}><Text style={v===selectedYear?styles.dateOptionTextActive:styles.dateOptionText}>{v}</Text></Pressable>)}</ScrollView></View>
+    <View style={styles.dateSummary}>
+      <Ionicons name="calendar-outline" size={22} color="#1677D2" />
+      <View><Text style={styles.dateSummaryLabel}>Date of birth</Text><Text style={styles.dateSummaryValue}>{selectedLabel}</Text></View>
     </View>
+    <View style={styles.dateSteps}>
+      {(['year','month','day'] as const).map(item=><Pressable key={item} onPress={()=>setStep(item)} style={[styles.dateStep,step===item&&styles.dateStepActive]}><Text style={[styles.dateStepText,step===item&&styles.dateStepTextActive]}>{item==='year'?selectedYear:item==='month'?monthNames[selectedMonth-1]:selectedDay}</Text></Pressable>)}
+    </View>
+    <Text style={styles.datePrompt}>{step==='year'?'Choose year':step==='month'?'Choose month':'Choose day'}</Text>
+    <ScrollView style={styles.dateGridScroll} contentContainerStyle={styles.dateGrid}>
+      {step==='year' && Array.from({length:103},(_,i)=>maxYear-i).map(v=><Pressable key={v} onPress={()=>{set(v,selectedMonth,selectedDay);setStep('month');}} style={[styles.dateGridItem,v===selectedYear&&styles.dateGridItemActive]}><Text style={[styles.dateGridText,v===selectedYear&&styles.dateGridTextActive]}>{v}</Text></Pressable>)}
+      {step==='month' && monthNames.map((label,i)=><Pressable key={label} onPress={()=>{set(selectedYear,i+1,selectedDay);setStep('day');}} style={[styles.dateGridItem,i+1===selectedMonth&&styles.dateGridItemActive]}><Text style={[styles.dateGridText,i+1===selectedMonth&&styles.dateGridTextActive]}>{label}</Text></Pressable>)}
+      {step==='day' && Array.from({length:daysInMonth},(_,i)=>i+1).map(v=><Pressable key={v} onPress={()=>set(selectedYear,selectedMonth,v)} style={[styles.dateGridItem,v===selectedDay&&styles.dateGridItemActive]}><Text style={[styles.dateGridText,v===selectedDay&&styles.dateGridTextActive]}>{v}</Text></Pressable>)}
+    </ScrollView>
     <Pressable onPress={()=>{if(!year||!month||!day)set(maxYear,1,1);onDone();}} style={styles.primary}><Text style={styles.primaryText}>Done</Text></Pressable>
   </View>;
 }
@@ -252,7 +264,7 @@ const styles=StyleSheet.create({
   title:{fontSize:28,lineHeight:34,fontWeight:BOLD,color:'#101828',letterSpacing:-.7},subtitle:{marginTop:7,marginBottom:18,fontSize:14,lineHeight:21,color:'#667085'},
   field:{marginBottom:14},label:{fontSize:14,fontWeight:'600',color:'#344054',marginBottom:7},input:{height:50,borderWidth:1,borderColor:'#D9E2EC',borderRadius:14,backgroundColor:'#FBFDFF',paddingHorizontal:15,fontSize:16,color:'#101828'},
   help:{fontSize:12,color:'#98A2B3',marginTop:5,marginBottom:14},placeholder:{color:'#98A2B3'},
-  datePickerRow:{height:250,flexDirection:'row',gap:8,marginBottom:14},dateColumn:{flex:1},dateCaption:{fontSize:12,fontWeight:'700',color:'#667085',textAlign:'center',marginBottom:6},dateScroll:{borderWidth:1,borderColor:'#E4E7EC',borderRadius:12},dateOption:{height:42,alignItems:'center',justifyContent:'center'},dateOptionActive:{backgroundColor:'#EEF7FF'},dateOptionText:{fontSize:15,color:'#475467'},dateOptionTextActive:{fontSize:15,fontWeight:'700',color:'#1677D2'},
+  dateSummary:{flexDirection:'row',alignItems:'center',gap:12,backgroundColor:'#F7FAFD',borderRadius:14,padding:14,marginBottom:12},dateSummaryLabel:{fontSize:12,color:'#667085'},dateSummaryValue:{fontSize:18,fontWeight:'700',color:'#101828',marginTop:2},dateSteps:{flexDirection:'row',gap:8,marginBottom:14},dateStep:{flex:1,height:42,borderRadius:11,borderWidth:1,borderColor:'#E4E7EC',alignItems:'center',justifyContent:'center'},dateStepActive:{backgroundColor:'#EEF7FF',borderColor:'#B9DDFB'},dateStepText:{fontSize:14,fontWeight:'600',color:'#667085'},dateStepTextActive:{color:'#1677D2'},datePrompt:{fontSize:14,fontWeight:'700',color:'#344054',marginBottom:8},dateGridScroll:{maxHeight:230},dateGrid:{flexDirection:'row',flexWrap:'wrap',gap:8,paddingBottom:8},dateGridItem:{width:'22%',height:44,borderRadius:11,alignItems:'center',justifyContent:'center',backgroundColor:'#F8FAFC'},dateGridItemActive:{backgroundColor:'#E7F3FF'},dateGridText:{fontSize:15,color:'#475467'},dateGridTextActive:{fontWeight:'700',color:'#1677D2'},
   select:{height:50,borderWidth:1,borderColor:'#D9E2EC',borderRadius:14,backgroundColor:'#FBFDFF',paddingHorizontal:15,flexDirection:'row',alignItems:'center',justifyContent:'space-between'},selectText:{fontSize:16,color:'#101828'},
   phoneWrap:{height:50,borderWidth:1,borderColor:'#D9E2EC',borderRadius:14,backgroundColor:'#FBFDFF',flexDirection:'row',alignItems:'center',overflow:'hidden'},phoneCode:{height:'100%',minWidth:66,paddingHorizontal:15,alignItems:'center',justifyContent:'center',borderRightWidth:1,borderRightColor:'#E4E7EC',backgroundColor:'#F8FAFC'},phoneCodeText:{fontSize:16,fontWeight:'700',color:'#344054'},phoneInput:{flex:1,height:'100%',paddingHorizontal:14,fontSize:16,color:'#101828'},
   segment:{flexDirection:'row',backgroundColor:'#F2F5F9',borderRadius:12,padding:4,marginBottom:14},segmentButton:{flex:1,height:38,borderRadius:9,alignItems:'center',justifyContent:'center'},segmentActive:{backgroundColor:'#FFF'},segmentText:{color:'#667085',fontWeight:'600'},segmentTextActive:{color:'#1677D2'},
