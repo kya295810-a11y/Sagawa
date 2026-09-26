@@ -88,6 +88,7 @@ export default function SignupScreen() {
 
   const requestVerification = async () => {
     if (!validateDetails()) return;
+    const trimmedName = name.trim().replace(/\s+/g, ' ');
 
     try {
       setSubmitting(true);
@@ -196,12 +197,16 @@ export default function SignupScreen() {
             </>}
 
             {stage === 'confirm' && <View style={styles.center}>
-              <View style={styles.icon}><Ionicons name={channel==='email'?'mail-outline':'phone-portrait-outline'} size={25} color="#1677D2" /></View>
-              <Text style={styles.verifyTitle}>Confirm your {channel==='email'?'email':'phone number'}</Text>
-              <Text style={styles.verifyText}>We will send your 6-digit verification code to:</Text>
-              <Text style={styles.confirmContact}>{channel==='email' ? identifier.trim() : `${PHONE_CODES[country]} ${identifier.trim()}`}</Text>
-              <PrimaryButton label={submitting?'Sending code...':'Send verification code'} disabled={submitting} onPress={requestVerification} />
-              <Pressable onPress={()=>setStage('details')} disabled={submitting} style={styles.textButton}><Text style={styles.link}>Change {channel==='email'?'email':'phone number'}</Text></Pressable>
+              <View style={styles.confirmIcon}><Ionicons name={channel==='email'?'mail-outline':'chatbubble-ellipses-outline'} size={22} color="#1677D2" /></View>
+              <Text style={styles.confirmTitle}>Check your {channel==='email'?'email':'phone number'}</Text>
+              <Text style={styles.confirmText}>Make sure this is correct before we send your verification code.</Text>
+              <View style={styles.contactReview}>
+                <View style={styles.contactReviewIcon}><Ionicons name={channel==='email'?'mail-outline':'call-outline'} size={20} color="#344054" /></View>
+                <Text numberOfLines={2} style={styles.contactReviewValue}>{channel==='email' ? identifier.trim() : `${PHONE_CODES[country]} ${identifier.trim()}`}</Text>
+                <Pressable onPress={()=>setStage('details')} disabled={submitting} hitSlop={8}><Text style={styles.editContact}>Edit</Text></Pressable>
+              </View>
+              <PrimaryButton label={submitting?'Sending...':'Send code'} disabled={submitting} onPress={requestVerification} />
+              <Text style={styles.privacyNote}>We only use this to verify your account.</Text>
             </View>}
 
             {stage === 'verify' && <View style={styles.center}>
@@ -290,7 +295,7 @@ const styles=StyleSheet.create({
   segment:{flexDirection:'row',backgroundColor:'#F2F5F9',borderRadius:12,padding:4,marginBottom:14},segmentButton:{flex:1,height:38,borderRadius:9,alignItems:'center',justifyContent:'center'},segmentActive:{backgroundColor:'#FFF'},segmentText:{color:'#667085',fontWeight:'600'},segmentTextActive:{color:'#1677D2'},
   termsRow:{flexDirection:'row',alignItems:'center',marginBottom:18},checkbox:{width:20,height:20,borderRadius:6,borderWidth:1.5,borderColor:'#C8D2DC',alignItems:'center',justifyContent:'center',marginRight:10},checkboxActive:{backgroundColor:'#3195F5',borderColor:'#3195F5'},check:{color:'#FFF',fontWeight:'800'},terms:{flex:1,fontSize:12,color:'#667085'},
   primary:{height:52,borderRadius:14,backgroundColor:'#3195F5',alignItems:'center',justifyContent:'center',marginTop:4},primaryText:{color:'#FFF',fontSize:16,fontWeight:'700'},disabled:{opacity:.5},
-  center:{alignItems:'center'},confirmContact:{marginTop:10,marginBottom:20,fontSize:17,fontWeight:'700',color:'#101828',textAlign:'center'},icon:{width:52,height:52,borderRadius:16,alignItems:'center',justifyContent:'center',backgroundColor:'#EEF7FF',marginBottom:16},verifyTitle:{fontSize:24,fontWeight:BOLD,color:'#101828',textAlign:'center'},verifyText:{marginTop:8,fontSize:14,lineHeight:20,color:'#667085',textAlign:'center'},destination:{marginTop:3,marginBottom:20,fontSize:14,fontWeight:'700',color:'#344054'},
+  center:{alignItems:'center'},confirmContact:{marginTop:10,marginBottom:20,fontSize:17,fontWeight:'700',color:'#101828',textAlign:'center'},confirmIcon:{width:48,height:48,borderRadius:24,backgroundColor:'#EEF7FF',alignItems:'center',justifyContent:'center',marginBottom:16},confirmTitle:{fontSize:24,fontWeight:BOLD,color:'#101828',textAlign:'center'},confirmText:{fontSize:15,color:'#667085',lineHeight:22,textAlign:'center',marginTop:8,marginBottom:18,maxWidth:330},contactReview:{width:'100%',minHeight:64,borderWidth:1,borderColor:'#E4E7EC',borderRadius:14,backgroundColor:'#F9FAFB',flexDirection:'row',alignItems:'center',paddingHorizontal:14,marginBottom:18},contactReviewIcon:{width:36,height:36,borderRadius:18,backgroundColor:'#FFFFFF',alignItems:'center',justifyContent:'center',marginRight:10},contactReviewValue:{flex:1,fontSize:16,fontWeight:'600',color:'#101828'},editContact:{fontSize:15,fontWeight:'700',color:'#1677D2',paddingLeft:10},privacyNote:{fontSize:12,color:'#98A2B3',marginTop:12,textAlign:'center'},icon:{width:52,height:52,borderRadius:16,alignItems:'center',justifyContent:'center',backgroundColor:'#EEF7FF',marginBottom:16},verifyTitle:{fontSize:24,fontWeight:BOLD,color:'#101828',textAlign:'center'},verifyText:{marginTop:8,fontSize:14,lineHeight:20,color:'#667085',textAlign:'center'},destination:{marginTop:3,marginBottom:20,fontSize:14,fontWeight:'700',color:'#344054'},
   codeInput:{width:'100%',height:58,borderWidth:1.5,borderColor:'#D3DFEA',borderRadius:14,textAlign:'center',fontSize:23,fontWeight:'700',letterSpacing:10,color:'#101828',marginBottom:10},textButton:{padding:14},link:{fontSize:14,fontWeight:'700',color:'#1677D2'},
   passwordWrap:{height:50,borderWidth:1,borderColor:'#D9E2EC',borderRadius:14,backgroundColor:'#FBFDFF',paddingHorizontal:15,flexDirection:'row',alignItems:'center'},passwordInput:{flex:1,fontSize:16,color:'#101828'},inputError:{borderColor:'#D92D20'},error:{fontSize:12,color:'#D92D20',marginTop:-8,marginBottom:12},
   loginRow:{flexDirection:'row',justifyContent:'center',marginTop:18},loginText:{fontSize:14,color:'#667085'},
