@@ -66,6 +66,7 @@ const {
 const { isEmailConfigured, sendVerificationCode, sendPasswordResetCode } = require('./email');
 const {
   authCapabilities,
+  completeVerifiedSignup,
   requestLoginVerification,
   requestPasswordLoginVerification,
   requestSignupVerification,
@@ -742,11 +743,12 @@ app.post('/api/auth/register', resendLimiter, async (req, res) => {
   try {
     const challenge = await requestSignupVerification({
       nameValue: req.body?.name,
-      ageValue: req.body?.age,
+      dateOfBirthValue: req.body?.dateOfBirth,
       identifierValue: req.body?.identifier ?? req.body?.email ?? req.body?.phone,
       channelValue: req.body?.channel || (req.body?.phone ? 'phone' : 'email'),
       country: req.body?.country,
-      password: req.body?.password,
+      stateValue: req.body?.state,
+      cityValue: req.body?.city,
     });
 
     return res.status(202).json({
@@ -781,10 +783,10 @@ app.post('/api/auth/register/verify', async (req, res) => {
       });
     }
 
-    scheduleUserSheetSync(result.user.id, { platform: req.body?.platform || 'Mobile' });
-    return res.status(201).json({
+    return res.status(200).json({
       success: true,
-      data: { ...result, profileCompleted: true },
+      data: { ...result, verificationComplete: true },
+      message: 'Contact verified. Create your password to finish signup.',
     });
   } catch (error) {
     const status = Number(error.statusCode) || 500;
@@ -792,6 +794,28 @@ app.post('/api/auth/register/verify', async (req, res) => {
     return res.status(status).json({
       success: false,
       message: status >= 500 ? 'Unable to verify account.' : error.message,
+    });
+  }
+});
+
+app.post('/api/auth/register/complete', async (req, res) => {
+  try {
+    const result = await completeVerifiedSignup(
+      req.body?.signupTicket,
+      req.body?.password,
+      req.body?.confirmPassword,
+    );
+    scheduleUserSheetSync(result.user.id, { platform: req.body?.platform || 'Mobile' });
+    return res.status(201).json({
+      success: true,
+      data: { ...result, profileCompleted: true },
+    });
+  } catch (error) {
+    const status = Number(error.statusCode) || 500;
+    if (status >= 500) console.error('[Auth] Signup completion failed:', error.message);
+    return res.status(status).json({
+      success: false,
+      message: status >= 500 ? 'Unable to create account.' : error.message,
     });
   }
 });
