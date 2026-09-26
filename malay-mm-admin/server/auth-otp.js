@@ -20,14 +20,14 @@ function validateEmail(email) {
 function normalizePhone(value, countryValue) {
   const country = String(countryValue || 'MY').trim().toUpperCase();
   const rules = {
-    MY: { dial: '+60', local: /^1\\d{8,9}$/ },
-    SG: { dial: '+65', local: /^[3689]\\d{7}$/ },
-    TH: { dial: '+66', local: /^[689]\\d{8}$/ },
+    MY: { dial: '+60', local: /^1\d{8,9}$/ },
+    SG: { dial: '+65', local: /^[3689]\d{7}$/ },
+    TH: { dial: '+66', local: /^[689]\d{8}$/ },
   };
   const rule = rules[country];
   if (!rule) return null;
 
-  let raw = String(value || '').trim().replace(/[\\s().-]/g, '');
+  let raw = String(value || '').trim().replace(/[\s().-]/g, '');
   if (raw.startsWith('00')) raw = `+${raw.slice(2)}`;
 
   if (raw.startsWith(rule.dial)) raw = raw.slice(rule.dial.length);
