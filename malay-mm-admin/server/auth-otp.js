@@ -485,7 +485,7 @@ async function completeVerifiedSignup(signupTicket, password, confirmPassword) {
     await client.query('DELETE FROM user_auth_challenges WHERE id = $1', [challenge.id]);
     await client.query('COMMIT');
   } catch (error) {
-    if (!error.statusCode) await client.query('ROLLBACK').catch(() => {});
+    await client.query('ROLLBACK').catch(() => {});
     if (error.code === '23505') {
       const conflict = new Error('An account with this email or phone number already exists.');
       conflict.statusCode = 409;
