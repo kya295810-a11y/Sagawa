@@ -208,16 +208,22 @@ async function requestSignupVerification({
     error.statusCode = 400;
     throw error;
   }
-  const birthDate = new Date(`${dateOfBirth}T00:00:00.000Z`);
-  if (Number.isNaN(birthDate.getTime())) {
+  const [birthYear, birthMonth, birthDay] = dateOfBirth.split('-').map(Number);
+  const birthDate = new Date(Date.UTC(birthYear, birthMonth - 1, birthDay));
+  if (
+    Number.isNaN(birthDate.getTime()) ||
+    birthDate.getUTCFullYear() !== birthYear ||
+    birthDate.getUTCMonth() !== birthMonth - 1 ||
+    birthDate.getUTCDate() !== birthDay
+  ) {
     const error = new Error('Choose a valid date of birth.');
     error.statusCode = 400;
     throw error;
   }
   const today = new Date();
-  let age = today.getUTCFullYear() - birthDate.getUTCFullYear();
-  const monthDelta = today.getUTCMonth() - birthDate.getUTCMonth();
-  if (monthDelta < 0 || (monthDelta === 0 && today.getUTCDate() < birthDate.getUTCDate())) age -= 1;
+  let age = today.getUTCFullYear() - birthYear;
+  const monthDelta = today.getUTCMonth() - (birthMonth - 1);
+  if (monthDelta < 0 || (monthDelta === 0 && today.getUTCDate() < birthDay)) age -= 1;
   if (age < 18 || age > 120) {
     const error = new Error('You must be 18 or older to create a Sagawa account.');
     error.statusCode = 400;

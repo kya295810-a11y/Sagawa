@@ -14,7 +14,7 @@ import {
 } from '@/constants/signup-locations';
 
 type Channel = 'email' | 'phone';
-type Stage = 'details' | 'verify' | 'password';
+type Stage = 'details' | 'confirm' | 'verify' | 'password';
 type PickerKind = 'country' | 'region' | 'date' | null;
 
 const BOLD = Platform.OS === 'android' ? '700' : '800';
@@ -72,18 +72,27 @@ export default function SignupScreen() {
     setPicker(null);
   };
 
-  const requestVerification = async () => {
+  const validateDetails = () => {
     const trimmedName = name.trim().replace(/\s+/g, ' ');
     if (!trimmedName || trimmedName.length > 100) return Alert.alert('Check your name', 'Enter your name using 100 characters or fewer.');
     if (!dob || ageFromDob(dob) < 18 || ageFromDob(dob) > 120) return Alert.alert('Age requirement', 'Choose a valid date of birth. You must be 18 or older.');
     if (!region || !city.trim()) return Alert.alert('Location required', 'Choose your state/province and enter your city.');
     if (!identifier.trim()) return Alert.alert(channel === 'email' ? 'Email required' : 'Phone required', channel === 'email' ? 'Enter your email address.' : `Enter a valid ${countryLabel(country)} mobile number.`);
-    if (!agree) return Alert.alert('Agreement required', 'Please accept the Terms and Privacy Policy.');
+    if (!agree) { Alert.alert('Agreement required', 'Please accept the Terms and Privacy Policy.'); return false; }
+    return true;
+  };
+
+  const reviewContact = () => {
+    if (validateDetails()) setStage('confirm');
+  };
+
+  const requestVerification = async () => {
+    if (!validateDetails()) return;
 
     try {
       setSubmitting(true);
       const response = await apiRequest<{ success: boolean; data: { challengeId: string; identifierHint: string } }>('/api/auth/register', {
-        method: 'POST',
+        method: 'POST', timeoutMs: 20000,
         body: JSON.stringify({
           name: trimmedName, dateOfBirth: dob, country, state: region, city: city.trim(),
           identifier: identifier.trim(), channel, platform: Platform.OS,
@@ -103,7 +112,7 @@ export default function SignupScreen() {
     try {
       setSubmitting(true);
       const response = await apiRequest<{ success: boolean; data: { signupTicket: string } }>('/api/auth/register/verify', {
-        method: 'POST', body: JSON.stringify({ challengeId, code: code.trim() }),
+        method: 'POST', timeoutMs: 15000, body: JSON.stringify({ challengeId, code: code.trim() }),
       });
       setSignupTicket(response.data.signupTicket);
       setPassword('');
@@ -138,7 +147,8 @@ export default function SignupScreen() {
 
   const goBack = () => {
     if (stage === 'password') { setStage('verify'); setPassword(''); setConfirmPassword(''); return; }
-    if (stage === 'verify') { setStage('details'); setCode(''); setChallengeId(''); return; }
+    if (stage === 'verify') { setStage('confirm'); setCode(''); setChallengeId(''); return; }
+    if (stage === 'confirm') { setStage('details'); return; }
     router.replace('/login');
   };
 
@@ -182,8 +192,17 @@ export default function SignupScreen() {
               </Field>
 
               <Pressable onPress={()=>setAgree(v=>!v)} style={styles.termsRow}><View style={[styles.checkbox,agree&&styles.checkboxActive]}>{agree&&<Text style={styles.check}>✓</Text>}</View><Text style={styles.terms}>I agree to the Terms and Privacy Policy.</Text></Pressable>
-              <PrimaryButton label={submitting?'Sending code...':'Continue'} disabled={submitting} onPress={requestVerification} />
+              <PrimaryButton label="Continue" disabled={submitting} onPress={reviewContact} />
             </>}
+
+            {stage === 'confirm' && <View style={styles.center}>
+              <View style={styles.icon}><Ionicons name={channel==='email'?'mail-outline':'phone-portrait-outline'} size={25} color="#1677D2" /></View>
+              <Text style={styles.verifyTitle}>Confirm your {channel==='email'?'email':'phone number'}</Text>
+              <Text style={styles.verifyText}>We will send your 6-digit verification code to:</Text>
+              <Text style={styles.confirmContact}>{channel==='email' ? identifier.trim() : `${PHONE_CODES[country]} ${identifier.trim()}`}</Text>
+              <PrimaryButton label={submitting?'Sending code...':'Send verification code'} disabled={submitting} onPress={requestVerification} />
+              <Pressable onPress={()=>setStage('details')} disabled={submitting} style={styles.textButton}><Text style={styles.link}>Change {channel==='email'?'email':'phone number'}</Text></Pressable>
+            </View>}
 
             {stage === 'verify' && <View style={styles.center}>
               <View style={styles.icon}><Ionicons name={channel==='email'?'mail-outline':'phone-portrait-outline'} size={25} color="#1677D2" /></View>
@@ -271,7 +290,7 @@ const styles=StyleSheet.create({
   segment:{flexDirection:'row',backgroundColor:'#F2F5F9',borderRadius:12,padding:4,marginBottom:14},segmentButton:{flex:1,height:38,borderRadius:9,alignItems:'center',justifyContent:'center'},segmentActive:{backgroundColor:'#FFF'},segmentText:{color:'#667085',fontWeight:'600'},segmentTextActive:{color:'#1677D2'},
   termsRow:{flexDirection:'row',alignItems:'center',marginBottom:18},checkbox:{width:20,height:20,borderRadius:6,borderWidth:1.5,borderColor:'#C8D2DC',alignItems:'center',justifyContent:'center',marginRight:10},checkboxActive:{backgroundColor:'#3195F5',borderColor:'#3195F5'},check:{color:'#FFF',fontWeight:'800'},terms:{flex:1,fontSize:12,color:'#667085'},
   primary:{height:52,borderRadius:14,backgroundColor:'#3195F5',alignItems:'center',justifyContent:'center',marginTop:4},primaryText:{color:'#FFF',fontSize:16,fontWeight:'700'},disabled:{opacity:.5},
-  center:{alignItems:'center'},icon:{width:52,height:52,borderRadius:16,alignItems:'center',justifyContent:'center',backgroundColor:'#EEF7FF',marginBottom:16},verifyTitle:{fontSize:24,fontWeight:BOLD,color:'#101828',textAlign:'center'},verifyText:{marginTop:8,fontSize:14,lineHeight:20,color:'#667085',textAlign:'center'},destination:{marginTop:3,marginBottom:20,fontSize:14,fontWeight:'700',color:'#344054'},
+  center:{alignItems:'center'},confirmContact:{marginTop:10,marginBottom:20,fontSize:17,fontWeight:'700',color:'#101828',textAlign:'center'},icon:{width:52,height:52,borderRadius:16,alignItems:'center',justifyContent:'center',backgroundColor:'#EEF7FF',marginBottom:16},verifyTitle:{fontSize:24,fontWeight:BOLD,color:'#101828',textAlign:'center'},verifyText:{marginTop:8,fontSize:14,lineHeight:20,color:'#667085',textAlign:'center'},destination:{marginTop:3,marginBottom:20,fontSize:14,fontWeight:'700',color:'#344054'},
   codeInput:{width:'100%',height:58,borderWidth:1.5,borderColor:'#D3DFEA',borderRadius:14,textAlign:'center',fontSize:23,fontWeight:'700',letterSpacing:10,color:'#101828',marginBottom:10},textButton:{padding:14},link:{fontSize:14,fontWeight:'700',color:'#1677D2'},
   passwordWrap:{height:50,borderWidth:1,borderColor:'#D9E2EC',borderRadius:14,backgroundColor:'#FBFDFF',paddingHorizontal:15,flexDirection:'row',alignItems:'center'},passwordInput:{flex:1,fontSize:16,color:'#101828'},inputError:{borderColor:'#D92D20'},error:{fontSize:12,color:'#D92D20',marginTop:-8,marginBottom:12},
   loginRow:{flexDirection:'row',justifyContent:'center',marginTop:18},loginText:{fontSize:14,color:'#667085'},
