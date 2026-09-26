@@ -18,6 +18,7 @@ type Stage = 'details' | 'verify' | 'password';
 type PickerKind = 'country' | 'region' | 'date' | null;
 
 const BOLD = Platform.OS === 'android' ? '700' : '800';
+const PHONE_CODES: Record<SignupCountryCode, string> = { MY: '+60', SG: '+65', TH: '+66' };
 
 function isoDate(year: string, month: string, day: string) {
   if (!/^\d{4}$/.test(year) || !/^\d{1,2}$/.test(month) || !/^\d{1,2}$/.test(day)) return '';
@@ -63,6 +64,7 @@ export default function SignupScreen() {
 
   const selectCountry = (next: SignupCountryCode) => {
     setCountry(next);
+    if (channel === 'phone') setIdentifier('');
     setRegion(next === 'SG' ? 'Singapore' : '');
     setCity(next === 'SG' ? 'Singapore' : '');
     setPicker(null);
@@ -73,8 +75,7 @@ export default function SignupScreen() {
     if (!trimmedName || trimmedName.length > 100) return Alert.alert('Check your name', 'Enter your name using 100 characters or fewer.');
     if (!dob || ageFromDob(dob) < 18 || ageFromDob(dob) > 120) return Alert.alert('Age requirement', 'Choose a valid date of birth. You must be 18 or older.');
     if (!region || !city.trim()) return Alert.alert('Location required', 'Choose your state/province and enter your city.');
-    if (!identifier.trim()) return Alert.alert(channel === 'email' ? 'Email required' : 'Phone required', channel === 'email' ? 'Enter your email address.' : 'Enter a Malaysia mobile number.');
-    if (channel === 'phone' && country !== 'MY') return Alert.alert('Phone signup', 'Phone signup currently supports Malaysia (+60). Use email for Singapore or Thailand.');
+    if (!identifier.trim()) return Alert.alert(channel === 'email' ? 'Email required' : 'Phone required', channel === 'email' ? 'Enter your email address.' : `Enter a valid ${countryLabel(country)} mobile number.`);
     if (!agree) return Alert.alert('Agreement required', 'Please accept the Terms and Privacy Policy.');
 
     try {
@@ -170,7 +171,12 @@ export default function SignupScreen() {
                 {(['email','phone'] as Channel[]).map(item=><Pressable key={item} onPress={()=>{setChannel(item);setIdentifier('');}} style={[styles.segmentButton,channel===item&&styles.segmentActive]}><Text style={[styles.segmentText,channel===item&&styles.segmentTextActive]}>{item==='email'?'Email':'Phone'}</Text></Pressable>)}
               </View>
               <Field label={channel==='email'?'Email':'Phone number'}>
-                <TextInput value={identifier} onChangeText={setIdentifier} placeholder={channel==='email'?'you@example.com':'+60'} placeholderTextColor="#98A2B3" keyboardType={channel==='email'?'email-address':'phone-pad'} autoCapitalize="none" style={styles.input} />
+                {channel==='email'
+                  ? <TextInput value={identifier} onChangeText={setIdentifier} placeholder="you@example.com" placeholderTextColor="#98A2B3" keyboardType="email-address" autoCapitalize="none" style={styles.input} />
+                  : <View style={styles.phoneWrap}>
+                      <View style={styles.phoneCode}><Text style={styles.phoneCodeText}>{PHONE_CODES[country]}</Text></View>
+                      <TextInput value={identifier} onChangeText={v=>setIdentifier(v.replace(/\\D/g,''))} placeholder="Phone number" placeholderTextColor="#98A2B3" keyboardType="phone-pad" maxLength={11} style={styles.phoneInput} />
+                    </View>}
               </Field>
 
               <Pressable onPress={()=>setAgree(v=>!v)} style={styles.termsRow}><View style={[styles.checkbox,agree&&styles.checkboxActive]}>{agree&&<Text style={styles.check}>✓</Text>}</View><Text style={styles.terms}>I agree to the Terms and Privacy Policy.</Text></Pressable>
@@ -248,6 +254,7 @@ const styles=StyleSheet.create({
   help:{fontSize:12,color:'#98A2B3',marginTop:5,marginBottom:14},placeholder:{color:'#98A2B3'},
   datePickerRow:{height:250,flexDirection:'row',gap:8,marginBottom:14},dateColumn:{flex:1},dateCaption:{fontSize:12,fontWeight:'700',color:'#667085',textAlign:'center',marginBottom:6},dateScroll:{borderWidth:1,borderColor:'#E4E7EC',borderRadius:12},dateOption:{height:42,alignItems:'center',justifyContent:'center'},dateOptionActive:{backgroundColor:'#EEF7FF'},dateOptionText:{fontSize:15,color:'#475467'},dateOptionTextActive:{fontSize:15,fontWeight:'700',color:'#1677D2'},
   select:{height:50,borderWidth:1,borderColor:'#D9E2EC',borderRadius:14,backgroundColor:'#FBFDFF',paddingHorizontal:15,flexDirection:'row',alignItems:'center',justifyContent:'space-between'},selectText:{fontSize:16,color:'#101828'},
+  phoneWrap:{height:50,borderWidth:1,borderColor:'#D9E2EC',borderRadius:14,backgroundColor:'#FBFDFF',flexDirection:'row',alignItems:'center',overflow:'hidden'},phoneCode:{height:'100%',minWidth:66,paddingHorizontal:15,alignItems:'center',justifyContent:'center',borderRightWidth:1,borderRightColor:'#E4E7EC',backgroundColor:'#F8FAFC'},phoneCodeText:{fontSize:16,fontWeight:'700',color:'#344054'},phoneInput:{flex:1,height:'100%',paddingHorizontal:14,fontSize:16,color:'#101828'},
   segment:{flexDirection:'row',backgroundColor:'#F2F5F9',borderRadius:12,padding:4,marginBottom:14},segmentButton:{flex:1,height:38,borderRadius:9,alignItems:'center',justifyContent:'center'},segmentActive:{backgroundColor:'#FFF'},segmentText:{color:'#667085',fontWeight:'600'},segmentTextActive:{color:'#1677D2'},
   termsRow:{flexDirection:'row',alignItems:'center',marginBottom:18},checkbox:{width:20,height:20,borderRadius:6,borderWidth:1.5,borderColor:'#C8D2DC',alignItems:'center',justifyContent:'center',marginRight:10},checkboxActive:{backgroundColor:'#3195F5',borderColor:'#3195F5'},check:{color:'#FFF',fontWeight:'800'},terms:{flex:1,fontSize:12,color:'#667085'},
   primary:{height:52,borderRadius:14,backgroundColor:'#3195F5',alignItems:'center',justifyContent:'center',marginTop:4},primaryText:{color:'#FFF',fontSize:16,fontWeight:'700'},disabled:{opacity:.5},

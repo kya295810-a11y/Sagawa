@@ -19,12 +19,21 @@ function validateEmail(email) {
 
 function normalizePhone(value, countryValue) {
   const country = String(countryValue || 'MY').trim().toUpperCase();
-  if (country !== 'MY') return null;
+  const rules = {
+    MY: { dial: '+60', local: /^1\\d{8,9}$/ },
+    SG: { dial: '+65', local: /^[3689]\\d{7}$/ },
+    TH: { dial: '+66', local: /^[689]\\d{8}$/ },
+  };
+  const rule = rules[country];
+  if (!rule) return null;
 
-  let raw = String(value || '').trim().replace(/[\s().-]/g, '');
+  let raw = String(value || '').trim().replace(/[\\s().-]/g, '');
   if (raw.startsWith('00')) raw = `+${raw.slice(2)}`;
-  if (/^01\d{8,9}$/.test(raw)) raw = `+60${raw.slice(1)}`;
-  return /^\+601\d{8,9}$/.test(raw) ? raw : null;
+
+  if (raw.startsWith(rule.dial)) raw = raw.slice(rule.dial.length);
+  if (raw.startsWith('0')) raw = raw.slice(1);
+
+  return rule.local.test(raw) ? `${rule.dial}${raw}` : null;
 }
 
 function normalizeIdentifier(value, channelValue, country) {
@@ -222,7 +231,7 @@ async function requestSignupVerification({
   if (!normalized) {
     const error = new Error(
       String(channelValue).toLowerCase() === 'phone'
-        ? 'Enter a valid Malaysia (+60) mobile number.'
+        ? 'Enter a valid mobile number for the selected country.'
         : 'Enter a valid email address.',
     );
     error.statusCode = 400;
@@ -572,7 +581,7 @@ function authCapabilities() {
       String(process.env.RESEND_API_KEY || '').trim() && String(process.env.EMAIL_FROM || '').trim(),
     ),
     phoneVerification: isSmsConfigured(),
-    phoneCountries: ['MY'],
+    phoneCountries: ['MY', 'SG', 'TH'],
     codeLength: 6,
   };
 }
