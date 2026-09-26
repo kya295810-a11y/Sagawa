@@ -64,6 +64,7 @@ export default function SignupScreen() {
 
   const selectCountry = (next: SignupCountryCode) => {
     setCountry(next);
+    if (channel === 'phone') setIdentifier('');
     setRegion(next === 'SG' ? 'Singapore' : '');
     setCity(next === 'SG' ? 'Singapore' : '');
     setPicker(null);
