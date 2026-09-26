@@ -10,12 +10,12 @@ import SagawaFlowerLogo from '../../assets/images/sagawa-flower-logo.svg';
 import { apiRequest } from '@/services/api/client';
 import { useAuthStore } from '@/store/auth-store';
 import {
-  SIGNUP_COUNTRIES, SIGNUP_REGIONS, countryLabel, type SignupCountryCode,
+  SIGNUP_COUNTRIES, SIGNUP_REGIONS, SIGNUP_CITIES, countryLabel, type SignupCountryCode,
 } from '@/constants/signup-locations';
 
 type Channel = 'email' | 'phone';
 type Stage = 'details' | 'confirm' | 'verify' | 'password';
-type PickerKind = 'country' | 'region' | 'date' | null;
+type PickerKind = 'country' | 'region' | 'city' | 'date' | null;
 
 const BOLD = Platform.OS === 'android' ? '700' : '800';
 const PHONE_CODES: Record<SignupCountryCode, string> = { MY: '+60', SG: '+65', TH: '+66' };
@@ -63,6 +63,7 @@ export default function SignupScreen() {
 
   const dob = useMemo(() => isoDate(birthYear, birthMonth, birthDay), [birthYear, birthMonth, birthDay]);
   const regions = SIGNUP_REGIONS[country];
+  const cities = region ? (SIGNUP_CITIES[country][region] || []) : [];
 
   const selectCountry = (next: SignupCountryCode) => {
     setCountry(next);
@@ -178,7 +179,7 @@ export default function SignupScreen() {
 
               <SelectField label="Country" value={countryLabel(country)} onPress={()=>setPicker('country')} />
               <SelectField label="State / Province" value={region || 'Choose state / province'} onPress={()=>setPicker('region')} />
-              <Field label="City"><TextInput value={city} onChangeText={setCity} editable={country !== 'SG'} placeholder="Your city" placeholderTextColor="#98A2B3" maxLength={100} style={styles.input} /></Field>
+              <SelectField label="City" value={city || 'Choose city'} onPress={()=>{ if (!region) return Alert.alert('Choose state / province', 'Choose your state or province first.'); setPicker('city'); }} />
 
               <View style={styles.segment}>
                 {(['email','phone'] as Channel[]).map(item=><Pressable key={item} onPress={()=>{setChannel(item);setIdentifier('');}} style={[styles.segmentButton,channel===item&&styles.segmentActive]}><Text style={[styles.segmentText,channel===item&&styles.segmentTextActive]}>{item==='email'?'Email':'Phone'}</Text></Pressable>)}
@@ -236,10 +237,10 @@ export default function SignupScreen() {
         <View style={styles.overlay}>
           <Pressable style={StyleSheet.absoluteFill} onPress={()=>setPicker(null)} accessibilityLabel="Close picker" />
           <View style={styles.sheet}>
-            <Text style={styles.sheetTitle}>{picker==='country'?'Choose country':picker==='region'?'Choose state / province':'Choose date of birth'}</Text>
+            <Text style={styles.sheetTitle}>{picker==='country'?'Choose country':picker==='region'?'Choose state / province':picker==='city'?'Choose city':'Choose date of birth'}</Text>
             {picker==='date' ? <DateChooser year={birthYear} month={birthMonth} day={birthDay} onChange={(y,m,d)=>{setBirthYear(y);setBirthMonth(m);setBirthDay(d);}} onDone={()=>setPicker(null)} /> :
             <ScrollView style={{maxHeight:420}}>
-              {(picker==='country'?SIGNUP_COUNTRIES:regions.map(label=>({code:label,label}))).map((item:any)=><Pressable key={item.code} onPress={()=>picker==='country'?selectCountry(item.code):(()=>{setRegion(item.label);setPicker(null);})()} style={styles.option}><Text style={styles.optionText}>{item.label}</Text><Ionicons name="chevron-forward" size={17} color="#98A2B3" /></Pressable>)}
+              {(picker==='country'?SIGNUP_COUNTRIES:(picker==='city'?cities:regions).map(label=>({code:label,label}))).map((item:any)=><Pressable key={item.code} onPress={()=>picker==='country'?selectCountry(item.code):picker==='city'?(()=>{setCity(item.label);setPicker(null);})():(()=>{setRegion(item.label);setCity(country==='SG'?'Singapore':'');setPicker(null);})()} style={styles.option}><Text style={styles.optionText}>{item.label}</Text><Ionicons name="chevron-forward" size={17} color="#98A2B3" /></Pressable>)}
             </ScrollView>}
           </View>
         </View>
