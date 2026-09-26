@@ -426,9 +426,31 @@ async function completeVerifiedSignup(signupTicket, password, confirmPassword) {
     throw error;
   }
 
+  const tokenHash = crypto.createHash('sha256').update(verifiedToken).digest('hex');
+
+  // Validate the one-use ticket before doing expensive bcrypt work. This keeps
+  // invalid traffic cheap while the global auth limiter provides another guard.
+  const preflight = await db.query(
+    `SELECT payload, expires_at
+       FROM user_auth_challenges
+      WHERE id = $1 AND purpose = 'signup_verified'
+      LIMIT 1`,
+    [challengeId],
+  );
+  const preflightChallenge = preflight.rows[0];
+  if (
+    !preflightChallenge ||
+    new Date(preflightChallenge.expires_at).getTime() <= Date.now() ||
+    preflightChallenge.payload?.verifiedTokenHash !== tokenHash ||
+    preflightChallenge.payload?.verified !== true
+  ) {
+    const error = new Error('Verification expired. Verify your email or phone again.');
+    error.statusCode = 401;
+    throw error;
+  }
+
   const bcrypt = require('bcryptjs');
   const passwordHash = await bcrypt.hash(password, 12);
-  const tokenHash = crypto.createHash('sha256').update(verifiedToken).digest('hex');
   const client = await db.connect();
   let userId = null;
 
@@ -448,7 +470,6 @@ async function completeVerifiedSignup(signupTicket, password, confirmPassword) {
       challenge.payload?.verifiedTokenHash !== tokenHash ||
       challenge.payload?.verified !== true
     ) {
-      await client.query('ROLLBACK');
       const error = new Error('Verification expired. Verify your email or phone again.');
       error.statusCode = 401;
       throw error;
