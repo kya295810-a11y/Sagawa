@@ -13,9 +13,18 @@ ALTER TABLE user_auth_challenges
   ADD CONSTRAINT user_auth_challenges_purpose_check
   CHECK (purpose IN ('signup', 'signup_verified', 'login'));
 
-ALTER TABLE profiles
-  ADD CONSTRAINT profiles_country_code_allowed
-  CHECK (country_code IS NULL OR country_code IN ('MY', 'SG', 'TH'));
+DO $
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'profiles_country_code_allowed'
+      AND conrelid = 'profiles'::regclass
+  ) THEN
+    ALTER TABLE profiles
+      ADD CONSTRAINT profiles_country_code_allowed
+      CHECK (country_code IS NULL OR country_code IN ('MY', 'SG', 'TH'));
+  END IF;
+END $;
 
 CREATE INDEX IF NOT EXISTS profiles_country_code_idx
   ON profiles (country_code)
