@@ -1,5 +1,4 @@
 const crypto = require('crypto');
-const bcrypt = require('bcryptjs');
 
 const db = require('./db');
 const { sendUserVerificationCode } = require('./email');
@@ -9,7 +8,6 @@ const { createMobileSessionForUser } = require('./user-auth');
 const OTP_TTL_MS = 10 * 60 * 1000;
 const OTP_RESEND_COOLDOWN_MS = 60 * 1000;
 const OTP_MAX_ATTEMPTS = 5;
-const BCRYPT_ROUNDS = 12;
 
 function normalizeEmail(value) {
   return String(value || '').trim().toLowerCase();
@@ -170,19 +168,54 @@ async function createChallenge({ purpose, channel, identifier, payload, reuseAct
   };
 }
 
-async function requestSignupVerification({ nameValue, ageValue, identifierValue, channelValue, country, password }) {
-  const normalized = normalizeIdentifier(identifierValue, channelValue, country);
+async function requestSignupVerification({
+  nameValue,
+  dateOfBirthValue,
+  identifierValue,
+  channelValue,
+  country,
+  stateValue,
+  cityValue,
+}) {
+  const countryCode = String(country || '').trim().toUpperCase();
+  const normalized = normalizeIdentifier(identifierValue, channelValue, countryCode);
   const name = String(nameValue || '').trim().replace(/\s+/g, ' ');
-  const ageText = String(ageValue ?? '').trim();
-  const age = Number(ageText);
+  const dateOfBirth = String(dateOfBirthValue || '').trim();
+  const state = String(stateValue || '').trim().replace(/\s+/g, ' ');
+  const city = String(cityValue || '').trim().replace(/\s+/g, ' ');
 
   if (!name || name.length > 100) {
     const error = new Error('Name is required and must be 100 characters or fewer.');
     error.statusCode = 400;
     throw error;
   }
-  if (!/^\d{1,3}$/.test(ageText) || !Number.isInteger(age) || age < 18 || age > 120) {
+  if (!['MY', 'SG', 'TH'].includes(countryCode)) {
+    const error = new Error('Choose Malaysia, Singapore, or Thailand.');
+    error.statusCode = 400;
+    throw error;
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth)) {
+    const error = new Error('Choose a valid date of birth.');
+    error.statusCode = 400;
+    throw error;
+  }
+  const birthDate = new Date(`${dateOfBirth}T00:00:00.000Z`);
+  if (Number.isNaN(birthDate.getTime())) {
+    const error = new Error('Choose a valid date of birth.');
+    error.statusCode = 400;
+    throw error;
+  }
+  const today = new Date();
+  let age = today.getUTCFullYear() - birthDate.getUTCFullYear();
+  const monthDelta = today.getUTCMonth() - birthDate.getUTCMonth();
+  if (monthDelta < 0 || (monthDelta === 0 && today.getUTCDate() < birthDate.getUTCDate())) age -= 1;
+  if (age < 18 || age > 120) {
     const error = new Error('You must be 18 or older to create a Sagawa account.');
+    error.statusCode = 400;
+    throw error;
+  }
+  if (!state || state.length > 100 || !city || city.length > 100) {
+    const error = new Error('State/Province and city are required.');
     error.statusCode = 400;
     throw error;
   }
@@ -192,11 +225,6 @@ async function requestSignupVerification({ nameValue, ageValue, identifierValue,
         ? 'Enter a valid Malaysia (+60) mobile number.'
         : 'Enter a valid email address.',
     );
-    error.statusCode = 400;
-    throw error;
-  }
-  if (typeof password !== 'string' || password.length < 6 || password.length > 128) {
-    const error = new Error('Password must be between 6 and 128 characters.');
     error.statusCode = 400;
     throw error;
   }
@@ -211,12 +239,11 @@ async function requestSignupVerification({ nameValue, ageValue, identifierValue,
     throw error;
   }
 
-  const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
   return createChallenge({
     purpose: 'signup',
     channel: normalized.channel,
     identifier: normalized.identifier,
-    payload: { name, age, passwordHash, country: String(country || '').toUpperCase() },
+    payload: { name, age, dateOfBirth, countryCode, state, city },
   });
 }
 
@@ -341,8 +368,6 @@ async function readChallengeForVerification(client, challengeId, code, expectedP
 
 async function verifySignup(challengeId, code) {
   const client = await db.connect();
-  let userId = null;
-
   try {
     await client.query('BEGIN');
     const checked = await readChallengeForVerification(client, challengeId, code, 'signup');
@@ -352,32 +377,115 @@ async function verifySignup(challengeId, code) {
     }
 
     const challenge = checked.challenge;
+    const verifiedToken = crypto.randomBytes(32).toString('base64url');
+    const verifiedTokenHash = crypto.createHash('sha256').update(verifiedToken).digest('hex');
+    const payload = {
+      ...(challenge.payload || {}),
+      verified: true,
+      verifiedTokenHash,
+      verifiedAt: new Date().toISOString(),
+    };
+
+    await client.query(
+      `UPDATE user_auth_challenges
+          SET purpose = 'signup_verified',
+              payload = $2::jsonb,
+              attempts = 0,
+              expires_at = LEAST(expires_at, NOW() + INTERVAL '10 minutes')
+        WHERE id = $1`,
+      [challenge.id, JSON.stringify(payload)],
+    );
+    await client.query('COMMIT');
+    return {
+      signupTicket: `${challenge.id}.${verifiedToken}`,
+      expiresAt: new Date(Math.min(new Date(challenge.expires_at).getTime(), Date.now() + OTP_TTL_MS)).toISOString(),
+    };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function completeVerifiedSignup(signupTicket, password, confirmPassword) {
+  const [challengeId, verifiedToken] = String(signupTicket || '').trim().split('.');
+  if (!/^[0-9a-f-]{36}$/i.test(challengeId || '') || !verifiedToken) {
+    const error = new Error('Verification expired. Verify your email or phone again.');
+    error.statusCode = 401;
+    throw error;
+  }
+  if (typeof password !== 'string' || password.length < 6 || password.length > 128) {
+    const error = new Error('Password must be between 6 and 128 characters.');
+    error.statusCode = 400;
+    throw error;
+  }
+  if (password !== confirmPassword) {
+    const error = new Error('Passwords do not match.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const bcrypt = require('bcryptjs');
+  const passwordHash = await bcrypt.hash(password, 12);
+  const tokenHash = crypto.createHash('sha256').update(verifiedToken).digest('hex');
+  const client = await db.connect();
+  let userId = null;
+
+  try {
+    await client.query('BEGIN');
+    const result = await client.query(
+      `SELECT id, channel, identifier, payload, expires_at
+         FROM user_auth_challenges
+        WHERE id = $1 AND purpose = 'signup_verified'
+        FOR UPDATE`,
+      [challengeId],
+    );
+    const challenge = result.rows[0];
+    if (
+      !challenge ||
+      new Date(challenge.expires_at).getTime() <= Date.now() ||
+      challenge.payload?.verifiedTokenHash !== tokenHash ||
+      challenge.payload?.verified !== true
+    ) {
+      await client.query('ROLLBACK');
+      const error = new Error('Verification expired. Verify your email or phone again.');
+      error.statusCode = 401;
+      throw error;
+    }
+
     const payload = challenge.payload || {};
-    const userIdValue = crypto.randomUUID();
     const email = challenge.channel === 'email' ? challenge.identifier : null;
     const phone = challenge.channel === 'phone' ? challenge.identifier : null;
+    userId = crypto.randomUUID();
 
-    const userResult = await client.query(
+    await client.query(
       `INSERT INTO users
         (id, email, phone_number, password_hash, email_verified_at, phone_verified_at)
        VALUES ($1,$2,$3,$4,
          CASE WHEN $2::text IS NOT NULL THEN NOW() ELSE NULL END,
-         CASE WHEN $3::text IS NOT NULL THEN NOW() ELSE NULL END)
-       RETURNING id, email, phone_number`,
-      [userIdValue, email, phone, payload.passwordHash],
+         CASE WHEN $3::text IS NOT NULL THEN NOW() ELSE NULL END)`,
+      [userId, email, phone, passwordHash],
     );
-
     await client.query(
-      `INSERT INTO profiles (user_id, name, age, profile_completed)
-       VALUES ($1,$2,$3,true)`,
-      [userIdValue, String(payload.name || '').slice(0, 100), Number(payload.age)],
+      `INSERT INTO profiles
+        (user_id, name, age, date_of_birth, country_code, state, city, location, profile_completed)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,true)`,
+      [
+        userId,
+        String(payload.name || '').slice(0, 100),
+        Number(payload.age),
+        payload.dateOfBirth,
+        payload.countryCode,
+        String(payload.state || '').slice(0, 100),
+        String(payload.city || '').slice(0, 100),
+        [payload.city, payload.state, payload.countryCode].filter(Boolean).join(', '),
+      ],
     );
-
     await client.query('DELETE FROM user_auth_challenges WHERE id = $1', [challenge.id]);
     await client.query('COMMIT');
-    userId = userResult.rows[0].id;
   } catch (error) {
-    await client.query('ROLLBACK');
+    if (!error.statusCode) await client.query('ROLLBACK').catch(() => {});
     if (error.code === '23505') {
       const conflict = new Error('An account with this email or phone number already exists.');
       conflict.statusCode = 409;
@@ -455,6 +563,7 @@ module.exports = {
   requestLoginVerification,
   requestPasswordLoginVerification,
   requestSignupVerification,
+  completeVerifiedSignup,
   verifyLogin,
   verifySignup,
 };
