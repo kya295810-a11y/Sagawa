@@ -15,7 +15,7 @@ import {
 
 type Channel = 'email' | 'phone';
 type Stage = 'details' | 'verify' | 'password';
-type PickerKind = 'country' | 'region' | null;
+type PickerKind = 'country' | 'region' | 'date' | null;
 
 const BOLD = Platform.OS === 'android' ? '700' : '800';
 
@@ -156,12 +156,10 @@ export default function SignupScreen() {
               <Field label="Name"><TextInput value={name} onChangeText={setName} placeholder="Your name" placeholderTextColor="#98A2B3" autoCapitalize="words" maxLength={100} style={styles.input} /></Field>
 
               <Text style={styles.label}>Date of birth</Text>
-              <View style={styles.dateRow}>
-                <TextInput value={birthDay} onChangeText={v=>setBirthDay(v.replace(/\D/g,'').slice(0,2))} placeholder="DD" keyboardType="number-pad" style={[styles.input,styles.dateInput]} />
-                <TextInput value={birthMonth} onChangeText={v=>setBirthMonth(v.replace(/\D/g,'').slice(0,2))} placeholder="MM" keyboardType="number-pad" style={[styles.input,styles.dateInput]} />
-                <TextInput value={birthYear} onChangeText={v=>setBirthYear(v.replace(/\D/g,'').slice(0,4))} placeholder="YYYY" keyboardType="number-pad" style={[styles.input,styles.yearInput]} />
-                <Ionicons name="calendar-outline" size={21} color="#667085" />
-              </View>
+              <Pressable onPress={()=>setPicker('date')} style={styles.select}>
+                <Text style={[styles.selectText,!dob&&styles.placeholder]}>{dob ? `${birthDay.padStart(2,'0')}/${birthMonth.padStart(2,'0')}/${birthYear}` : 'Choose date of birth'}</Text>
+                <Ionicons name="calendar-outline" size={20} color="#667085" />
+              </Pressable>
               <Text style={styles.help}>You must be 18 or older.</Text>
 
               <SelectField label="Country" value={countryLabel(country)} onPress={()=>setPicker('country')} />
@@ -205,15 +203,35 @@ export default function SignupScreen() {
       <Modal visible={picker!==null} transparent animationType="fade" onRequestClose={()=>setPicker(null)}>
         <Pressable style={styles.overlay} onPress={()=>setPicker(null)}>
           <View style={styles.sheet}>
-            <Text style={styles.sheetTitle}>{picker==='country'?'Choose country':'Choose state / province'}</Text>
+            <Text style={styles.sheetTitle}>{picker==='country'?'Choose country':picker==='region'?'Choose state / province':'Choose date of birth'}</Text>
+            {picker==='date' ? <DateChooser year={birthYear} month={birthMonth} day={birthDay} onChange={(y,m,d)=>{setBirthYear(y);setBirthMonth(m);setBirthDay(d);}} onDone={()=>setPicker(null)} /> :
             <ScrollView style={{maxHeight:420}}>
               {(picker==='country'?SIGNUP_COUNTRIES:regions.map(label=>({code:label,label}))).map((item:any)=><Pressable key={item.code} onPress={()=>picker==='country'?selectCountry(item.code):(()=>{setRegion(item.label);setPicker(null);})()} style={styles.option}><Text style={styles.optionText}>{item.label}</Text><Ionicons name="chevron-forward" size={17} color="#98A2B3" /></Pressable>)}
-            </ScrollView>
+            </ScrollView>}
           </View>
         </Pressable>
       </Modal>
     </SafeAreaView>
   );
+}
+
+function DateChooser({year,month,day,onChange,onDone}:{year:string;month:string;day:string;onChange:(y:string,m:string,d:string)=>void;onDone:()=>void}) {
+  const now=new Date();
+  const selectedYear=Number(year)||now.getFullYear()-18;
+  const selectedMonth=Number(month)||1;
+  const selectedDay=Number(day)||1;
+  const maxYear=now.getFullYear()-18;
+  const minYear=maxYear-102;
+  const daysInMonth=new Date(selectedYear,selectedMonth,0).getDate();
+  const set=(y:number,m:number,d:number)=>onChange(String(y),String(m),String(Math.min(d,new Date(y,m,0).getDate())));
+  return <View>
+    <View style={styles.datePickerRow}>
+      <View style={styles.dateColumn}><Text style={styles.dateCaption}>Day</Text><ScrollView style={styles.dateScroll}>{Array.from({length:daysInMonth},(_,i)=>i+1).map(v=><Pressable key={v} onPress={()=>set(selectedYear,selectedMonth,v)} style={[styles.dateOption,v===selectedDay&&styles.dateOptionActive]}><Text style={v===selectedDay?styles.dateOptionTextActive:styles.dateOptionText}>{v}</Text></Pressable>)}</ScrollView></View>
+      <View style={styles.dateColumn}><Text style={styles.dateCaption}>Month</Text><ScrollView style={styles.dateScroll}>{Array.from({length:12},(_,i)=>i+1).map(v=><Pressable key={v} onPress={()=>set(selectedYear,v,selectedDay)} style={[styles.dateOption,v===selectedMonth&&styles.dateOptionActive]}><Text style={v===selectedMonth?styles.dateOptionTextActive:styles.dateOptionText}>{v}</Text></Pressable>)}</ScrollView></View>
+      <View style={styles.dateColumn}><Text style={styles.dateCaption}>Year</Text><ScrollView style={styles.dateScroll}>{Array.from({length:maxYear-minYear+1},(_,i)=>maxYear-i).map(v=><Pressable key={v} onPress={()=>set(v,selectedMonth,selectedDay)} style={[styles.dateOption,v===selectedYear&&styles.dateOptionActive]}><Text style={v===selectedYear?styles.dateOptionTextActive:styles.dateOptionText}>{v}</Text></Pressable>)}</ScrollView></View>
+    </View>
+    <Pressable onPress={()=>{if(!year||!month||!day)set(maxYear,1,1);onDone();}} style={styles.primary}><Text style={styles.primaryText}>Done</Text></Pressable>
+  </View>;
 }
 
 function Field({label,children}:{label:string;children:React.ReactNode}) { return <View style={styles.field}><Text style={styles.label}>{label}</Text>{children}</View>; }
@@ -227,7 +245,8 @@ const styles=StyleSheet.create({
   card:{width:'100%',maxWidth:520,alignSelf:'center',backgroundColor:'#FFF',borderRadius:26,borderWidth:1,borderColor:'#E2ECF6',padding:22,elevation:3},
   title:{fontSize:28,lineHeight:34,fontWeight:BOLD,color:'#101828',letterSpacing:-.7},subtitle:{marginTop:7,marginBottom:18,fontSize:14,lineHeight:21,color:'#667085'},
   field:{marginBottom:14},label:{fontSize:14,fontWeight:'600',color:'#344054',marginBottom:7},input:{height:50,borderWidth:1,borderColor:'#D9E2EC',borderRadius:14,backgroundColor:'#FBFDFF',paddingHorizontal:15,fontSize:16,color:'#101828'},
-  dateRow:{flexDirection:'row',alignItems:'center',gap:8,marginBottom:5},dateInput:{flex:1,textAlign:'center',paddingHorizontal:4},yearInput:{flex:1.35,textAlign:'center',paddingHorizontal:4},help:{fontSize:12,color:'#98A2B3',marginBottom:14},
+  help:{fontSize:12,color:'#98A2B3',marginTop:5,marginBottom:14},placeholder:{color:'#98A2B3'},
+  datePickerRow:{height:250,flexDirection:'row',gap:8,marginBottom:14},dateColumn:{flex:1},dateCaption:{fontSize:12,fontWeight:'700',color:'#667085',textAlign:'center',marginBottom:6},dateScroll:{borderWidth:1,borderColor:'#E4E7EC',borderRadius:12},dateOption:{height:42,alignItems:'center',justifyContent:'center'},dateOptionActive:{backgroundColor:'#EEF7FF'},dateOptionText:{fontSize:15,color:'#475467'},dateOptionTextActive:{fontSize:15,fontWeight:'700',color:'#1677D2'},
   select:{height:50,borderWidth:1,borderColor:'#D9E2EC',borderRadius:14,backgroundColor:'#FBFDFF',paddingHorizontal:15,flexDirection:'row',alignItems:'center',justifyContent:'space-between'},selectText:{fontSize:16,color:'#101828'},
   segment:{flexDirection:'row',backgroundColor:'#F2F5F9',borderRadius:12,padding:4,marginBottom:14},segmentButton:{flex:1,height:38,borderRadius:9,alignItems:'center',justifyContent:'center'},segmentActive:{backgroundColor:'#FFF'},segmentText:{color:'#667085',fontWeight:'600'},segmentTextActive:{color:'#1677D2'},
   termsRow:{flexDirection:'row',alignItems:'center',marginBottom:18},checkbox:{width:20,height:20,borderRadius:6,borderWidth:1.5,borderColor:'#C8D2DC',alignItems:'center',justifyContent:'center',marginRight:10},checkboxActive:{backgroundColor:'#3195F5',borderColor:'#3195F5'},check:{color:'#FFF',fontWeight:'800'},terms:{flex:1,fontSize:12,color:'#667085'},
