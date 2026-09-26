@@ -209,7 +209,8 @@ export default function SignupScreen() {
       </KeyboardAvoidingView>
 
       <Modal visible={picker!==null} transparent animationType="fade" onRequestClose={()=>setPicker(null)}>
-        <Pressable style={styles.overlay} onPress={()=>setPicker(null)}>
+        <View style={styles.overlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={()=>setPicker(null)} accessibilityLabel="Close picker" />
           <View style={styles.sheet}>
             <Text style={styles.sheetTitle}>{picker==='country'?'Choose country':picker==='region'?'Choose state / province':'Choose date of birth'}</Text>
             {picker==='date' ? <DateChooser year={birthYear} month={birthMonth} day={birthDay} onChange={(y,m,d)=>{setBirthYear(y);setBirthMonth(m);setBirthDay(d);}} onDone={()=>setPicker(null)} /> :
@@ -217,7 +218,7 @@ export default function SignupScreen() {
               {(picker==='country'?SIGNUP_COUNTRIES:regions.map(label=>({code:label,label}))).map((item:any)=><Pressable key={item.code} onPress={()=>picker==='country'?selectCountry(item.code):(()=>{setRegion(item.label);setPicker(null);})()} style={styles.option}><Text style={styles.optionText}>{item.label}</Text><Ionicons name="chevron-forward" size={17} color="#98A2B3" /></Pressable>)}
             </ScrollView>}
           </View>
-        </Pressable>
+        </View>
       </Modal>
     </SafeAreaView>
   );
