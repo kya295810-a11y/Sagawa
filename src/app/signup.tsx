@@ -175,7 +175,7 @@ export default function SignupScreen() {
                   ? <TextInput value={identifier} onChangeText={setIdentifier} placeholder="you@example.com" placeholderTextColor="#98A2B3" keyboardType="email-address" autoCapitalize="none" style={styles.input} />
                   : <View style={styles.phoneWrap}>
                       <View style={styles.phoneCode}><Text style={styles.phoneCodeText}>{PHONE_CODES[country]}</Text></View>
-                      <TextInput value={identifier} onChangeText={v=>setIdentifier(v.replace(/\\D/g,''))} placeholder="Phone number" placeholderTextColor="#98A2B3" keyboardType="phone-pad" maxLength={11} style={styles.phoneInput} />
+                      <TextInput value={identifier} onChangeText={v=>setIdentifier(v.replace(/\D/g,''))} placeholder="Phone number" placeholderTextColor="#98A2B3" keyboardType="phone-pad" maxLength={11} style={styles.phoneInput} />
                     </View>}
               </Field>
 
